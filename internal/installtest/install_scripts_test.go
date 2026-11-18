@@ -189,6 +189,8 @@ type unixInstallFixture struct {
 	archiveName  string
 	archivePath  string
 	checksumPath string
+	bundleName   string
+	bundlePath   string
 }
 
 func newUnixInstallFixture(t *testing.T) unixInstallFixture {
@@ -204,6 +206,7 @@ func newUnixInstallFixture(t *testing.T) unixInstallFixture {
 	packageName := fmt.Sprintf("qg-v0.1.0-%s-%s", releasePlatform, releaseArch)
 	archiveName := packageName + ".tar.gz"
 	checksumName := archiveName + ".sha256"
+	bundleName := archiveName + ".sigstore.json"
 	root := t.TempDir()
 	fixture := unixInstallFixture{
 		bash:         bash,
@@ -212,6 +215,8 @@ func newUnixInstallFixture(t *testing.T) unixInstallFixture {
 		archiveName:  archiveName,
 		archivePath:  filepath.Join(root, "release", archiveName),
 		checksumPath: filepath.Join(root, "release", checksumName),
+		bundleName:   bundleName,
+		bundlePath:   filepath.Join(root, "release", bundleName),
 	}
 	packageDir := filepath.Join(root, "package", packageName)
 
@@ -243,6 +248,7 @@ func newUnixInstallFixture(t *testing.T) unixInstallFixture {
 	archiveBytes := readFile(t, fixture.archivePath)
 	sum := sha256.Sum256(archiveBytes)
 	writeFile(t, fixture.checksumPath, []byte(fmt.Sprintf("%x  %s\n", sum, archiveName)), 0o644)
+	writeFile(t, fixture.bundlePath, []byte(`{"mediaType":"application/vnd.dev.sigstore.bundle+json"}`+"\n"), 0o644)
 
 	mockCurl := fmt.Sprintf(`#!/usr/bin/env sh
 set -eu
@@ -281,12 +287,15 @@ case "$url" in
   */%s)
     /bin/cp %s "$output"
     ;;
+  */%s)
+    /bin/cp %s "$output"
+    ;;
   *)
     echo "unexpected url: $url" >&2
     exit 2
     ;;
 esac
-`, archiveName, shellQuote(fixture.archivePath), checksumName, shellQuote(fixture.checksumPath))
+`, archiveName, shellQuote(fixture.archivePath), checksumName, shellQuote(fixture.checksumPath), bundleName, shellQuote(fixture.bundlePath))
 	writeFile(t, filepath.Join(fixture.mockBin, "curl"), []byte(mockCurl), 0o755)
 
 	return fixture

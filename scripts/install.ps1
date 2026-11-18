@@ -298,6 +298,7 @@ $releaseVersion = $tag -replace "^v", ""
 $arch = Get-QGArch
 $archiveName = "qg-v$releaseVersion-windows-$arch.zip"
 $checksumName = "$archiveName.sha256"
+$bundleName = "$archiveName.sigstore.json"
 $releaseBase = $GitHubBaseUrl.TrimEnd([char[]]"/")
 $releaseUrl = "$releaseBase/$Repository/releases/download/$tag"
 Assert-QGSecureUrl -Url $releaseUrl
@@ -305,6 +306,9 @@ $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("qg-install-" + [System.
 $extractDir = Join-Path $tempDir "extract"
 $archivePath = Join-Path $tempDir $archiveName
 $checksumPath = Join-Path $tempDir $checksumName
+$bundlePath = Join-Path $tempDir $bundleName
+$repoEscaped = $Repository -replace '\.', '\.'
+$sigstoreIdentityRegexp = '^https://github\.com/' + $repoEscaped + '/\.github/workflows/release-artifacts\.yml@refs/tags/' + $tag + '$'
 
 try {
   New-Item -ItemType Directory -Path $tempDir, $extractDir -Force | Out-Null
@@ -312,6 +316,22 @@ try {
   Write-Host "Instalando QG $tag para windows-$arch"
   Invoke-QGSecureWebRequest -Uri "$releaseUrl/$archiveName" -OutFile $archivePath -TimeoutSec 300 | Out-Null
   Invoke-QGSecureWebRequest -Uri "$releaseUrl/$checksumName" -OutFile $checksumPath -TimeoutSec 300 | Out-Null
+
+  if (Get-Command cosign -ErrorAction SilentlyContinue) {
+    Write-Host "Baixando assinatura Sigstore..."
+    try {
+      Invoke-QGSecureWebRequest -Uri "$releaseUrl/$bundleName" -OutFile $bundlePath -TimeoutSec 300 | Out-Null
+    } catch {
+      throw "Esta release nao publica o bundle Sigstore ($bundleName); a assinatura existe a partir da 0.0.22"
+    }
+    Write-Host "Verificando assinatura Sigstore..."
+    & cosign verify-blob --bundle $bundlePath --certificate-identity-regexp $sigstoreIdentityRegexp --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' $archivePath
+    if ($LASTEXITCODE -ne 0) {
+      throw "Assinatura Sigstore invalida para $archiveName; a instalacao foi recusada"
+    }
+  } else {
+    Write-Host "cosign ausente, assinatura Sigstore nao verificada (so SHA-256); baixe $releaseUrl/$bundleName e rode: cosign verify-blob --bundle $bundleName --certificate-identity-regexp '$sigstoreIdentityRegexp' --certificate-oidc-issuer https://token.actions.githubusercontent.com $archiveName"
+  }
 
   # Entre aspas: um arquivo vazio devolve nada, e a linha tem de ser texto.
   $checksumLine = "$(Get-Content -Path $checksumPath -TotalCount 1)"
