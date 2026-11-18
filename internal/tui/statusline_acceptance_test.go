@@ -41,6 +41,16 @@ const (
 	slProfileSentinel = "profile-key-SENTINEL-91bd"
 )
 
+// slSetupWait is the deadline for anything these tests wait on as a
+// condition: a preview appearing, a script installed, a config written, a
+// command run. It is generous on purpose. A turn, a process spawn or a file
+// write that takes milliseconds on a quiet machine can take seconds on a
+// loaded one, and a condition either happens or it does not: a tight deadline
+// only turns a slow machine into a false failure. Waits that measure that
+// nothing happened, or that bound a timeout the product promises, keep their
+// own tighter clocks.
+const slSetupWait = 15 * time.Second
+
 type slEnv struct {
 	root          string
 	configDir     string
@@ -1600,24 +1610,35 @@ func TestStatusLineAcceptance_AppliedCommandRunsOnItsCadence(t *testing.T) {
 	provider := slProposer(t, env, slLayout{lines: []slLine{{left: []string{"mode"}}}, script: script, refreshMS: 1000}, &staged)
 	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
 	p.submit("/statusline quero uma linha que se atualiza")
-	if frame, ok := p.waitFor(8*time.Second, containsPlain("Enter aplica")); !ok {
+	// The preview only exists once the turn lands and the staged script has
+	// been dry-run: a condition, not a deadline.
+	if frame, ok := p.waitFor(slSetupWait, containsPlain("Enter aplica")); !ok {
 		t.Fatalf("no preview to apply (staging=%q):\n%s", staged, plainFrame(frame))
 	}
 	turns := provider.requestCount()
 	afterPreview := len(fileLines(runs))
 	p.key(tea.KeyEnter)
-	frame, ok := p.waitFor(2*time.Second, func(frame string) bool {
+	// The applied command must show up by itself; the cadence check below
+	// measures how often it runs.
+	frame, ok := p.waitFor(slSetupWait, func(frame string) bool {
 		return strings.Contains(slFooter(plainFrame(frame)), "SL-CADENCE")
 	})
 	if !ok {
 		t.Errorf("the applied command must render right away, not at the next turn:\n%s", slFooter(plainFrame(frame)))
 	}
-	p.runFor(3500 * time.Millisecond)
+	// Three more runs at refreshMs=1000 is the cadence actually starting
+	// without a restart: wait for them (a loaded machine delays each run, it
+	// does not drop it) and only then stop the clock.
+	window := time.Now()
+	got, ok := p.waitFor(slSetupWait, func(string) bool {
+		return len(fileLines(runs))-afterPreview >= 3
+	})
+	elapsed := time.Since(window)
+	if n := len(fileLines(runs)) - afterPreview; n < 3 {
+		t.Fatalf("refreshMs=1000 after apply: %d run(s) in %s with no turn; the cadence must start without a restart:\n%s", n, elapsed.Round(time.Millisecond), slFooter(plainFrame(got)))
+	}
 	if provider.requestCount() != turns {
 		t.Fatalf("precondition: no model turn may run in the idle window")
-	}
-	if n := len(fileLines(runs)) - afterPreview; n < 3 {
-		t.Errorf("refreshMs=1000 after apply: %d run(s) in ~5s with no turn; the cadence must start without a restart", n)
 	}
 }
 
