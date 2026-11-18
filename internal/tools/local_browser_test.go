@@ -608,8 +608,23 @@ func TestBrowserFirstUseErrorsV0430AndLinuxARM64(t *testing.T) {
 	if got := browserFirstUseHint("linux", "arm64", "open", realV0430Missing); !strings.Contains(got, "sudo apt install chromium") || !strings.Contains(got, "dnf install chromium") {
 		t.Fatalf("linux/arm64 open hint = %q, want system chromium instructions", got)
 	}
-	if got := browserFirstUseHint("linux", "arm64", "install", "Chrome for Testing is not available"); !strings.Contains(got, "sudo apt install chromium") || !strings.Contains(got, "dnf install chromium") {
+	if got := browserFirstUseHint("linux", "arm64", "install", "install failed"); !strings.Contains(got, "sudo apt install chromium") || !strings.Contains(got, "dnf install chromium") {
 		t.Fatalf("linux/arm64 install hint = %q, want system chromium instructions", got)
+	}
+	if got := browserFirstUseHint("linux", "amd64", "install", "Google does not provide Linux ARM64 builds for Chrome for Testing"); !strings.Contains(got, "sudo apt install chromium") {
+		t.Fatalf("exact v0.43.0 ARM64 install message should suggest chromium, got %q", got)
+	}
+	for _, tc := range []struct {
+		goos   string
+		goarch string
+		msg    string
+	}{
+		{goos: "darwin", goarch: "arm64", msg: "Failed to download Chrome for Testing (mac-arm64): connection reset by peer"},
+		{goos: "windows", goarch: "arm64", msg: "Failed to download Chrome for Testing on arm64: dial tcp timeout"},
+	} {
+		if got := browserFirstUseHint(tc.goos, tc.goarch, "install", tc.msg); got != "" {
+			t.Fatalf("%s/%s install network error should return empty hint, got %q", tc.goos, tc.goarch, got)
+		}
 	}
 
 	runner := &fakeBrowserRunner{

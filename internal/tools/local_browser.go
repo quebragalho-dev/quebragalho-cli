@@ -1111,7 +1111,7 @@ func browserFirstUseHint(goos string, goarch string, command string, message str
 	lower := strings.ToLower(message)
 	isLinuxARM64 := goos == "linux" && goarch == "arm64"
 	if command == "install" {
-		if isLinuxARM64 || strings.Contains(lower, "chrome for testing") || strings.Contains(lower, "arm64") || strings.Contains(lower, "aarch64") {
+		if isLinuxARM64 || strings.Contains(lower, "does not provide linux arm64 builds") {
 			return "Chrome for Testing is not available on Linux ARM64. Install system Chromium instead (sudo apt install chromium or sudo dnf install chromium), then retry the browser command."
 		}
 		return ""
