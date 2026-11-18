@@ -156,13 +156,11 @@ func TestCtrlVProbesClipboardForImage(t *testing.T) {
 	// Stubbed BEFORE Update, so the command Update returns is the one that runs.
 	// Asserting only that some command came back, then running a freshly built
 	// probe, would pass even if the key never reached the image route at all.
-	original := readClipboardImage
-	originalFiles := readClipboardFiles
-	t.Cleanup(func() { readClipboardImage = original; readClipboardFiles = originalFiles })
-	readClipboardImage = func() ([]byte, string, error) {
-		return []byte("png-bytes"), "image/png", nil
+	original := readClipboardContent
+	t.Cleanup(func() { readClipboardContent = original })
+	readClipboardContent = func() (imageinput.ClipboardContent, error) {
+		return imageinput.ClipboardContent{Image: []byte("png-bytes"), MediaType: "image/png"}, nil
 	}
-	readClipboardFiles = func() ([]string, error) { return nil, nil }
 
 	// Both modifiers: macOS reports Command as ModSuper, so a handler matching
 	// only ModCtrl leaves Cmd+V doing nothing on the platform where screenshots
@@ -193,11 +191,9 @@ func TestCtrlVProbesClipboardForImage(t *testing.T) {
 // rather than by calling the probe directly, so this covers the real key route
 // and not just the command in isolation.
 func TestClipboardImageProbeSilentWithoutImage(t *testing.T) {
-	original := readClipboardImage
-	originalFiles := readClipboardFiles
-	t.Cleanup(func() { readClipboardImage = original; readClipboardFiles = originalFiles })
-	readClipboardImage = func() ([]byte, string, error) { return nil, "", nil }
-	readClipboardFiles = func() ([]string, error) { return nil, nil }
+	original := readClipboardContent
+	t.Cleanup(func() { readClipboardContent = original })
+	readClipboardContent = func() (imageinput.ClipboardContent, error) { return imageinput.ClipboardContent{}, nil }
 
 	m := newModel(context.Background(), Options{})
 	_, cmd := m.Update(testKeyCtrl('v'))
@@ -533,13 +529,11 @@ func TestComposerTerminalWordKeybindings(t *testing.T) {
 // nothing at all with no explanation. Silence is the wrong answer to a
 // condition the user can act on.
 func TestClipboardImageUnreadableSurfacesToUser(t *testing.T) {
-	original := readClipboardImage
-	originalFiles := readClipboardFiles
-	t.Cleanup(func() { readClipboardImage = original; readClipboardFiles = originalFiles })
-	readClipboardImage = func() ([]byte, string, error) {
-		return nil, "", imageinput.ErrClipboardImageUnreadable
+	original := readClipboardContent
+	t.Cleanup(func() { readClipboardContent = original })
+	readClipboardContent = func() (imageinput.ClipboardContent, error) {
+		return imageinput.ClipboardContent{}, imageinput.ErrClipboardImageUnreadable
 	}
-	readClipboardFiles = func() ([]string, error) { return nil, nil }
 
 	m := newModel(context.Background(), Options{})
 	_, cmd := m.Update(testKeyCtrl('v'))

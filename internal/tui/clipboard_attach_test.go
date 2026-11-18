@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/imageinput"
 )
 
 // Ctrl+V com imagem no clipboard anexa com prévia (chip), sem tocar no texto
@@ -165,23 +167,21 @@ type clipboardStub struct {
 
 func (s *clipboardStub) tempsWritten() []string { return s.written }
 
-// stubClipboardContent troca os leitores do clipboard pelo stub e restaura ao
+// stubClipboardContent troca o leitor do clipboard pelo stub e restaura ao
 // fim do teste. Também desvia a escrita do temporário para o dir do teste,
 // mantendo os testes herméticos (nada toca no ~/.config real).
 func stubClipboardContent(t *testing.T, stub clipboardStub) *clipboardStub {
 	t.Helper()
-	origImage, origFiles, origSave := readClipboardImage, readClipboardFiles, saveClipboardTempFile
+	origContent, origSave := readClipboardContent, saveClipboardTempFile
 	t.Cleanup(func() {
-		readClipboardImage, readClipboardFiles, saveClipboardTempFile = origImage, origFiles, origSave
+		readClipboardContent, saveClipboardTempFile = origContent, origSave
 	})
-	readClipboardImage = func() ([]byte, string, error) {
-		return stub.image, stub.mediaType, stub.err
-	}
-	readClipboardFiles = func() ([]string, error) {
-		if stub.err != nil {
-			return nil, stub.err
-		}
-		return stub.files, nil
+	readClipboardContent = func() (imageinput.ClipboardContent, error) {
+		return imageinput.ClipboardContent{
+			Image:     stub.image,
+			MediaType: stub.mediaType,
+			Files:     stub.files,
+		}, stub.err
 	}
 	saveClipboardTempFile = func(data []byte, ext string) (string, error) {
 		f, err := os.CreateTemp(t.TempDir(), "qg-clipboard-*"+ext)

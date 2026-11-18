@@ -29,12 +29,10 @@ type clipboardImageMsg struct {
 }
 
 var (
-	// readClipboardImage is the OS clipboard image reader. A var so tests can
-	// substitute a stub instead of depending on the developer's real clipboard.
-	readClipboardImage = imageinput.ReadClipboardImage
-	// readClipboardFiles lists files copied in the OS clipboard. Same
-	// injectable seam as the image reader above.
-	readClipboardFiles = imageinput.ReadClipboardFiles
+	// readClipboardContent is the OS clipboard reader (image + copied files).
+	// A var so tests substitute a stub instead of depending on the developer's
+	// real clipboard.
+	readClipboardContent = imageinput.ReadClipboardContent
 	// saveClipboardTempFile stages clipboard image bytes in the private qg
 	// dir. Stubbed in tests to keep them hermetic (no ~/.config writes).
 	saveClipboardTempFile = imageinput.WriteClipboardTemp
@@ -48,18 +46,14 @@ var (
 // an actionable error (e.g. the Linux clipboard tool missing) surfaces.
 func readClipboardImageCmd() tea.Cmd {
 	return func() tea.Msg {
-		data, mediaType, imgErr := readClipboardImage()
-		files, filesErr := readClipboardFiles()
-		if imgErr != nil {
-			return clipboardImageMsg{err: imgErr}
+		content, err := readClipboardContent()
+		if err != nil {
+			return clipboardImageMsg{err: err}
 		}
-		if data == nil && filesErr != nil {
-			return clipboardImageMsg{err: filesErr}
-		}
-		if data == nil && len(files) == 0 {
+		if content.Image == nil && len(content.Files) == 0 {
 			return nil // nothing to attach — silent no-op
 		}
-		return clipboardImageMsg{data: data, mediaType: mediaType, files: files}
+		return clipboardImageMsg{data: content.Image, mediaType: content.MediaType, files: content.Files}
 	}
 }
 

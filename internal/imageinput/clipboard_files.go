@@ -110,6 +110,46 @@ func WriteClipboardTemp(data []byte, ext string) (string, error) {
 	return name, nil
 }
 
+// ClipboardContent is everything a paste can pull from the OS clipboard in
+// one shot: screenshot image bytes with their sniffed media type, and/or the
+// local paths of copied files. The zero value means "nothing to attach" — a
+// silent no-op, never an error.
+type ClipboardContent struct {
+	Image     []byte
+	MediaType string
+	Files     []string
+}
+
+var (
+	// Seams injetáveis para teste nos três SOs sem o clipboard real.
+	clipboardImageReader = ReadClipboardImage
+	clipboardFilesReader = ReadClipboardFiles
+)
+
+// ReadClipboardContent reads image and files from the OS clipboard at once.
+// An image error dominates (extraction failed over something real); a file
+// error only surfaces when there is no image — e.g. the missing Linux tool —
+// so a stray paste with text on the clipboard stays a silent no-op.
+func ReadClipboardContent() (ClipboardContent, error) {
+	var out ClipboardContent
+	data, mediaType, err := clipboardImageReader()
+	if err != nil {
+		return ClipboardContent{}, err
+	}
+	if data != nil {
+		out.Image, out.MediaType = data, mediaType
+	}
+	files, ferr := clipboardFilesReader()
+	if ferr != nil {
+		if data == nil {
+			return ClipboardContent{}, ferr
+		}
+	} else {
+		out.Files = files
+	}
+	return out, nil
+}
+
 // ReadClipboardFiles returns the local paths of files currently copied in the
 // OS clipboard (a Finder/Explorer/file-manager copy), or nil when the
 // clipboard holds no files. A missing Linux clipboard tool is actionable, so
