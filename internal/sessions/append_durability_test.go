@@ -18,13 +18,21 @@ import (
 // hot path never touches metadata.json (so it can never surface torn after a
 // power loss) — without changing the on-disk file format.
 
-// AppendEvent must not rewrite metadata.json: the only fsync on the normal
-// path is the events.jsonl one.
+// Only the first append (the 0->1 transition) may rewrite metadata.json, with
+// full durability; later appends must not touch it: the only fsync on the
+// steady-state path is the events.jsonl one.
 func TestAppendEventLeavesMetadataFileUntouched(t *testing.T) {
 	store := seqTestStore(t)
 	session, err := store.Create(CreateInput{SessionID: "qg_fsync_1", Title: "t", Cwd: "/repo", ModelID: "m", Provider: "p"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	first, err := store.AppendEvent(session.SessionID, AppendEventInput{Type: EventMessage, Payload: map[string]any{"content": "first"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Sequence != 1 {
+		t.Fatalf("first sequence: want 1, got %d", first.Sequence)
 	}
 	metaPath := filepath.Join(store.RootDir, session.SessionID, MetadataFile)
 	before, err := os.ReadFile(metaPath)
@@ -43,15 +51,46 @@ func TestAppendEventLeavesMetadataFileUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(after) != string(before) {
-		t.Fatalf("AppendEvent rewrote %s: want byte-identical (only events.jsonl gets an fsync on the normal path)", MetadataFile)
+		t.Fatalf("steady-state AppendEvent rewrote %s: want byte-identical after the 0->1 transition", MetadataFile)
 	}
 
 	events, err := store.ReadEvents(session.SessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 5 {
-		t.Fatalf("want 5 events in the log, got %d", len(events))
+	if len(events) != 6 {
+		t.Fatalf("want 6 events in the log, got %d", len(events))
+	}
+}
+
+// The 0->1 transition persists EventCount/UpdatedAt/LastEventType to disk with
+// full durability. The on-disk EventCount > 0 is what tells resume paths that
+// the session is populated, so a missing events.jsonl is rejected instead of
+// silently resumed as empty (see TestACPResumeRejectsMissingPopulatedEventLog).
+func TestFirstAppendPersistsPopulatedMarkerToDisk(t *testing.T) {
+	store := seqTestStore(t)
+	session, err := store.Create(CreateInput{SessionID: "qg_fsync_5", Title: "t", Cwd: "/repo", ModelID: "m", Provider: "p"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, err := store.AppendEvent(session.SessionID, AppendEventInput{Type: EventMessage, Payload: map[string]any{"content": "first"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Read the raw file, bypassing the read-path reconciliation: the marker
+	// must be durable on disk, not just derived.
+	raw, err := store.readMetadata(session.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw.EventCount != 1 {
+		t.Fatalf("on-disk EventCount after first append: want 1, got %d", raw.EventCount)
+	}
+	if raw.UpdatedAt != event.CreatedAt {
+		t.Fatalf("on-disk UpdatedAt: want %q, got %q", event.CreatedAt, raw.UpdatedAt)
+	}
+	if raw.LastEventType != event.Type {
+		t.Fatalf("on-disk LastEventType: want %q, got %q", event.Type, raw.LastEventType)
 	}
 }
 

@@ -708,20 +708,38 @@ func (store *Store) appendPreparedEventsLocked(sessionID string, inputs []prepar
 		return nil, fmt.Errorf("append qg session event: %w", err)
 	}
 	// fsync the events before reporting success. This is the ONLY fsync on the
-	// normal append path. metadata.json is deliberately NOT rewritten here:
-	// its derived fields (EventCount, UpdatedAt, LastEventType) are reconciled
-	// from the log on read (see reconcileMetadata), so the hot path performs a
-	// single fsync per event instead of three (events file + metadata temp
-	// file + parent directory). The log is the source of truth: every event
-	// reported as appended is durable against kill -9 and power loss, and
-	// metadata.json — written only by rare non-append mutations, always with
-	// the full tmp+fsync+rename+dirsync sequence — can never surface torn.
+	// normal append path. metadata.json is deliberately NOT rewritten on every
+	// append: its derived fields (EventCount, UpdatedAt, LastEventType) are
+	// reconciled from the log on read (see reconcileMetadata), so the hot path
+	// performs a single fsync per event instead of three (events file +
+	// metadata temp file + parent directory). The log is the source of truth:
+	// every event reported as appended is durable against kill -9 and power
+	// loss, and metadata.json — written only here on the 0->1 transition and
+	// by rare non-append mutations, always with the full
+	// tmp+fsync+rename+dirsync sequence — can never surface torn.
 	if err := file.Sync(); err != nil {
 		_ = file.Close()
 		return nil, fmt.Errorf("sync qg session event: %w", err)
 	}
 	if err := file.Close(); err != nil {
 		return nil, fmt.Errorf("close qg session event file: %w", err)
+	}
+	last := events[len(events)-1]
+	// First-event transition: persist the derived counters to disk once, with
+	// full durability. This is the only append that costs more than one fsync,
+	// and it happens at most once per session lifetime (plus a self-healing
+	// repeat if a crash ever leaves the log ahead of a zeroed metadata).
+	// The on-disk EventCount > 0 is what tells resume paths (e.g. ACP
+	// session/resume, which requires the events log to exist for populated
+	// sessions) that this session has history; every later append keeps its
+	// single fsync and the API reconciles the rest from the log.
+	if session.EventCount == 0 {
+		session.UpdatedAt = last.CreatedAt
+		session.EventCount = last.Sequence
+		session.LastEventType = last.Type
+		if err := store.writeMetadata(session); err != nil {
+			return nil, err
+		}
 	}
 	return events, nil
 }
