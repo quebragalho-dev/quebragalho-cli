@@ -25,11 +25,21 @@ func TestWindowsRestrictedTokenRealSandboxSmoke(t *testing.T) {
 
 	root := t.TempDir()
 	sandboxHome := filepath.Join(root, ".qg-sandbox")
+	// Production profiles always grant the host temp dirs (defaultTempWriteRoots)
+	// plus the runtime tmp TEMP points at; the runner inherits the host TEMP,
+	// so grant exactly what the process will use. Without this the profile is
+	// unfaithful: PowerShell's crypto-provider init performs temp writes that
+	// need a capability grant under WRITE_RESTRICTED, and the launch dies with
+	// NTE_PROVIDER_DLL_FAIL (0x8009001d) — a test artifact, not a tier gap.
+	writeRoots := []WritableRoot{{Root: root, ProtectedMetadataNames: []string{".git", ".qg", ".agents"}}}
+	for _, tempRoot := range defaultTempWriteRoots() {
+		writeRoots = append(writeRoots, WritableRoot{Root: tempRoot})
+	}
 	profile := PermissionProfile{
 		FileSystem: FileSystemPolicy{
 			Kind:                 FileSystemRestricted,
 			ReadRoots:            []string{root},
-			WriteRoots:           []WritableRoot{{Root: root, ProtectedMetadataNames: []string{".git", ".qg", ".agents"}}},
+			WriteRoots:           writeRoots,
 			IncludePlatformRoots: true,
 			AllowTemp:            true,
 		},
