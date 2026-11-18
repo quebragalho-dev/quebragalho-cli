@@ -286,7 +286,11 @@ func TestHelperEnsureRunsBeforePATHWhenHelperPathUnset(t *testing.T) {
 	t.Cleanup(func() { executablePath = oldExecutablePath })
 
 	pathDir := t.TempDir()
-	pathBin := filepath.Join(pathDir, "agent-desktop")
+	pathBinName := "agent-desktop"
+	if runtime.GOOS == "windows" {
+		pathBinName += ".exe"
+	}
+	pathBin := filepath.Join(pathDir, pathBinName)
 	if err := os.WriteFile(pathBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("write path binary: %v", err)
 	}
@@ -352,7 +356,11 @@ func TestHelperEnsureFallsBackToPATHWhenEmptyAndPropagatesError(t *testing.T) {
 	t.Cleanup(func() { executablePath = oldExecutablePath })
 
 	pathDir := t.TempDir()
-	pathBin := filepath.Join(pathDir, "agent-desktop")
+	pathBinName := "agent-desktop"
+	if runtime.GOOS == "windows" {
+		pathBinName += ".exe"
+	}
+	pathBin := filepath.Join(pathDir, pathBinName)
 	if err := os.WriteFile(pathBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatalf("write path binary: %v", err)
 	}
