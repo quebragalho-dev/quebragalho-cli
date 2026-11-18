@@ -5,11 +5,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -562,4 +565,398 @@ func TestPowerShellInstallerStaysASCII(t *testing.T) {
 			t.Fatalf("install.ps1 has a non-ASCII byte 0x%02x at offset %d: Windows PowerShell 5.1 reads the file as ANSI", b, index)
 		}
 	}
+}
+
+// wgetOnlyPath builds a PATH directory containing essential POSIX utilities and
+// wgetPath as "wget", with curl omitted so scripts/install.sh takes its wget
+// fallback branch.
+func wgetOnlyPath(t *testing.T, wgetPath string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, cmd := range []string{
+		"uname", "sed", "tar", "gzip", "mktemp", "head",
+		"shasum", "sha256sum",
+		"mkdir", "rm", "cp", "chmod", "mv", "ln", "cat", "env", "sh", "bash",
+	} {
+		target, err := exec.LookPath(cmd)
+		if err != nil {
+			continue
+		}
+		if err := os.Symlink(target, filepath.Join(dir, cmd)); err != nil {
+			t.Fatalf("symlink %s: %v", cmd, err)
+		}
+	}
+	if err := os.Symlink(wgetPath, filepath.Join(dir, "wget")); err != nil {
+		t.Fatalf("symlink wget: %v", err)
+	}
+	return dir
+}
+
+// writeMockRedirectWget writes a sh stand-in for GNU wget that reproduces
+// GNU wget's redirect behavior: without --max-redirect=0 it follows redirects
+// (even from https:// to http://, including when --https-only is passed); with
+// --max-redirect=0 it stops at the 3xx hop, prints indented --server-response
+// headers to stderr, and exits 8.
+func writeMockRedirectWget(t *testing.T, fixture unixInstallFixture, mode string) (wgetBin string, logPath string) {
+	t.Helper()
+	dir := t.TempDir()
+	logPath = filepath.Join(dir, "wget.log")
+	wgetBin = filepath.Join(dir, "mock-wget")
+	checksumName := fixture.archiveName + ".sha256"
+	latestJSON := filepath.Join(dir, "latest.json")
+	writeFile(t, latestJSON, []byte(`{"tag_name":"v0.1.0"}`+"\n"), 0o644)
+
+	script := fmt.Sprintf(`#!/usr/bin/env sh
+set -eu
+printf '%%s\n' "$*" >> %s
+
+max_redirect=-1
+server_response=0
+output=""
+url=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --max-redirect=*)
+      max_redirect="${1#--max-redirect=}"
+      shift
+      ;;
+    --max-redirect)
+      max_redirect="$2"
+      shift 2
+      ;;
+    --server-response|-S)
+      server_response=1
+      shift
+      ;;
+    --output-document|-O)
+      output="$2"
+      shift 2
+      ;;
+    --output-document=*)
+      output="${1#--output-document=}"
+      shift
+      ;;
+    --header)
+      shift 2
+      ;;
+    --header=*|--quiet|-q|--no-verbose|-nv|--https-only)
+      shift
+      ;;
+    *)
+      url="$1"
+      shift
+      ;;
+  esac
+done
+
+emit_redirect() {
+  code="$1"
+  loc="$2"
+  [ -n "$output" ] && : > "$output"
+  if [ "$server_response" = "1" ]; then
+    printf '  HTTP/1.1 %%s Redirect\r\n  Location: %%s\r\n' "$code" "$loc" >&2
+  fi
+  exit 8
+}
+
+serve_file() {
+  /bin/cp "$1" "$output"
+  if [ "$server_response" = "1" ]; then
+    printf '  HTTP/1.1 200 OK\r\n' >&2
+  fi
+  exit 0
+}
+
+mode=%s
+case "$mode:$url" in
+  downgrade-archive:https://example.test/*/releases/download/*/%s)
+    if [ "$max_redirect" = "0" ]; then
+      emit_redirect 302 "http://mirror.example.test/%s"
+    fi
+    url="http://mirror.example.test/%s"
+    printf 'FOLLOWED %%s\n' "$url" >> %s
+    serve_file %s
+    ;;
+  downgrade-archive:http://mirror.example.test/%s)
+    serve_file %s
+    ;;
+  downgrade-archive:https://example.test/*/releases/download/*/%s)
+    if [ "$max_redirect" = "0" ]; then
+      emit_redirect 302 "http://mirror.example.test/%s"
+    fi
+    url="http://mirror.example.test/%s"
+    printf 'FOLLOWED %%s\n' "$url" >> %s
+    serve_file %s
+    ;;
+  downgrade-archive:http://mirror.example.test/%s)
+    serve_file %s
+    ;;
+  downgrade-api:https://api.example.test/repos/*/releases/latest)
+    if [ "$max_redirect" = "0" ]; then
+      emit_redirect 302 "http://api.example.test/insecure-latest"
+    fi
+    url="http://api.example.test/insecure-latest"
+    printf 'FOLLOWED %%s\n' "$url" >> %s
+    serve_file %s
+    ;;
+  downgrade-api:http://api.example.test/insecure-latest)
+    serve_file %s
+    ;;
+  https-chain:https://example.test/*/releases/download/*/%s)
+    if [ "$max_redirect" = "0" ]; then
+      emit_redirect 302 "/hop/%s"
+    fi
+    serve_file %s
+    ;;
+  https-chain:https://example.test/hop/%s)
+    if [ "$max_redirect" = "0" ]; then
+      emit_redirect 301 "https://cdn.example.test/assets/%s"
+    fi
+    serve_file %s
+    ;;
+  https-chain:https://cdn.example.test/assets/%s)
+    serve_file %s
+    ;;
+  https-chain:https://example.test/*/releases/download/*/%s)
+    if [ "$max_redirect" = "0" ]; then
+      emit_redirect 302 "https://cdn.example.test/assets/%s"
+    fi
+    serve_file %s
+    ;;
+  https-chain:https://cdn.example.test/assets/%s)
+    serve_file %s
+    ;;
+  insecure-opt-in:http://example.test/*/%s)
+    serve_file %s
+    ;;
+  insecure-opt-in:http://example.test/*/%s)
+    serve_file %s
+    ;;
+esac
+
+echo "unexpected mock-wget call ($mode): $url" >&2
+exit 4
+`,
+		shellQuote(logPath),
+		shellQuote(mode),
+		fixture.archiveName, fixture.archiveName, fixture.archiveName, shellQuote(logPath), shellQuote(fixture.archivePath),
+		fixture.archiveName, shellQuote(fixture.archivePath),
+		checksumName, checksumName, checksumName, shellQuote(logPath), shellQuote(fixture.checksumPath),
+		checksumName, shellQuote(fixture.checksumPath),
+		shellQuote(logPath), shellQuote(latestJSON),
+		shellQuote(latestJSON),
+		fixture.archiveName, fixture.archiveName, shellQuote(fixture.archivePath),
+		fixture.archiveName, fixture.archiveName, shellQuote(fixture.archivePath),
+		fixture.archiveName, shellQuote(fixture.archivePath),
+		checksumName, checksumName, shellQuote(fixture.checksumPath),
+		checksumName, shellQuote(fixture.checksumPath),
+		fixture.archiveName, shellQuote(fixture.archivePath),
+		checksumName, shellQuote(fixture.checksumPath),
+	)
+	writeFile(t, wgetBin, []byte(script), 0o755)
+	return wgetBin, logPath
+}
+
+func TestUnixInstallerWgetRefusesHTTPSToHTTPRedirects(t *testing.T) {
+	t.Run("archive redirect to http is refused", func(t *testing.T) {
+		fixture := newUnixInstallFixture(t)
+		wgetBin, logPath := writeMockRedirectWget(t, fixture, "downgrade-archive")
+		pathOnlyWget := wgetOnlyPath(t, wgetBin)
+
+		stdout, stderr, err := runUnixInstallerWithEnv(t, fixture, "", "0.1.0", "PATH="+pathOnlyWget)
+		if err == nil {
+			t.Fatalf("install.sh with wget followed an https->http redirect\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+		}
+		if !strings.Contains(stderr, "https://") || !strings.Contains(stderr, "QG_ALLOW_INSECURE_DOWNLOAD=1") {
+			t.Fatalf("expected https redirect refusal naming QG_ALLOW_INSECURE_DOWNLOAD=1, got:\n%s", stderr)
+		}
+		logText := string(readFile(t, logPath))
+		if strings.Contains(logText, "http://") {
+			t.Fatalf("wget fetched plain http target:\n%s", logText)
+		}
+		if _, statErr := os.Stat(filepath.Join(fixture.installDir, "qg")); !os.IsNotExist(statErr) {
+			t.Fatalf("binary installed across an https->http redirect: %v", statErr)
+		}
+	})
+
+	t.Run("latest release metadata redirect to http is refused", func(t *testing.T) {
+		fixture := newUnixInstallFixture(t)
+		wgetBin, logPath := writeMockRedirectWget(t, fixture, "downgrade-api")
+		pathOnlyWget := wgetOnlyPath(t, wgetBin)
+
+		stdout, stderr, err := runUnixInstallerWithEnv(t, fixture, "", "latest",
+			"PATH="+pathOnlyWget,
+			"QG_GITHUB_API=https://api.example.test",
+		)
+		if err == nil {
+			t.Fatalf("install.sh with wget followed an https->http API redirect\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+		}
+		if !strings.Contains(stderr, "https://") || !strings.Contains(stderr, "QG_ALLOW_INSECURE_DOWNLOAD=1") {
+			t.Fatalf("expected https redirect refusal naming QG_ALLOW_INSECURE_DOWNLOAD=1, got:\n%s", stderr)
+		}
+		if logText := string(readFile(t, logPath)); strings.Contains(logText, "http://") {
+			t.Fatalf("wget fetched plain http API target:\n%s", logText)
+		}
+	})
+
+	t.Run("https redirects including relative Location keep working", func(t *testing.T) {
+		fixture := newUnixInstallFixture(t)
+		wgetBin, _ := writeMockRedirectWget(t, fixture, "https-chain")
+		pathOnlyWget := wgetOnlyPath(t, wgetBin)
+
+		stdout, stderr, err := runUnixInstallerWithEnv(t, fixture, "", "0.1.0", "PATH="+pathOnlyWget)
+		if err != nil {
+			t.Fatalf("install.sh with wget failed across https redirects: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+		}
+		if _, statErr := os.Stat(filepath.Join(fixture.installDir, "qg")); statErr != nil {
+			t.Fatalf("installed binary missing after https redirects: %v", statErr)
+		}
+	})
+
+	t.Run("explicit opt-in still allows plain http with wget", func(t *testing.T) {
+		fixture := newUnixInstallFixture(t)
+		wgetBin, _ := writeMockRedirectWget(t, fixture, "insecure-opt-in")
+		pathOnlyWget := wgetOnlyPath(t, wgetBin)
+
+		stdout, stderr, err := runUnixInstallerWithEnv(t, fixture, "", "0.1.0",
+			"PATH="+pathOnlyWget,
+			"QG_GITHUB_BASE_URL=http://example.test",
+			"QG_ALLOW_INSECURE_DOWNLOAD=1",
+		)
+		if err != nil {
+			t.Fatalf("install.sh with wget refused explicit opt-in: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+		}
+	})
+
+	t.Run("real wget refuses https to http redirect", func(t *testing.T) {
+		realWget := requireCommand(t, "wget")
+		fixture := newUnixInstallFixture(t)
+		pathOnlyWget := wgetOnlyPath(t, realWget)
+		archiveData := readFile(t, fixture.archivePath)
+		checksumData := readFile(t, fixture.checksumPath)
+		checksumName := fixture.archiveName + ".sha256"
+
+		var plainHits atomic.Int32
+		plainServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			plainHits.Add(1)
+			switch {
+			case strings.HasSuffix(r.URL.Path, "/"+fixture.archiveName):
+				_, _ = w.Write(archiveData)
+			case strings.HasSuffix(r.URL.Path, "/"+checksumName):
+				_, _ = w.Write(checksumData)
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer plainServer.Close()
+
+		secureServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, plainServer.URL+r.URL.Path, http.StatusFound)
+		}))
+		defer secureServer.Close()
+
+		wgetrc := filepath.Join(t.TempDir(), "wgetrc")
+		writeFile(t, wgetrc, []byte("check_certificate = off\n"), 0o600)
+
+		stdout, stderr, err := runUnixInstallerWithEnv(t, fixture, "", "0.1.0",
+			"PATH="+pathOnlyWget,
+			"WGETRC="+wgetrc,
+			"QG_GITHUB_BASE_URL="+secureServer.URL,
+		)
+		if err == nil {
+			t.Fatalf("install.sh with real wget installed across an https->http redirect\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+		}
+		if got := plainHits.Load(); got != 0 {
+			t.Fatalf("real wget requested the plain http redirect target %d time(s)", got)
+		}
+		if !strings.Contains(stderr, "https://") || !strings.Contains(stderr, "QG_ALLOW_INSECURE_DOWNLOAD=1") {
+			t.Fatalf("expected https redirect refusal naming QG_ALLOW_INSECURE_DOWNLOAD=1, got:\n%s", stderr)
+		}
+	})
+}
+
+func TestPowerShellInstallerRefusesHTTPSToHTTPRedirects(t *testing.T) {
+	script := readRepoText(t, "scripts/install.ps1")
+
+	containsAll(t, script, []string{
+		`function Invoke-QGSecureWebRequest`,
+		`MaximumRedirection = 0`,
+		`New-Object System.Uri`,
+		`Redirecionamento inseguro recusado para`,
+		`Invoke-QGSecureWebRequest -Uri "$releaseUrl/$archiveName"`,
+		`Invoke-QGSecureWebRequest -Uri "$releaseUrl/$checksumName"`,
+	})
+	if strings.Contains(script, `Invoke-WebRequest -Uri "$releaseUrl/`) {
+		t.Fatal("install.ps1 still calls unguarded Invoke-WebRequest for release assets")
+	}
+	if strings.Contains(script, `Invoke-RestMethod`) {
+		t.Fatal("install.ps1 still calls unguarded Invoke-RestMethod without redirect scheme validation")
+	}
+
+	psExe := ""
+	for _, candidate := range []string{"pwsh", "powershell"} {
+		if found, err := exec.LookPath(candidate); err == nil {
+			psExe = found
+			break
+		}
+	}
+	if psExe == "" {
+		return
+	}
+
+	root := t.TempDir()
+	installDir := filepath.Join(root, "install")
+	harnessPath := filepath.Join(root, "run-test.ps1")
+	scriptPath := filepath.Join(repoRoot(t), "scripts", "install.ps1")
+	harness := fmt.Sprintf(`$ErrorActionPreference = "Stop"
+$env:QG_ALLOW_INSECURE_DOWNLOAD = ""
+$env:PROCESSOR_ARCHITECTURE = "AMD64"
+$env:PROCESSOR_ARCHITEW6432 = ""
+function Invoke-WebRequest {
+  param(
+    [string]$Uri,
+    [string]$OutFile,
+    [hashtable]$Headers,
+    [int]$TimeoutSec,
+    [int]$MaximumRedirection = -1,
+    [switch]$UseBasicParsing,
+    [switch]$PassThru
+  )
+  if ($Uri -like "http://*") {
+    throw "PLAIN_HTTP_FETCHED:$Uri"
+  }
+  if ($MaximumRedirection -ne 0) {
+    throw "REDIRECT_NOT_GUARDED"
+  }
+  if ($OutFile) {
+    Set-Content -LiteralPath $OutFile -Value "redirect-body"
+  }
+  return [PSCustomObject]@{
+    StatusCode = 302
+    Headers    = @{ Location = "http://evil.example.test/qg.zip" }
+    Content    = ""
+  }
+}
+& %s -Version "0.1.0" -InstallDir %s -GitHubBaseUrl "https://example.test"
+`, quotePowerShellSingle(scriptPath), quotePowerShellSingle(installDir))
+	writeFile(t, harnessPath, []byte(harness), 0o644)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, psExe, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", harnessPath).CombinedOutput()
+	if err == nil {
+		t.Fatalf("install.ps1 succeeded across an https->http redirect:\n%s", out)
+	}
+	text := string(out)
+	if strings.Contains(text, "PLAIN_HTTP_FETCHED") || strings.Contains(text, "REDIRECT_NOT_GUARDED") {
+		t.Fatalf("install.ps1 did not guard Invoke-WebRequest redirects:\n%s", text)
+	}
+	if !strings.Contains(text, "https://") || !strings.Contains(text, "QG_ALLOW_INSECURE_DOWNLOAD=1") {
+		t.Fatalf("install.ps1 error missing https redirect refusal:\n%s", text)
+	}
+}
+
+func quotePowerShellSingle(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }

@@ -32,16 +32,168 @@ function Assert-QGSecureUrl {
   }
 }
 
+function Get-QGRedirectLocation {
+  param($Response)
+
+  if ($null -eq $Response -or $null -eq $Response.Headers) {
+    return $null
+  }
+  $headers = $Response.Headers
+  if ($headers -is [System.Collections.IDictionary]) {
+    foreach ($key in $headers.Keys) {
+      if ([string]::Equals([string]$key, "Location", [System.StringComparison]::OrdinalIgnoreCase)) {
+        $val = @($headers[$key])[0]
+        if (-not [string]::IsNullOrWhiteSpace([string]$val)) {
+          return ([string]$val).Trim()
+        }
+      }
+    }
+    return $null
+  }
+  if ($headers -is [System.Net.WebHeaderCollection]) {
+    $val = $headers["Location"]
+    if (-not [string]::IsNullOrWhiteSpace($val)) {
+      return $val.Trim()
+    }
+    return $null
+  }
+  $prop = $headers.PSObject.Properties["Location"]
+  if ($null -ne $prop -and $null -ne $prop.Value) {
+    $loc = $prop.Value
+    if ($loc -is [System.Uri]) {
+      return $loc.OriginalString.Trim()
+    }
+    $val = [string](@($loc)[0])
+    if (-not [string]::IsNullOrWhiteSpace($val)) {
+      return $val.Trim()
+    }
+  }
+  return $null
+}
+
+# Invoke-WebRequest segue redirecionamentos https -> http por padrao; inspeciona
+# cada salto com -MaximumRedirection 0 para manter o download em https.
+function Invoke-QGSecureWebRequest {
+  param(
+    [string]$Uri,
+    [string]$OutFile = "",
+    [hashtable]$Headers = $null,
+    [int]$TimeoutSec = 300
+  )
+
+  Assert-QGSecureUrl -Url $Uri
+  if ($env:QG_ALLOW_INSECURE_DOWNLOAD -eq "1") {
+    $params = @{
+      Uri             = $Uri
+      UseBasicParsing = $true
+      TimeoutSec      = $TimeoutSec
+    }
+    if ($null -ne $Headers) {
+      $params.Headers = $Headers
+    }
+    if (-not [string]::IsNullOrEmpty($OutFile)) {
+      $params.OutFile = $OutFile
+      $params.PassThru = $true
+    }
+    return Invoke-WebRequest @params
+  }
+
+  $currentUrl = $Uri
+  $maxRedirects = 10
+  for ($hop = 0; $hop -le $maxRedirects; $hop++) {
+    Assert-QGSecureUrl -Url $currentUrl
+    $params = @{
+      Uri                = $currentUrl
+      UseBasicParsing    = $true
+      TimeoutSec         = $TimeoutSec
+      MaximumRedirection = 0
+      ErrorAction        = "SilentlyContinue"
+      ErrorVariable      = "webErr"
+    }
+    if ($null -ne $Headers) {
+      $params.Headers = $Headers
+    }
+    if (-not [string]::IsNullOrEmpty($OutFile)) {
+      $params.OutFile = $OutFile
+      $params.PassThru = $true
+    }
+
+    $response = $null
+    $caughtError = $null
+    try {
+      $response = Invoke-WebRequest @params
+    } catch {
+      $caughtError = $_
+    }
+
+    $statusResponse = $response
+    if ($null -eq $statusResponse -and $null -ne $caughtError -and $null -ne $caughtError.Exception) {
+      $statusResponse = $caughtError.Exception.Response
+    }
+    if ($null -eq $statusResponse -and $webErr.Count -gt 0 -and $null -ne $webErr[0].Exception) {
+      $statusResponse = $webErr[0].Exception.Response
+    }
+
+    $statusCode = 0
+    if ($null -ne $statusResponse -and $null -ne $statusResponse.StatusCode) {
+      $statusCode = [int]$statusResponse.StatusCode
+    }
+
+    if ($statusCode -in @(301, 302, 303, 307, 308)) {
+      $location = Get-QGRedirectLocation -Response $statusResponse
+      if ($statusResponse -ne $response -and $statusResponse -is [System.IDisposable]) {
+        $statusResponse.Dispose()
+      }
+      if (-not [string]::IsNullOrEmpty($OutFile) -and (Test-Path -LiteralPath $OutFile)) {
+        Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+      }
+      if ([string]::IsNullOrWhiteSpace($location)) {
+        throw "Redirecionamento HTTP $statusCode sem cabecalho Location ao baixar $currentUrl"
+      }
+      if ($hop -ge $maxRedirects) {
+        throw "Redirecionamentos demais ao baixar $Uri"
+      }
+      $nextUri = New-Object System.Uri -ArgumentList ([System.Uri]$currentUrl), $location
+      $nextUrl = $nextUri.AbsoluteUri
+      if (-not $nextUrl.StartsWith("https://", [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Redirecionamento inseguro recusado para ${nextUrl}: so https:// e permitido (defina QG_ALLOW_INSECURE_DOWNLOAD=1 para liberar em testes locais)"
+      }
+      $currentUrl = $nextUrl
+      continue
+    }
+
+    if ($null -ne $caughtError) {
+      if (-not [string]::IsNullOrEmpty($OutFile) -and (Test-Path -LiteralPath $OutFile)) {
+        Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+      }
+      throw $caughtError
+    }
+    if ($webErr.Count -gt 0 -and ($statusCode -lt 200 -or $statusCode -ge 300)) {
+      if (-not [string]::IsNullOrEmpty($OutFile) -and (Test-Path -LiteralPath $OutFile)) {
+        Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+      }
+      throw $webErr[0]
+    }
+    return $response
+  }
+}
+
 function Get-QGLatestTag {
   param([string]$Repository, [string]$GitHubApi)
 
   $apiBase = $GitHubApi.TrimEnd([char[]]"/")
   $latestUrl = "$apiBase/repos/$Repository/releases/latest"
   Assert-QGSecureUrl -Url $latestUrl
-  $release = Invoke-RestMethod `
+  $response = Invoke-QGSecureWebRequest `
     -Uri $latestUrl `
     -Headers @{ Accept = "application/vnd.github+json" } `
     -TimeoutSec 15
+  $rawJson = if ($response.Content -is [byte[]]) {
+    [System.Text.Encoding]::UTF8.GetString($response.Content)
+  } else {
+    [string]$response.Content
+  }
+  $release = ConvertFrom-Json -InputObject $rawJson
 
   if ([string]::IsNullOrWhiteSpace($release.tag_name)) {
     throw "Resposta do release no GitHub nao incluiu tag_name"
@@ -158,8 +310,8 @@ try {
   New-Item -ItemType Directory -Path $tempDir, $extractDir -Force | Out-Null
 
   Write-Host "Instalando QG $tag para windows-$arch"
-  Invoke-WebRequest -Uri "$releaseUrl/$archiveName" -OutFile $archivePath -UseBasicParsing -TimeoutSec 300
-  Invoke-WebRequest -Uri "$releaseUrl/$checksumName" -OutFile $checksumPath -UseBasicParsing -TimeoutSec 300
+  Invoke-QGSecureWebRequest -Uri "$releaseUrl/$archiveName" -OutFile $archivePath -TimeoutSec 300 | Out-Null
+  Invoke-QGSecureWebRequest -Uri "$releaseUrl/$checksumName" -OutFile $checksumPath -TimeoutSec 300 | Out-Null
 
   # Entre aspas: um arquivo vazio devolve nada, e a linha tem de ser texto.
   $checksumLine = "$(Get-Content -Path $checksumPath -TotalCount 1)"

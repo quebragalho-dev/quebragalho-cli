@@ -94,6 +94,128 @@ secure_curl() {
   fi
 }
 
+parse_wget_redirect() {
+  local hdr_file="$1"
+  local line rest val status="" location=""
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    case "$line" in
+      "  HTTP/"*)
+        rest="${line#  HTTP/}"
+        rest="${rest#* }"
+        status="${rest%% *}"
+        location=""
+        ;;
+      "  "[Ll][Oo][Cc][Aa][Tt][Ii][Oo][Nn]:*)
+        val="${line#*:}"
+        val="${val#"${val%%[![:space:]]*}"}"
+        val="${val%"${val##*[![:space:]]}"}"
+        location="$val"
+        ;;
+    esac
+  done < "$hdr_file"
+
+  case "$status" in
+    301|302|303|307|308)
+      if [ -n "$location" ]; then
+        printf '%s\n' "$location"
+        return 0
+      fi
+      ;;
+  esac
+  return 1
+}
+
+resolve_redirect_url() {
+  local base_url="$1"
+  local location="$2"
+  local scheme after_scheme authority path_part path_only base_dir
+
+  case "$location" in
+    [A-Za-z][A-Za-z0-9+.-]*:*)
+      printf '%s\n' "$location"
+      return 0
+      ;;
+  esac
+
+  scheme="${base_url%%://*}"
+  after_scheme="${base_url#*://}"
+  authority="${after_scheme%%[/?#]*}"
+
+  case "$location" in
+    //*)
+      printf '%s:%s\n' "$scheme" "$location"
+      ;;
+    /*)
+      printf '%s://%s%s\n' "$scheme" "$authority" "$location"
+      ;;
+    *)
+      path_part="${after_scheme#"$authority"}"
+      path_only="${path_part%%[\?#]*}"
+      case "$path_only" in
+        */*) base_dir="${path_only%/*}/" ;;
+        *) base_dir="/" ;;
+      esac
+      printf '%s://%s%s%s\n' "$scheme" "$authority" "$base_dir" "$location"
+      ;;
+  esac
+}
+
+# O --https-only do GNU wget vale só para modo recursivo (-r), não para 30x:
+# inspeciona cada salto com --max-redirect=0 para recusar queda para http://.
+secure_wget() {
+  local url="$1"
+  local output="$2"
+  shift 2
+
+  if insecure_download_allowed; then
+    wget "$@" "$url" --output-document "$output"
+    return 0
+  fi
+
+  local current_url="$url"
+  local hops=0
+  local hdr_file rc location next_url
+
+  while :; do
+    require_https "$current_url"
+    hdr_file="$(mktemp "${tmp_dir:-${TMPDIR:-/tmp}}/wget-headers.XXXXXX")"
+    if wget --no-verbose --server-response --max-redirect=0 "$@" "$current_url" --output-document "$output" 2>"$hdr_file"; then
+      rm -f "$hdr_file"
+      return 0
+    else
+      rc=$?
+    fi
+
+    if location="$(parse_wget_redirect "$hdr_file")"; then
+      rm -f "$hdr_file" "$output"
+      case "$location" in
+        *[[:cntrl:]]*)
+          fail "redirecionamento inválido recusado ao baixar $current_url"
+          ;;
+      esac
+      next_url="$(resolve_redirect_url "$current_url" "$location")"
+      case "$next_url" in
+        [Hh][Tt][Tt][Pp][Ss]://*)
+          next_url="https://${next_url#*://}"
+          ;;
+        *)
+          fail "redirecionamento inseguro recusado para $next_url: só https:// é permitido (defina QG_ALLOW_INSECURE_DOWNLOAD=1 para liberar em testes locais)"
+          ;;
+      esac
+      hops=$((hops + 1))
+      [ "$hops" -le 10 ] || fail "redirecionamentos demais ao baixar $url"
+      current_url="$next_url"
+      continue
+    fi
+
+    cat "$hdr_file" >&2
+    rm -f "$hdr_file" "$output"
+    return "$rc"
+  done
+}
+
 download() {
   local url="$1"
   local output="$2"
@@ -102,7 +224,7 @@ download() {
   if command -v curl >/dev/null 2>&1; then
     secure_curl --fail --location --show-error --progress-bar "$url" --output "$output"
   elif command -v wget >/dev/null 2>&1; then
-    wget "$url" --output-document "$output"
+    secure_wget "$url" "$output"
   else
     fail "curl ou wget é obrigatório"
   fi
@@ -116,7 +238,7 @@ download_json() {
   if command -v curl >/dev/null 2>&1; then
     secure_curl --fail --location --show-error --silent --header 'Accept: application/vnd.github+json' "$url" --output "$output"
   elif command -v wget >/dev/null 2>&1; then
-    wget --quiet --header='Accept: application/vnd.github+json' "$url" --output-document "$output"
+    secure_wget "$url" "$output" --header='Accept: application/vnd.github+json'
   else
     fail "curl ou wget é obrigatório"
   fi
