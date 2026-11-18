@@ -279,12 +279,29 @@ Alvos suportados: `macos-x64`, `macos-arm64`, `linux-x64`, `linux-arm64`,
 `windows-x64`, `windows-arm64`.
 
 Cada arquivo tem um `.sha256` correspondente — os scripts de instalação
-baixam os dois, verificam o checksum e só então copiam o binário. Os arquivos
+baixam os dois, verificam o checksum e só então copiam o binário. Desde a
+0.0.22 cada arquivo tem também um bundle Sigstore
+(`<pacote>.sigstore.json`), assinado no CI. Os arquivos
 são produzidos localmente com:
 
 ```bash
 make release   # cross-build dos 6 alvos + checksums + verify
 ```
+
+## Verificando a assinatura (Sigstore)
+
+Com o [cosign](https://github.com/sigstore/cosign) instalado:
+
+```bash
+cosign verify-blob --bundle qg-v0.0.22-linux-x64.tar.gz.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/quebragalho-dev/quebragalho-cli/\.github/workflows/release-artifacts\.yml@refs/tags/v0.0.22$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  qg-v0.0.22-linux-x64.tar.gz
+```
+
+O `scripts/install.sh` e o `install.ps1` já fazem essa conferência
+sozinhos quando o cosign está no PATH; o `qg update` continua conferindo
+só o SHA-256.
 
 Dentro do tarball estão o binário `qg`, o symlink `quebragalho` (alias real),
 os helpers opcionais, o wrapper do npm, `README.md`, `package.json` e
