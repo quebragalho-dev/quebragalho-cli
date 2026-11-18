@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/trace"
 )
 
@@ -193,6 +194,51 @@ func AutoCompactThreshold(contextWindow int, limit int) int {
 		return 0
 	}
 	return autoCompactThreshold(contextWindow, limit)
+}
+
+// ContinuationFitsContext reports whether replaying options.Continuation for
+// the opening request of Run fits within the model's effective context budget:
+//   - When proactive compaction is active (AutoCompactLimit >= 0), the budget
+//     is AutoCompactThreshold(ContextWindow, AutoCompactLimit) — the same
+//     threshold maybeCompact enforces before the first provider call.
+//   - When proactive compaction is off (AutoCompactLimit < 0), the budget is
+//     the model's context window with the 5% estimate margin (matching
+//     compactionState.fitsWindow).
+//   - When ContextWindow <= 0, no window bound is configured and any non-empty
+//     continuation fits.
+func ContinuationFitsContext(prompt string, options Options) bool {
+	if len(options.Continuation) == 0 {
+		return false
+	}
+	if options.ContextWindow <= 0 {
+		return true
+	}
+	budget := AutoCompactThreshold(options.ContextWindow, options.AutoCompactLimit)
+	if options.AutoCompactLimit < 0 {
+		budget = options.ContextWindow - options.ContextWindow/20
+	}
+	if budget <= 0 {
+		return true
+	}
+	registry := options.Registry
+	if registry == nil {
+		registry = tools.NewRegistry()
+	}
+	permissionMode := options.PermissionMode
+	if permissionMode == "" {
+		permissionMode = PermissionModeAuto
+	}
+	loaded := map[string]bool{}
+	for _, name := range options.LoadedDeferredTools {
+		if trimmed := strings.TrimSpace(name); trimmed != "" {
+			loaded[trimmed] = true
+		}
+	}
+	promptParts := buildSystemPromptParts(options)
+	messages := seedRunMessages(promptParts, prompt, options)
+	exposed, _ := partitionToolsCached(registry, permissionMode, options, loaded, map[string]qgruntime.ToolDefinition{})
+	size := estimateTokens(messages) + estimateToolDefTokens(exposed)
+	return size <= budget
 }
 
 // Compact summarizes the oldest middle of a conversation, keeping the leading

@@ -197,36 +197,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 		promptCacheKey: options.SessionID,
 		promptParts:    promptParts,
 	})
-	messages := qgruntime.SeedMessagesWithImages(promptParts.prompt, prompt, options.Images)
-	if len(options.Continuation) > 0 {
-		if options.Continuation[0].Role == qgruntime.MessageRoleSystem {
-			// A prior turn's messages (frozen system at [0]) replace the fresh
-			// seed; system-prompt drift is announced on the user turn, never in
-			// the cached prefix.
-			messages = append(copyMessages(options.Continuation), continuationUserMessage(promptParts, options, prompt))
-		} else {
-			// Reconstructed history (exact resume of a session saved without
-			// a snapshot) carries no frozen system: seed a fresh one so the
-			// model keeps its instructions, then replay the history verbatim
-			// and append the bare prompt (nothing is stale against a fresh
-			// system, so no drift note).
-			messages = append([]qgruntime.Message{{Role: qgruntime.MessageRoleSystem, Content: promptParts.prompt}}, copyMessages(options.Continuation)...)
-			messages = append(messages, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: prompt, Images: qgruntime.CloneImageBlocks(options.Images)})
-		}
-	}
-	// Leftover queue messages ride the wire as separate consecutive user
-	// messages after the seeded prompt, in order — the same shape an
-	// interleave produces mid-turn, so the model sees exactly what the user
-	// queued. OpenAI-compatible providers accept consecutive user messages.
-	for _, message := range options.ExtraUserMessages {
-		if message.Role != qgruntime.MessageRoleUser {
-			continue
-		}
-		if strings.TrimSpace(message.Content) == "" {
-			continue
-		}
-		messages = append(messages, message)
-	}
+	messages := seedRunMessages(promptParts, prompt, options)
 
 	guards := newGuardState()
 	task := newTaskState(prompt, options.Trace)
@@ -3627,4 +3598,38 @@ func toolResultImageMessage(result ToolResult) (qgruntime.Message, bool) {
 		Content: "Image output from " + label + ":",
 		Images:  images,
 	}, true
+}
+
+func seedRunMessages(promptParts systemPromptParts, prompt string, options Options) []qgruntime.Message {
+	messages := qgruntime.SeedMessagesWithImages(promptParts.prompt, prompt, options.Images)
+	if len(options.Continuation) > 0 {
+		if options.Continuation[0].Role == qgruntime.MessageRoleSystem {
+			// A prior turn's messages (frozen system at [0]) replace the fresh
+			// seed; system-prompt drift is announced on the user turn, never in
+			// the cached prefix.
+			messages = append(copyMessages(options.Continuation), continuationUserMessage(promptParts, options, prompt))
+		} else {
+			// Reconstructed history (exact resume of a session saved without
+			// a snapshot) carries no frozen system: seed a fresh one so the
+			// model keeps its instructions, then replay the history verbatim
+			// and append the bare prompt (nothing is stale against a fresh
+			// system, so no drift note).
+			messages = append([]qgruntime.Message{{Role: qgruntime.MessageRoleSystem, Content: promptParts.prompt}}, copyMessages(options.Continuation)...)
+			messages = append(messages, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: prompt, Images: qgruntime.CloneImageBlocks(options.Images)})
+		}
+	}
+	// Leftover queue messages ride the wire as separate consecutive user
+	// messages after the seeded prompt, in order — the same shape an
+	// interleave produces mid-turn, so the model sees exactly what the user
+	// queued. OpenAI-compatible providers accept consecutive user messages.
+	for _, message := range options.ExtraUserMessages {
+		if message.Role != qgruntime.MessageRoleUser {
+			continue
+		}
+		if strings.TrimSpace(message.Content) == "" {
+			continue
+		}
+		messages = append(messages, message)
+	}
+	return messages
 }

@@ -303,3 +303,40 @@ func TestRunWithoutContinuationUnchanged(t *testing.T) {
 		t.Fatalf("result assistant message = (%q, %q), want (assistant, ok)", result.Messages[2].Role, result.Messages[2].Content)
 	}
 }
+
+func TestContinuationFitsContextHonorsWindowAndAutoCompactLimit(t *testing.T) {
+	dir := t.TempDir()
+	frozen := buildSystemPromptParts(Options{Cwd: dir}).prompt
+	small := continuationHistory(frozen)
+
+	if ContinuationFitsContext("next", Options{Cwd: dir, ContextWindow: 100_000}) {
+		t.Fatal("empty continuation must report false")
+	}
+	if !ContinuationFitsContext("next", Options{Cwd: dir, ContextWindow: 100_000, Continuation: small}) {
+		t.Fatal("small continuation must fit a 100k context window")
+	}
+
+	// Roughly 25k tokens of message payload (~100k non-space bytes).
+	medium := append([]qgruntime.Message(nil), small...)
+	medium = append(medium, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: strings.Repeat("x", 100_000)})
+
+	// Fits automatic 100k window (threshold 70k), fails explicit 20k autoCompactLimit.
+	if !ContinuationFitsContext("next", Options{Cwd: dir, ContextWindow: 100_000, Continuation: medium}) {
+		t.Fatal("25k continuation must fit 100k automatic window")
+	}
+	if ContinuationFitsContext("next", Options{Cwd: dir, ContextWindow: 100_000, AutoCompactLimit: 20_000, Continuation: medium}) {
+		t.Fatal("25k continuation must not fit explicit 20k autoCompactLimit")
+	}
+
+	// With autoCompactLimit < 0 (off), budget is 95% of window: 80k tokens fits 100k, 110k does not.
+	eightyK := append([]qgruntime.Message(nil), small...)
+	eightyK = append(eightyK, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: strings.Repeat("y", 300_000)})
+	if !ContinuationFitsContext("next", Options{Cwd: dir, ContextWindow: 100_000, AutoCompactLimit: -1, Continuation: eightyK}) {
+		t.Fatal("~80k continuation must fit 100k window when proactive autocompact is off")
+	}
+	overWindow := append([]qgruntime.Message(nil), small...)
+	overWindow = append(overWindow, qgruntime.Message{Role: qgruntime.MessageRoleUser, Content: strings.Repeat("z", 440_000)})
+	if ContinuationFitsContext("next", Options{Cwd: dir, ContextWindow: 100_000, AutoCompactLimit: -1, Continuation: overWindow}) {
+		t.Fatal("continuation exceeding context window must report false even when autocompact is off")
+	}
+}
