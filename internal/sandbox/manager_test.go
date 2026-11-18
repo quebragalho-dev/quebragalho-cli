@@ -484,25 +484,32 @@ func mkdirAll(paths ...string) error {
 func TestCredentialDenyReadPathsIn(t *testing.T) {
 	home := t.TempDir()
 	awsDir := filepath.Join(home, ".aws")
+	sshDir := filepath.Join(home, ".ssh")
+	gnupgDir := filepath.Join(home, ".gnupg")
 	gcloudDir := filepath.Join(home, ".config", "gcloud")
 	npmrc := filepath.Join(home, ".npmrc")
-	ghHosts := filepath.Join(home, ".config", "gh", "hosts.yml")
+	pypirc := filepath.Join(home, ".pypirc")
+	ghDir := filepath.Join(home, ".config", "gh")
+	ghHosts := filepath.Join(ghDir, "hosts.yml")
 	netrc := filepath.Join(home, ".netrc")
 	dockerConfig := filepath.Join(home, ".docker", "config.json")
-	kubeConfig := filepath.Join(home, ".kube", "config")
+	kubeDir := filepath.Join(home, ".kube")
+	kubeConfig := filepath.Join(kubeDir, "config")
 	configDir := filepath.Join(home, ".config")
 	zeroDir := filepath.Join(configDir, "qg")
 	if err := mkdirAll(
+		sshDir,
+		gnupgDir,
 		awsDir,
 		gcloudDir,
-		filepath.Dir(ghHosts),
+		ghDir,
 		filepath.Dir(dockerConfig),
-		filepath.Dir(kubeConfig),
+		kubeDir,
 		zeroDir,
 	); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{npmrc, ghHosts, netrc, dockerConfig, kubeConfig} {
+	for _, path := range []string{npmrc, pypirc, ghHosts, netrc, dockerConfig, kubeConfig} {
 		if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -554,24 +561,28 @@ func TestCredentialDenyReadPathsIn(t *testing.T) {
 		CloudSDKConfigDirs: []string{gcloudDir},
 		GoogleCredentials:  []string{keyFile},
 		NPMUserConfigs:     []string{npmrc},
-		GHConfigDirs:       []string{filepath.Dir(ghHosts)},
+		GHConfigDirs:       []string{ghDir},
 		Netrcs:             []string{netrc},
 		DockerConfigDirs:   []string{filepath.Dir(dockerConfig)},
 		KubeConfigs:        []string{kubeConfig},
+		GnuPGHomes:         []string{gnupgDir},
 		OAuthTokens:        []string{oauthOverride},
 		MCPOAuthTokens:     []string{mcpOverride},
 	}
 	credentials := credentialDenyReadPathsIn(options, nil)
 	paths := credentials.Paths
 	wantPaths := append([]string{
+		sshDir,
+		gnupgDir,
 		awsDir,
 		gcloudDir,
 		keyFile,
 		npmrc,
-		ghHosts,
+		pypirc,
+		ghDir,
 		netrc,
 		dockerConfig,
-		kubeConfig,
+		kubeDir,
 		zeroDir,
 	}, overrideFiles...)
 	for _, want := range normalizeProfilePaths(wantPaths) {
@@ -888,6 +899,7 @@ func TestPermissionProfileUnionsProcessAndCommandCredentialRootsWithoutCreatingC
 	t.Setenv("NETRC", "")
 	t.Setenv("DOCKER_CONFIG", "")
 	t.Setenv("KUBECONFIG", "")
+	t.Setenv("GNUPGHOME", "")
 
 	workspace := t.TempDir()
 	childHome := filepath.Join(workspace, "child-home")
@@ -914,11 +926,14 @@ func TestPermissionProfileUnionsProcessAndCommandCredentialRootsWithoutCreatingC
 	parentZero := filepath.Join(parentConfig, "qg")
 	childZero := filepath.Join(childConfig, "qg")
 	childCredentialPaths := []string{
+		filepath.Join(childHome, ".ssh"),
+		filepath.Join(childHome, ".gnupg"),
 		filepath.Join(childHome, ".npmrc"),
+		filepath.Join(childHome, ".pypirc"),
 		filepath.Join(childHome, ".netrc"),
 		filepath.Join(childHome, ".docker", "config.json"),
-		filepath.Join(childHome, ".kube", "config"),
-		filepath.Join(childConfig, "gh", "hosts.yml"),
+		filepath.Join(childHome, ".kube"),
+		filepath.Join(childConfig, "gh"),
 		filepath.Join(childConfig, "gcloud"),
 	}
 	for _, want := range []string{parentZero, parentToken} {
@@ -1673,9 +1688,10 @@ func TestCredentialDenyReadPathsForEnvironmentHonorsConfigOverrides(t *testing.T
 	kubeConfigA := filepath.Join(root, "kube", "a")
 	kubeConfigB := filepath.Join(root, "kube", "b")
 	zeroConfig := filepath.Join(configHome, "qg")
+	t.Setenv("HOME", root)
+	gnupgHome := filepath.Join(root, "gnupg")
 	filePaths := []string{
 		npmrc,
-		filepath.Join(ghConfigDir, "hosts.yml"),
 		netrc,
 		filepath.Join(dockerConfigDir, "config.json"),
 		kubeConfigA,
@@ -1683,6 +1699,12 @@ func TestCredentialDenyReadPathsForEnvironmentHonorsConfigOverrides(t *testing.T
 		zeroConfig,
 	}
 	if err := os.MkdirAll(cloudSDKConfig, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(ghConfigDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(gnupgHome, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range filePaths {
@@ -1710,9 +1732,10 @@ func TestCredentialDenyReadPathsForEnvironmentHonorsConfigOverrides(t *testing.T
 		"NETRC=" + netrc,
 		"DOCKER_CONFIG=" + dockerConfigDir,
 		"KUBECONFIG=" + strings.Join([]string{kubeConfigA, kubeConfigB}, string(filepath.ListSeparator)),
+		"GNUPGHOME=" + gnupgHome,
 	})
 	got := credentialDenyReadPathsIn(options, nil).Paths
-	wantPaths := append(filePaths, cloudSDKConfig)
+	wantPaths := append(filePaths, cloudSDKConfig, ghConfigDir, gnupgHome)
 	for _, want := range normalizeProfilePaths(wantPaths) {
 		if !stringSliceContains(got, want) {
 			t.Errorf("credential deny paths = %#v, want override %q included", got, want)
@@ -1737,6 +1760,7 @@ func TestCredentialPathOptionsFromEnvironmentResolvesToolPathLists(t *testing.T)
 		"GH_CONFIG_DIR=relative-gh",
 		"NETRC=relative-netrc",
 		"DOCKER_CONFIG=relative-docker",
+		"GNUPGHOME=relative-gnupg",
 		"KUBECONFIG=" + strings.Join([]string{"", "relative-kubeconfig", absoluteKubeConfig, ""}, string(filepath.ListSeparator)),
 	})
 	credentials := credentialDenyReadPathsIn(options, nil)
@@ -1744,11 +1768,12 @@ func TestCredentialPathOptionsFromEnvironmentResolvesToolPathLists(t *testing.T)
 	for _, baseDir := range []string{processDir, commandDir} {
 		for _, want := range []string{
 			filepath.Join(baseDir, "upper-npmrc"),
-			filepath.Join(baseDir, "relative-gh", "hosts.yml"),
+			filepath.Join(baseDir, "relative-gh"),
 			filepath.Join(baseDir, "relative-netrc"),
 			filepath.Join(baseDir, "relative-docker", "config.json"),
 			filepath.Join(baseDir, "relative-kubeconfig"),
 			filepath.Join(baseDir, "relative-gcloud"),
+			filepath.Join(baseDir, "relative-gnupg"),
 		} {
 			if !stringSliceContains(credentials.Paths, normalizeProfilePath(want)) {
 				t.Errorf("credential deny paths = %#v, want resolved tool path %q", credentials.Paths, want)
@@ -1757,14 +1782,17 @@ func TestCredentialPathOptionsFromEnvironmentResolvesToolPathLists(t *testing.T)
 		if unwanted := filepath.Join(baseDir, "lower-npmrc"); stringSliceContains(credentials.Paths, normalizeProfilePath(unwanted)) {
 			t.Errorf("credential deny paths = %#v, lower-case npm override %q must lose to upper-case override", credentials.Paths, unwanted)
 		}
-		for _, unwantedDir := range []string{filepath.Join(baseDir, "relative-gh"), filepath.Join(baseDir, "relative-docker")} {
-			if stringSliceContains(credentials.Paths, normalizeProfilePath(unwantedDir)) || stringSliceContains(credentials.Dirs, normalizeProfilePath(unwantedDir)) {
-				t.Errorf("credential paths=%#v dirs=%#v, must protect a credential file without masking tool directory %q", credentials.Paths, credentials.Dirs, unwantedDir)
-			}
+		if unwantedDir := filepath.Join(baseDir, "relative-docker"); stringSliceContains(credentials.Paths, normalizeProfilePath(unwantedDir)) || stringSliceContains(credentials.Dirs, normalizeProfilePath(unwantedDir)) {
+			t.Errorf("credential paths=%#v dirs=%#v, must protect a credential file without masking tool directory %q", credentials.Paths, credentials.Dirs, unwantedDir)
 		}
-		cloudSDKDir := normalizeProfilePath(filepath.Join(baseDir, "relative-gcloud"))
-		if !stringSliceContains(credentials.Dirs, cloudSDKDir) || stringSliceContains(credentials.EnsureDirs, cloudSDKDir) {
-			t.Errorf("credential dirs=%#v ensure=%#v, want untrusted cloud config directory %q masked but never created", credentials.Dirs, credentials.EnsureDirs, cloudSDKDir)
+		for _, toolDir := range []string{
+			normalizeProfilePath(filepath.Join(baseDir, "relative-gcloud")),
+			normalizeProfilePath(filepath.Join(baseDir, "relative-gh")),
+			normalizeProfilePath(filepath.Join(baseDir, "relative-gnupg")),
+		} {
+			if !stringSliceContains(credentials.Dirs, toolDir) || stringSliceContains(credentials.EnsureDirs, toolDir) {
+				t.Errorf("credential dirs=%#v ensure=%#v, want untrusted tool config directory %q masked but never created", credentials.Dirs, credentials.EnsureDirs, toolDir)
+			}
 		}
 	}
 	if !stringSliceContains(credentials.Paths, normalizeProfilePath(absoluteKubeConfig)) {

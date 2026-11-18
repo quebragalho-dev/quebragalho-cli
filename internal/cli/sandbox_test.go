@@ -521,6 +521,7 @@ func TestRunSandboxPolicyJSONGoldenIncludesManagerBaselineFields(t *testing.T) {
 	t.Setenv("NETRC", "")
 	t.Setenv("DOCKER_CONFIG", "")
 	t.Setenv("KUBECONFIG", "")
+	t.Setenv("GNUPGHOME", "")
 	t.Setenv("QG_OAUTH_TOKENS_PATH", "")
 	t.Setenv("QG_MCP_OAUTH_TOKENS_PATH", "")
 	store := newSandboxTestStore(t)
@@ -588,6 +589,8 @@ func normalizeSandboxPolicyGoldenTempRoots(t *testing.T, gotBytes []byte, worksp
 			credentialHome = resolved
 		}
 		wantDenyRead = []string{
+			filepath.Join(credentialHome, ".ssh"),
+			filepath.Join(credentialHome, ".gnupg"),
 			filepath.Join(credentialHome, ".aws"),
 			filepath.Join(credentialHome, ".azure"),
 			// git's cleartext credential stores, in both the home and XDG
@@ -597,10 +600,11 @@ func normalizeSandboxPolicyGoldenTempRoots(t *testing.T, gotBytes []byte, worksp
 			filepath.Join(credentialHome, ".git-credentials"),
 			filepath.Join(credentialHome, ".config", "git", "credentials"),
 			filepath.Join(credentialHome, ".npmrc"),
+			filepath.Join(credentialHome, ".pypirc"),
 			filepath.Join(credentialHome, ".netrc"),
-			filepath.Join(credentialHome, ".kube", "config"),
+			filepath.Join(credentialHome, ".kube"),
 			filepath.Join(credentialHome, ".docker", "config.json"),
-			filepath.Join(credentialHome, ".config", "gh", "hosts.yml"),
+			filepath.Join(credentialHome, ".config", "gh"),
 			filepath.Join(credentialHome, ".config", "gcloud"),
 			filepath.Join(credentialHome, ".config", "qg"),
 		}

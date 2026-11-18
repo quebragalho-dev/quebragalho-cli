@@ -550,10 +550,10 @@ func stripCmdCaretEscapes(command string) string {
 // avoid, just after execution instead of before it.
 
 func detectShellOutputIssueForRuntime(output string, shell shellRuntime, exitCode int, wrapped bool) *shellIssue {
-	if shell.GOOS != "windows" {
-		return nil
-	}
 	lower := strings.ToLower(output)
+	if shell.GOOS != "windows" {
+		return detectSandboxCredentialIssue(lower, exitCode, wrapped)
+	}
 	if msysRuntimeFailedInOutput(lower) {
 		return windowsMsysSandboxIssue("An MSYS/Cygwin runtime failed under QG's Windows sandbox (ACCESS_DENIED during MSYS startup).")
 	}
@@ -662,6 +662,67 @@ func msysRuntimeFailedInOutput(lower string) bool {
 func wslServiceDeniedInOutput(lower string) bool {
 	compact := strings.ReplaceAll(lower, "\x00", "")
 	return strings.Contains(compact, "bash/service/") && strings.Contains(compact, "e_accessdenied")
+}
+
+var sandboxCredentialStoreMarkers = []string{
+	".ssh",
+	".gnupg",
+	".aws",
+	".azure",
+	".config/gcloud",
+	".kube",
+	".docker/config.json",
+	".netrc",
+	".git-credentials",
+	"git/credentials",
+	".npmrc",
+	".pypirc",
+	".config/gh",
+	".config/qg",
+}
+
+func detectSandboxCredentialIssue(lower string, exitCode int, wrapped bool) *shellIssue {
+	if !wrapped || exitCode == 0 {
+		return nil
+	}
+	matched := false
+	for _, marker := range []string{
+		"permission denied (publickey",
+		"host key verification failed",
+		"eneedauth",
+		"not logged into any github hosts",
+		"gh auth login",
+		"unable to locate credentials",
+	} {
+		if strings.Contains(lower, marker) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		for _, line := range strings.Split(lower, "\n") {
+			if !strings.Contains(line, "permission denied") && !strings.Contains(line, "operation not permitted") {
+				continue
+			}
+			for _, store := range sandboxCredentialStoreMarkers {
+				if strings.Contains(line, store) {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+	}
+	if !matched {
+		return nil
+	}
+	return &shellIssue{
+		Kind:       "sandbox_credential_blocked",
+		Message:    "The sandbox blocks host credential files (~/.ssh, ~/.gnupg, ~/.aws, ~/.npmrc, ~/.netrc, ~/.config/gh, etc.) and strips auth tokens from the environment.",
+		Suggestion: `If this command needs host credentials or auth tokens (such as git push over SSH or npm publish), ask to rerun it outside the sandbox with sandbox_permissions: "require_escalated" and a short user-facing justification.`,
+	}
 }
 
 func appendShellIssueHint(output string, issue shellIssue) string {

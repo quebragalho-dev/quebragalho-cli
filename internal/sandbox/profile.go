@@ -443,7 +443,7 @@ func credentialPathOptionsFromEnvironment(baseDirs []string, env []string) crede
 			dockerConfigDirs = append(dockerConfigDirs, filepath.Join(home, ".docker"))
 		}
 	}
-	var kubeConfigs []string
+	kubeConfigs := []string{}
 	if kubeConfig := strings.TrimSpace(credentialEnvValue(env, "KUBECONFIG")); kubeConfig != "" {
 		for _, entry := range filepath.SplitList(kubeConfig) {
 			kubeConfigs = append(kubeConfigs, resolveCredentialOverridePaths(entry, baseDirs)...)
@@ -451,6 +451,12 @@ func credentialPathOptionsFromEnvironment(baseDirs []string, env []string) crede
 	} else {
 		for _, home := range homes {
 			kubeConfigs = append(kubeConfigs, filepath.Join(home, ".kube", "config"))
+		}
+	}
+	gnupgHomes := resolveCredentialOverridePaths(credentialEnvValue(env, "GNUPGHOME"), baseDirs)
+	if len(gnupgHomes) == 0 {
+		for _, home := range homes {
+			gnupgHomes = append(gnupgHomes, filepath.Join(home, ".gnupg"))
 		}
 	}
 	return credentialPathOptions{
@@ -463,6 +469,7 @@ func credentialPathOptionsFromEnvironment(baseDirs []string, env []string) crede
 		Netrcs:             dedupeStrings(netrcs),
 		DockerConfigDirs:   dedupeStrings(dockerConfigDirs),
 		KubeConfigs:        dedupeStrings(kubeConfigs),
+		GnuPGHomes:         dedupeStrings(gnupgHomes),
 		OAuthTokens:        resolveCredentialOverridePaths(credentialEnvValue(env, "QG_OAUTH_TOKENS_PATH"), baseDirs),
 		OAuthStorage:       strings.TrimSpace(credentialEnvValue(env, "QG_OAUTH_STORAGE")),
 		MCPOAuthTokens:     resolveCredentialOverridePaths(credentialEnvValue(env, "QG_MCP_OAUTH_TOKENS_PATH"), baseDirs),
@@ -490,6 +497,7 @@ type credentialPathOptions struct {
 	Netrcs             []string
 	DockerConfigDirs   []string
 	KubeConfigs        []string
+	GnuPGHomes         []string
 	OAuthTokens        []string
 	OAuthStorage       string
 	MCPOAuthTokens     []string
@@ -521,34 +529,43 @@ func credentialDenyReadPathsIn(options credentialPathOptions, allowRead []string
 			continue
 		}
 		homeDirs := []string{
+			filepath.Join(home, ".ssh"),
 			filepath.Join(home, ".aws"),
 			filepath.Join(home, ".azure"),
+			filepath.Join(home, ".kube"),
 		}
 		candidates = append(candidates, homeDirs...)
 		dirs = append(dirs, homeDirs...)
-		// git's credential store backend, which holds host passwords and
-		// personal access tokens in cleartext. Denied rather than the whole
-		// of ~/.ssh, because these cost nothing functionally: git reads them
-		// through a credential helper for authentication, not for identity,
-		// so a sandboxed git still works and simply cannot authenticate as
-		// the user. SSH key material is a harder trade and is tracked
-		// separately (#815). A file, so it joins candidates only — dirs
+		// git's credential store backend and Python's .pypirc, which hold
+		// cleartext credentials. Files only, so they join candidates — dirs
 		// drives directory-shaped handling (bwrap binds, carveouts).
-		candidates = append(candidates, filepath.Join(home, ".git-credentials"))
+		candidates = append(candidates,
+			filepath.Join(home, ".git-credentials"),
+			filepath.Join(home, ".pypirc"),
+		)
 	}
 	candidates = append(candidates, options.GoogleCredentials...)
 	candidates = append(candidates, options.NPMUserConfigs...)
 	candidates = append(candidates, options.Netrcs...)
 	candidates = append(candidates, options.KubeConfigs...)
+	for _, gnupgHome := range options.GnuPGHomes {
+		if strings.TrimSpace(gnupgHome) == "" {
+			continue
+		}
+		candidates = append(candidates, gnupgHome)
+		dirs = append(dirs, gnupgHome)
+	}
 	for _, dockerConfigDir := range options.DockerConfigDirs {
 		if strings.TrimSpace(dockerConfigDir) != "" {
 			candidates = append(candidates, filepath.Join(dockerConfigDir, "config.json"))
 		}
 	}
 	for _, ghConfigDir := range options.GHConfigDirs {
-		if strings.TrimSpace(ghConfigDir) != "" {
-			candidates = append(candidates, filepath.Join(ghConfigDir, "hosts.yml"))
+		if strings.TrimSpace(ghConfigDir) == "" {
+			continue
 		}
+		candidates = append(candidates, ghConfigDir)
+		dirs = append(dirs, ghConfigDir)
 	}
 	for _, cloudSDKConfigDir := range options.CloudSDKConfigDirs {
 		if strings.TrimSpace(cloudSDKConfigDir) == "" {
