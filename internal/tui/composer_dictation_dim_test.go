@@ -191,3 +191,63 @@ func TestDimStaleInactiveRegionShowsNoDim(t *testing.T) {
 		t.Fatalf("stale inactive region should render as ink, got %q", line)
 	}
 }
+
+// When the final streaming transcript extends past the last partial (for
+// example, trailing words decoded after key release), the composer updates to
+// the full final text and returns to the normal ink colour.
+func TestStreamingFinalTranscriptUpdatesTruncatedPartialAndClearsDim(t *testing.T) {
+	acceptCacheTrueColor(t)
+	m := newModel(t.Context(), Options{})
+	m.setComposerState(composerState{text: "note:", cursor: 5})
+	m.dictation.phase = dictRecording
+	m.dictation.streaming = true
+	m = m.handleDictationPartial(sttPartialMsg{sessionID: m.dictation.sessionID, text: "Please open the read me file and write a"})
+
+	want := "note: Please open the read me file and write a short summary of the project."
+	updated, _ := m.Update(dictationTranscribedMsg{
+		sessionID: m.dictation.sessionID,
+		text:      "Please open the read me file and write a short summary of the project.",
+		streaming: true,
+	})
+	m = updated.(model)
+
+	if got := m.currentComposerState().text; got != want {
+		t.Fatalf("final composer text = %q, want %q", got, want)
+	}
+	dimStyle := qgTheme.faint.Inline(true)
+	inkStyle := qgTheme.ink.Inline(true)
+	line := m.composerLine(120)
+	if strings.Contains(line, dimStyle.Render("Please open")) || strings.Contains(line, dimStyle.Render("short summary")) {
+		t.Fatalf("final transcript must not stay dimmed, got %q", line)
+	}
+	if !strings.Contains(line, inkStyle.Render(want)) {
+		t.Fatalf("final transcript should render in normal ink, got %q", line)
+	}
+}
+
+// When streaming finishes before any partial was rendered (e.g. a short
+// recording), the final transcript is still inserted in normal ink.
+func TestStreamingFinalTranscriptInsertsWhenNoPartialArrived(t *testing.T) {
+	acceptCacheTrueColor(t)
+	m := newModel(t.Context(), Options{})
+	m.setComposerState(composerState{text: "note:", cursor: 5})
+	m.dictation.phase = dictTranscribing
+	m.dictation.streaming = true
+
+	want := "note: short summary of the project."
+	updated, _ := m.Update(dictationTranscribedMsg{
+		sessionID: m.dictation.sessionID,
+		text:      "short summary of the project.",
+		streaming: true,
+	})
+	m = updated.(model)
+
+	if got := m.currentComposerState().text; got != want {
+		t.Fatalf("final composer text = %q, want %q", got, want)
+	}
+	inkStyle := qgTheme.ink.Inline(true)
+	line := m.composerLine(80)
+	if !strings.Contains(line, inkStyle.Render(want)) {
+		t.Fatalf("final transcript should render in normal ink, got %q", line)
+	}
+}

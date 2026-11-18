@@ -174,10 +174,14 @@ func (m *model) applyStreamingText(text string) {
 }
 
 // commitDictationRegion keeps the streamed text in the composer and stops
-// tracking it as a live region (used on successful completion — the final
-// transcript equals the last partial already rendered).
+// tracking it as a live region (used on successful completion after any final
+// transcript update has been applied).
 func (m model) commitDictationRegion() model {
 	m.dictation.regionActive = false
+	m.dictation.regionStart = 0
+	m.dictation.regionEnd = 0
+	m.dictation.regionPrefix = ""
+	m.dictation.regionAnchor = ""
 	return m
 }
 

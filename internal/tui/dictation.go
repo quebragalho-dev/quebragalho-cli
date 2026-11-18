@@ -625,10 +625,29 @@ func (m model) handleDictationTranscribed(msg dictationTranscribedMsg) (tea.Mode
 	streaming := m.dictation.streaming || msg.streaming
 	streamStop := m.dictation.streamStop
 	cancel := m.dictation.cancel
+	regionActive := m.dictation.regionActive
+	regionStart := m.dictation.regionStart
+	regionEnd := m.dictation.regionEnd
+	regionPrefix := m.dictation.regionPrefix
+	regionAnchor := m.dictation.regionAnchor
 	if err := m.dictation.transition(DictEvTranscribed, dictArgs{sessionID: msg.sessionID}); err != nil {
 		// Stale completion from a cancelled session: the newer session already
 		// owns the controller; keep state, touch nothing.
 		return m, nil
+	}
+	if msg.err == nil && streaming {
+		if trimmed := strings.TrimSpace(msg.text); trimmed != "" {
+			if regionActive {
+				m.dictation.regionActive = true
+				m.dictation.regionStart = regionStart
+				m.dictation.regionEnd = regionEnd
+				m.dictation.regionPrefix = regionPrefix
+				m.dictation.regionAnchor = regionAnchor
+				m.applyStreamingText(trimmed)
+			} else {
+				m = m.insertDictatedText(trimmed)
+			}
+		}
 	}
 	m = m.commitDictationRegion()
 	// A streaming session can end via a transcriber error (not just a user stop), so
