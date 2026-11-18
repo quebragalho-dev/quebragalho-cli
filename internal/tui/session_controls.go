@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -11,10 +10,9 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/config"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/execprofile"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/modelregistry"
-	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providermodeldiscovery"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/usage"
@@ -55,6 +53,13 @@ type compactResultMsg struct {
 	sessionEvents      []sessions.Event
 	transcript         []transcriptRow
 	hasSessionSnapshot bool
+	// compactionUsage carries the summarizer provider call's usage back to
+	// the Update loop (runCompact runs async and must not touch model
+	// state). Empty when the provider reported no usage: then no usage
+	// event is recorded.
+	compactionUsage    qgruntime.Usage
+	compactionModel    string
+	hasCompactionUsage bool
 }
 
 func (m model) handleEffortCommand(args string) (model, string) {
@@ -65,7 +70,6 @@ func (m model) handleEffortCommand(args string) (model, string) {
 	}
 	if normalized == "auto" {
 		m.reasoningEffort = ""
-		m = m.markProfileEffortTouched()
 		return m, m.effortStatusCard("auto", "Auto é a preferência local: não envia reasoning_effort. O esforço aplicado pelo servidor não é informado.")
 	}
 
@@ -83,77 +87,7 @@ func (m model) handleEffortCommand(args string) (model, string) {
 	}
 
 	m.reasoningEffort = requested
-	m = m.markProfileEffortTouched()
 	return m, m.effortStatusCard(string(requested), "Preferência de nível de raciocínio salva nesta sessão.")
-}
-
-func (m model) handleFastCommand(args string) (model, string) {
-	if strings.TrimSpace(args) != "" {
-		return m, m.fastStatusText("Use /fast to toggle fast mode for supported ChatGPT subscription models.")
-	}
-	if m.pending {
-		return m, m.fastStatusText("Finish or stop the current run before changing fast mode.")
-	}
-	if !m.fastModeSupported() {
-		m.serviceTier = ""
-		return m, m.fastStatusText("Fast mode is available only for ChatGPT subscription models that advertise it.")
-	}
-	if m.activeServiceTier() == "priority" {
-		m.serviceTier = ""
-	} else {
-		m.serviceTier = "priority"
-	}
-	return m, m.fastStatusText("Fast mode applies to the next request for this ChatGPT subscription model.")
-}
-
-func (m model) fastStatusText(detail string) string {
-	state := "off"
-	if m.activeServiceTier() == "priority" {
-		state = "on"
-	}
-	fields := []commandField{
-		{Key: "fast mode", Value: state},
-		{Key: "model", Value: displayValue(m.modelName, "none")},
-	}
-	if detail == "" {
-		detail = "Use /fast to toggle fast mode for supported ChatGPT subscription models."
-	}
-	return renderCommandCardTranscript(commandCard{
-		Title:   "Fast",
-		Summary: []string{"fast mode: " + state},
-		Sections: []commandCardSection{{
-			Title:  "State",
-			Fields: fields,
-			Lines:  []string{detail},
-		}},
-	})
-}
-
-func (m model) activeServiceTier() string {
-	if m.serviceTier == "priority" && m.fastModeSupported() {
-		return "priority"
-	}
-	return ""
-}
-
-func (m model) fastModeSupported() bool {
-	// Priority is a ChatGPT subscription capability. Never forward it for
-	// metered provider profiles, even if a third-party catalog advertises it.
-	if providercatalog.NormalizeID(m.providerProfile.CatalogID) != "chatgpt" {
-		return false
-	}
-	for _, model := range m.discoveredModelsForActiveProvider() {
-		if !strings.EqualFold(strings.TrimSpace(model.ID), strings.TrimSpace(m.modelName)) {
-			continue
-		}
-		for _, tier := range model.ServiceTiers {
-			if normalizeTUIServiceTier(tier) == "priority" {
-				return true
-			}
-		}
-		return false
-	}
-	return false
 }
 
 func (m model) discoveredModelsForActiveProvider() []providermodeldiscovery.Model {
@@ -167,14 +101,6 @@ func (m model) discoveredModelsForActiveProvider() []providermodeldiscovery.Mode
 		}
 	}
 	return nil
-}
-
-func normalizeTUIServiceTier(tier string) string {
-	tier = strings.ToLower(strings.TrimSpace(tier))
-	if tier == "fast" {
-		return "priority"
-	}
-	return tier
 }
 
 // effortStatusCard renders the small inline confirmation card shown after a
@@ -243,102 +169,25 @@ func joinReasoningEffortLabels(efforts []modelregistry.ReasoningEffort) string {
 	return strings.Join(values, ", ")
 }
 
-// markProfileEffortTouched records an explicit effort choice made while a
-// profile is active: the touched bit protects the choice from a later profile
-// revert, and disarming the policy's RestoreDefaultEffort stops a mid-run
-// escalation from clearing an effort the user pinned by hand.
-func (m model) markProfileEffortTouched() model {
-	if m.execProfileName == "" {
-		return m
-	}
-	m.execProfileEffortTouched = true
-	return m.setProfileEffortRestore(false)
-}
-
-// setProfileEffortRestore rewrites the armed policy's RestoreDefaultEffort on
-// a clone (an in-flight run may hold the current pointer), like the /turns
-// turn-target disarm. No-op when no escalation policy is armed or the flag
-// already matches.
-func (m model) setProfileEffortRestore(restore bool) model {
-	if m.agentOptions.Profile == nil || m.agentOptions.Profile.Escalate == nil ||
-		m.agentOptions.Profile.Escalate.RestoreDefaultEffort == restore {
-		return m
-	}
-	policy := *m.agentOptions.Profile
-	escalate := *policy.Escalate
-	escalate.RestoreDefaultEffort = restore
-	policy.Escalate = &escalate
-	m.agentOptions.Profile = &policy
-	return m
-}
-
 // reconcileEffortForModelSwitch applies the effort rules for a model switch.
 // efforts is the destination's supported ring and ringKnown whether that ring
 // is authoritative (a catalog entry, whose ring may be legitimately empty) or
 // missing knowledge (a live-discovered/custom model the catalog cannot vouch
 // for either way).
 //
-// First the pre-existing generic rule: a KNOWN-unsupported preference is
-// dropped — the TUI run path forwards the effort to the provider unfiltered,
-// so it must not survive the switch, for a profile-touched effort exactly as
-// for a plain one. An UNKNOWN ring never drops an explicit preference: the
-// model may well support it, matching the cross-provider picker's behavior
-// for custom models. When a drop voids a choice living under an active
-// profile (the profile's own fill or a user override of it), the profile's
-// effort bookkeeping resets so a choice that no longer exists stops binding
-// and no stale applied/restore state remains.
-//
-// Then the profile rule: an active, untouched profile re-derives its fill for
-// the destination (conservative in both directions — the fill only ever
-// applies where support is known). The second return reports whether an
-// unsupported preference was dropped and nothing refilled (the caller's
-// "(unsupported preference reset)" display case).
+// A KNOWN-unsupported preference is dropped — the TUI run path forwards the
+// effort to the provider unfiltered, so it must not survive the switch. An
+// UNKNOWN ring never drops an explicit preference: the model may well support
+// it, matching the cross-provider picker's behavior for custom models. The
+// second return reports whether an unsupported preference was dropped (the
+// caller's "(unsupported preference reset)" display case).
 func (m model) reconcileEffortForModelSwitch(efforts []modelregistry.ReasoningEffort, ringKnown bool) (model, bool) {
 	dropped := false
 	if ringKnown && m.reasoningEffort != "" && !reasoningEffortAllowed(efforts, m.reasoningEffort) {
 		m.reasoningEffort = ""
 		dropped = true
-		if m.execProfileName != "" {
-			m.execProfileEffortTouched = false
-			m.execProfileAppliedEffort = ""
-			m = m.setProfileEffortRestore(false)
-		}
 	}
-	m = m.reconcileProfileAfterModelSwitch(efforts)
 	return m, dropped && m.reasoningEffort == ""
-}
-
-// reconcileProfileAfterModelSwitch re-derives an active profile's effort fill
-// for the model the session just switched to, whose supported ring is passed
-// in. The fill is per-model, not a session preference: fast selected on a
-// model without "low" fills nothing, and switching to a model that supports
-// it should behave exactly like selecting the profile there (and the reverse
-// switch must not keep sending a level the destination does not support). An
-// explicitly touched effort is the user's choice and is never reconciled; the
-// escalation's RestoreDefaultEffort tracks whether the profile currently
-// governs the effort.
-func (m model) reconcileProfileAfterModelSwitch(efforts []modelregistry.ReasoningEffort) model {
-	if m.execProfileName == "" || m.execProfileEffortTouched {
-		return m
-	}
-	profile, ok := execprofile.Lookup(m.execProfileName)
-	if !ok || profile.ReasoningEffort == "" {
-		return m
-	}
-	want := modelregistry.ReasoningEffort(profile.ReasoningEffort)
-	supported := reasoningEffortAllowed(efforts, want)
-	filled := m.execProfileAppliedEffort != ""
-	switch {
-	case supported && !filled && m.reasoningEffort == "":
-		m.reasoningEffort = want
-		m.execProfileAppliedEffort = want
-		m = m.setProfileEffortRestore(true)
-	case !supported && filled && m.reasoningEffort == m.execProfileAppliedEffort:
-		m.reasoningEffort = ""
-		m.execProfileAppliedEffort = ""
-		m = m.setProfileEffortRestore(false)
-	}
-	return m
 }
 
 func (m model) availableReasoningEfforts() []modelregistry.ReasoningEffort {
@@ -398,10 +247,8 @@ func (m model) cycleReasoningEffort() (model, tea.Cmd) {
 	if len(efforts) == 0 {
 		return m, nil
 	}
-	// Every branch below changes the effort; a cycle while a profile is active
-	// is an explicit user choice that must survive both a later profile revert
-	// and any mid-run escalation.
-	m = m.markProfileEffortTouched()
+	// Every branch below changes the effort; a cycle is an explicit user
+	// choice for this session.
 	if m.reasoningEffort == "" {
 		m.reasoningEffort = efforts[0]
 		return m, nil
@@ -436,34 +283,119 @@ func reasoningEffortIndex(efforts []modelregistry.ReasoningEffort, want modelreg
 	return -1
 }
 
-func (m model) handleStyleCommand(args string) (model, string) {
-	args = strings.TrimSpace(strings.ToLower(args))
-	if args == "" || args == "list" {
-		return m, m.styleText()
+// canonicalResponseStyleInput maps a /style argument to its stored English
+// value, accepting the Portuguese display names as synonyms. Unknown values
+// pass through unchanged so the caller can report them.
+func canonicalResponseStyleInput(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "equilibrado":
+		return "balanced"
+	case "conciso":
+		return "concise"
+	case "explicativo":
+		return "explanatory"
+	case "revisão", "revisao":
+		return "review"
+	default:
+		return strings.ToLower(strings.TrimSpace(raw))
 	}
-	if !responseStyleAllowed(args) {
-		return m, "Style\nUnknown response style: " + args
+}
+
+// responseStyleLabel renders a stored style value with its Portuguese name.
+func responseStyleLabel(value string) string {
+	switch value {
+	case "balanced":
+		return "equilibrado"
+	case "concise":
+		return "conciso"
+	case "explanatory":
+		return "explicativo"
+	case "review":
+		return "revisão"
+	default:
+		return value
 	}
-	m.responseStyle = args
-	return m, strings.Join([]string{
-		"Style",
-		"active style: " + m.responseStyle,
-		"Style preference is stored for this TUI session.",
-	}, "\n")
+}
+
+func (m model) handleStyleCommand(args string) (model, string, error) {
+	raw := strings.TrimSpace(args)
+	arg := canonicalResponseStyleInput(raw)
+	// Bare `/style` opens the picker at the dispatch layer, so it never
+	// reaches here empty; keep the card as the fallback.
+	if arg == "" || arg == "list" {
+		return m, m.styleText(), nil
+	}
+	if !responseStyleAllowed(arg) {
+		return m, "Estilo\nEstilo desconhecido: " + raw, nil
+	}
+	m.responseStyle = arg
+	saveErr := m.saveResponseStyle()
+	lines := []string{
+		"Estilo",
+		"estilo ativo: " + responseStyleLabel(m.responseStyle),
+	}
+	switch {
+	case saveErr != nil:
+		lines = append(lines, "nota: não foi possível salvar a preferência de estilo ("+saveErr.Error()+")")
+	case strings.TrimSpace(m.userConfigPath) == "":
+		lines = append(lines, "Vale só nesta sessão: sem caminho de config, a preferência não foi salva.")
+	default:
+		lines = append(lines, "Estilo: "+responseStyleLabel(m.responseStyle)+" · salvo")
+	}
+	return m, strings.Join(lines, "\n"), saveErr
+}
+
+// styleAppliedNotice returns the compact confirmation used after a successful
+// style switch. The full state card remains available through /style list.
+func (m model) styleAppliedNotice() string {
+	if strings.TrimSpace(m.userConfigPath) == "" {
+		return "Estilo: " + responseStyleLabel(m.responseStyle) + " · só nesta sessão"
+	}
+	return "Estilo: " + responseStyleLabel(m.responseStyle) + " · salvo"
+}
+
+// saveResponseStyle writes the active style to user config so it is applied
+// again at startup (via Options.SavedResponseStyle). Best-effort: nil means
+// saved, or session-only when there is no config path (not a failure).
+func (m model) saveResponseStyle() error {
+	if strings.TrimSpace(m.userConfigPath) == "" {
+		return nil
+	}
+	_, err := config.SetResponseStyle(m.userConfigPath, m.responseStyle)
+	return err
+}
+
+// styleResultNotice builds the transient confirmation for an applied style
+// from the real persist outcome: a clean save (or session-only scope) keeps
+// the success tone, while a failed write reports it with the warning tone.
+func (m model) styleResultNotice(saveErr error) (string, transientNoticeTone) {
+	if saveErr != nil {
+		return "Estilo: " + responseStyleLabel(m.responseStyle) + " · não salvo (" + shortErrorText(saveErr) + ")", transientNoticeWarning
+	}
+	return m.styleAppliedNotice(), transientNoticeSuccess
+}
+
+// shortErrorText keeps only the first line of an error for inline notices.
+func shortErrorText(err error) string {
+	msg := strings.TrimSpace(err.Error())
+	if i := strings.Index(msg, "\n"); i >= 0 {
+		msg = strings.TrimSpace(msg[:i])
+	}
+	return msg
 }
 
 func (m model) styleText() string {
 	return renderCommandOutput(commandOutput{
-		Title:  "Style",
+		Title:  "Estilo",
 		Status: commandStatusOK,
 		Sections: []commandSection{{
-			Title: "State",
+			Title: "Estado",
 			Lines: []string{
-				"active style: " + m.responseStyle,
-				"available: " + strings.Join(responseStyles, ", "),
+				"estilo ativo: " + responseStyleLabel(m.responseStyle),
+				"disponíveis: balanced (equilibrado), concise (conciso), explanatory (explicativo), review (revisão)",
 			},
 		}},
-		Hints: []string{"use /style <value> to update this TUI session"},
+		Hints: []string{"use /style sem argumento para abrir o seletor, ou /style <valor> para trocar direto"},
 	})
 }
 
@@ -487,186 +419,7 @@ func (m model) handleSelfCorrectCommand(args string) (model, string) {
 	default:
 		return m, "Self-correct\nUsage: /selfcorrect [status|on|off|tests|full|lsp]"
 	}
-	// An explicit choice while a profile is active must survive a later
-	// profile revert, even when it lands on the value the profile applied
-	// (e.g. /selfcorrect off then on under thorough).
-	if m.execProfileName != "" {
-		m.execProfileSelfCorrectTouched = true
-	}
 	return m, m.selfCorrectText()
-}
-
-// maxTurnsCeiling caps the per-session /turns budget so a typo (e.g. /turns 99999)
-// can't set an absurd ceiling; real multi-step tasks fit comfortably under it. Shared
-// with config so applyEnv enforces the same bound on an inherited QG_MAX_TURNS.
-const maxTurnsCeiling = config.MaxTurnsCeiling
-
-func (m model) handleTurnsCommand(args string) (model, string) {
-	args = strings.TrimSpace(args)
-	if args == "" || strings.EqualFold(args, "status") {
-		return m, m.turnsText()
-	}
-	n, err := strconv.Atoi(args)
-	if err != nil || n < 1 {
-		return m, "Turns\nUsage: /turns <n> — set the per-run tool-turn budget for this session (a positive number, e.g. /turns 150)."
-	}
-	if n > maxTurnsCeiling {
-		n = maxTurnsCeiling
-	}
-	m.agentOptions.MaxTurns = n
-	// Propagate the budget to spawned sub-agents / swarm members (which inherit the
-	// environment) so a delegated task gets the same budget, not config.json's default.
-	config.SetMaxTurnsEnv(n)
-	// An explicit /turns while a profile is active is a pinned budget: mirror
-	// headless exec's rule (an explicit --max-turns leaves nothing displaced)
-	// by disarming the escalation's turn target, so a mid-run escalation can
-	// never raise the budget the user just pinned. The other escalation
-	// triggers stay armed. Mark the knob touched so a later profile revert
-	// leaves this choice alone even if n coincides with the profile's value.
-	if m.execProfileName != "" {
-		m.execProfileTurnsTouched = true
-		if m.agentOptions.Profile != nil && m.agentOptions.Profile.Escalate != nil {
-			policy := *m.agentOptions.Profile
-			escalate := *policy.Escalate
-			escalate.MaxTurns = 0
-			policy.Escalate = &escalate
-			m.agentOptions.Profile = &policy
-		}
-	}
-	return m, m.turnsText()
-}
-
-// handleProfileCommand shows or switches the session's execution profile: a
-// loop-posture bundle (turn budget, reasoning effort, self-correction,
-// escalation triggers) applied to the NEXT run, composing with the selected
-// model rather than replacing it. Switching first restores whatever the
-// previous profile displaced (profiles never stack), and balanced IS that
-// restore: the empty profile, so selecting it just clears the posture.
-func (m model) handleProfileCommand(args string) (model, string) {
-	args = strings.TrimSpace(args)
-	if args == "" || strings.EqualFold(args, "status") {
-		return m, m.profileText()
-	}
-	profile, ok := execprofile.Lookup(args)
-	if !ok {
-		return m, "Profile\nUsage: /profile [status|" + strings.Join(execprofile.Names(), "|") + "] — switch the next run's loop posture."
-	}
-	m = m.revertExecProfile()
-	if profile.Name == execprofile.Balanced.Name {
-		return m, m.profileText()
-	}
-	// Turn budget: displace the session's current budget. The displaced value
-	// becomes the escalation restore target, exactly like headless exec, and
-	// the new budget propagates to spawned sub-agents the same way /turns does.
-	displacedMaxTurns := 0
-	if profile.MaxTurns > 0 {
-		displacedMaxTurns = m.agentOptions.MaxTurns
-		m.agentOptions.MaxTurns = profile.MaxTurns
-		m.execProfileAppliedMaxTurns = profile.MaxTurns
-		m.execProfileDisplacedMaxTurns = displacedMaxTurns
-		config.SetMaxTurnsEnv(profile.MaxTurns)
-	}
-	// Reasoning effort: fill only when the session is on auto AND the active
-	// model supports the profile's level, mirroring exec's supported-effort
-	// gating. An explicit user choice always wins over the profile.
-	if want := modelregistry.ReasoningEffort(profile.ReasoningEffort); want != "" && m.reasoningEffort == "" {
-		if reasoningEffortAllowed(m.availableReasoningEfforts(), want) {
-			m.reasoningEffort = want
-			m.execProfileAppliedEffort = want
-		}
-	}
-	// Self-correction is presence-only: a profile can arm it but never disarm
-	// an explicit /selfcorrect choice.
-	if profile.SelfCorrect && !m.selfCorrectTests {
-		m.selfCorrectTests = true
-		m.execProfileArmedSelfCorrect = true
-	}
-	m.agentOptions.Profile = profile.Policy(displacedMaxTurns, m.execProfileAppliedEffort != "")
-	m.execProfileName = profile.Name
-	return m, m.profileText()
-}
-
-// revertExecProfile restores what the active profile displaced. Each knob is
-// restored only when the user has not explicitly touched it since the profile
-// was applied (the touched bits, set by /turns, /effort, Ctrl+T, and
-// /selfcorrect) AND it still holds the value the profile applied — so manual
-// overrides survive the revert even when they coincide with the profile's own
-// value (e.g. /turns 30 under fast, or /selfcorrect off-then-on under
-// thorough).
-func (m model) revertExecProfile() model {
-	if m.execProfileName == "" {
-		return m
-	}
-	if !m.execProfileTurnsTouched && m.execProfileAppliedMaxTurns > 0 && m.agentOptions.MaxTurns == m.execProfileAppliedMaxTurns {
-		m.agentOptions.MaxTurns = m.execProfileDisplacedMaxTurns
-		if m.execProfileDisplacedMaxTurns > 0 {
-			config.SetMaxTurnsEnv(m.execProfileDisplacedMaxTurns)
-		} else {
-			// The profile's apply exported its budget to QG_MAX_TURNS (for
-			// sub-agents), and SetMaxTurnsEnv ignores qg — so restoring a
-			// qg displaced budget must clear the env explicitly or spawned
-			// children would keep the removed profile's budget.
-			_ = os.Unsetenv(config.MaxTurnsEnv)
-		}
-	}
-	if !m.execProfileEffortTouched && m.execProfileAppliedEffort != "" && m.reasoningEffort == m.execProfileAppliedEffort {
-		m.reasoningEffort = ""
-	}
-	if !m.execProfileSelfCorrectTouched && m.execProfileArmedSelfCorrect && m.selfCorrectTests {
-		m.selfCorrectTests = false
-	}
-	m.agentOptions.Profile = nil
-	m.execProfileName = ""
-	m.execProfileDisplacedMaxTurns = 0
-	m.execProfileAppliedMaxTurns = 0
-	m.execProfileAppliedEffort = ""
-	m.execProfileArmedSelfCorrect = false
-	m.execProfileTurnsTouched = false
-	m.execProfileEffortTouched = false
-	m.execProfileSelfCorrectTouched = false
-	return m
-}
-
-func (m model) profileText() string {
-	name := m.execProfileName
-	if name == "" {
-		name = execprofile.Balanced.Name + " (padrão)"
-	}
-	lines := []string{
-		"perfil de execução: " + name,
-		fmt.Sprintf("máximo de turnos de ferramenta por execução: %d", m.agentOptions.MaxTurns),
-		"nível de raciocínio: " + effortDisplayLabel(m.effortDisplay()),
-	}
-	if m.agentOptions.Profile != nil && m.agentOptions.Profile.Escalate != nil {
-		turnTarget := "mantém o orçamento de turnos fixado"
-		if target := m.agentOptions.Profile.Escalate.MaxTurns; target > 0 {
-			turnTarget = fmt.Sprintf("restaura o orçamento de turnos para %d", target)
-		}
-		lines = append(lines,
-			"escalonamento: armado — uma vez, após falhas seguidas de ferramenta, um ciclo de autocorreção que falha ou uma mutação de risco crítico; "+turnTarget,
-			"nota: o sinal de conclusão incerta só existe sem TUI (o portão de conclusão nunca roda no modo interativo), então não dispara aqui")
-	}
-	return renderCommandOutput(commandOutput{
-		Title:  "Perfil",
-		Status: commandStatusOK,
-		Sections: []commandSection{{
-			Title: "Estado",
-			Lines: lines,
-		}},
-		Hints: []string{"use /profile " + strings.Join(execprofile.Names(), "|") + " para alternar a postura da próxima execução (orçamento de turnos, nível, autocorreção, escalonamento); escolha o modelo separadamente com /model"},
-	})
-}
-
-func (m model) turnsText() string {
-	return renderCommandOutput(commandOutput{
-		Title:  "Turns",
-		Status: commandStatusOK,
-		Sections: []commandSection{{
-			Title: "State",
-			Lines: []string{fmt.Sprintf("max tool-turns per run: %d", m.agentOptions.MaxTurns)},
-		}},
-		Hints: []string{fmt.Sprintf("/turns <n> sets this session's tool-turn budget (max %d); raise it for long multi-step tasks like delegation/swarm runs", maxTurnsCeiling)},
-	})
 }
 
 func (m model) selfCorrectText() string {
@@ -732,17 +485,28 @@ func (m model) runCompact() tea.Cmd {
 		}
 	}
 	return func() tea.Msg {
-		next, result, err := m.compactActiveSession()
+		next, result, summaryUsage, err := m.compactActiveSession()
 		if err != nil {
 			return compactResultMsg{err: err}
 		}
-		return compactResultMsg{
+		msg := compactResultMsg{
 			result:             result,
 			activeSession:      next.activeSession,
 			sessionEvents:      append([]sessions.Event{}, next.sessionEvents...),
 			transcript:         append([]transcriptRow{}, next.transcript...),
 			hasSessionSnapshot: true,
 		}
+		// The summarizer request is a real provider call: carry its usage
+		// back to the Update loop, which records it through the same
+		// tracker and provider_usage path as agent turns. The goroutine
+		// must not touch model state itself. A provider that reports no
+		// usage leaves no trace (no empty event).
+		if summaryUsage.TotalTokens() > 0 {
+			msg.compactionUsage = summaryUsage
+			msg.compactionModel = request.ModelName
+			msg.hasCompactionUsage = true
+		}
+		return msg
 	}
 }
 
@@ -982,9 +746,9 @@ func (m model) hasSessionBackedCompactor() bool {
 	return m.sessionStore != nil && strings.TrimSpace(m.activeSession.SessionID) != ""
 }
 
-func (m model) compactActiveSession() (model, CompactResult, error) {
+func (m model) compactActiveSession() (model, CompactResult, qgruntime.Usage, error) {
 	if m.sessionStore == nil || strings.TrimSpace(m.activeSession.SessionID) == "" {
-		return m, CompactResult{}, fmt.Errorf("no active session to compact")
+		return m, CompactResult{}, qgruntime.Usage{}, fmt.Errorf("no active session to compact")
 	}
 	beforeEvents := append([]sessions.Event{}, m.sessionEvents...)
 	beforeTokens := estimateTranscriptTokens(m.transcript)
@@ -993,7 +757,7 @@ func (m model) compactActiveSession() (model, CompactResult, error) {
 		SkipPrompt:   true,
 	})
 	if err != nil {
-		return m, CompactResult{}, err
+		return m, CompactResult{}, qgruntime.Usage{}, err
 	}
 	if plan.CompactableCount == 0 {
 		return m, CompactResult{
@@ -1001,20 +765,20 @@ func (m model) compactActiveSession() (model, CompactResult, error) {
 			BeforeTokens: beforeTokens,
 			AfterTokens:  beforeTokens,
 			Summary:      "not enough session history to compact yet",
-		}, nil
+		}, qgruntime.Usage{}, nil
 	}
 
 	rawEvents, err := m.sessionStore.ReadEvents(m.activeSession.SessionID)
 	if err != nil {
-		return m, CompactResult{}, fmt.Errorf("read session events for compaction: %w", err)
+		return m, CompactResult{}, qgruntime.Usage{}, fmt.Errorf("read session events for compaction: %w", err)
 	}
 	compactableEvents, err := sessionEventsForRefs(rawEvents, plan.CompactableEvents)
 	if err != nil {
-		return m, CompactResult{}, err
+		return m, CompactResult{}, qgruntime.Usage{}, err
 	}
-	summaryResult, err := m.summarizeCompactionPlan(plan, sessions.CompactionMessages(compactableEvents))
+	summaryResult, summaryUsage, err := m.summarizeCompactionPlan(plan, sessions.CompactionMessages(compactableEvents))
 	if err != nil {
-		return m, CompactResult{}, err
+		return m, CompactResult{}, qgruntime.Usage{}, err
 	}
 	// PromptChars counts the text content sent to the provider: the shared
 	// system instruction plus projected message/tool payloads. Provider protocol
@@ -1025,7 +789,7 @@ func (m model) compactActiveSession() (model, CompactResult, error) {
 		Plan:    plan,
 		Summary: summaryResult.SummaryText,
 	}); err != nil {
-		return m, CompactResult{}, err
+		return m, CompactResult{}, qgruntime.Usage{}, err
 	}
 	if meta, err := m.sessionStore.Get(m.activeSession.SessionID); err == nil && meta != nil {
 		m.activeSession = *meta
@@ -1033,7 +797,7 @@ func (m model) compactActiveSession() (model, CompactResult, error) {
 	events, err := m.sessionStore.ReadRehydratedEvents(m.activeSession.SessionID)
 	if err != nil {
 		m.sessionEvents = nil
-		return m, CompactResult{}, fmt.Errorf("reload compacted session: %w", err)
+		return m, CompactResult{}, qgruntime.Usage{}, fmt.Errorf("reload compacted session: %w", err)
 	}
 	m.sessionEvents = append([]sessions.Event{}, events...)
 	rows := initialTranscript()
@@ -1046,7 +810,7 @@ func (m model) compactActiveSession() (model, CompactResult, error) {
 		BeforeTokens: beforeTokens,
 		AfterTokens:  estimateTranscriptTokens(m.transcript),
 		Summary:      summaryResult.SummaryText,
-	}, nil
+	}, summaryUsage, nil
 }
 
 func sessionEventsForRefs(events []sessions.Event, refs []sessions.EventRef) ([]sessions.Event, error) {
@@ -1065,13 +829,22 @@ func sessionEventsForRefs(events []sessions.Event, refs []sessions.EventRef) ([]
 	return selected, nil
 }
 
-func (m model) summarizeCompactionPlan(plan sessions.CompactionPlan, messages []qgruntime.Message) (agent.CompactionSummaryResult, error) {
-	return agent.SummarizeCompactionMessages(messages, func(projected []qgruntime.Message) (string, error) {
+func (m model) summarizeCompactionPlan(plan sessions.CompactionPlan, messages []qgruntime.Message) (agent.CompactionSummaryResult, qgruntime.Usage, error) {
+	var promptChars int
+	var summaryUsage qgruntime.Usage
+	result, err := agent.SummarizeCompactionMessages(messages, func(projected []qgruntime.Message) (string, error) {
 		if m.provider == nil {
 			return deterministicCompactionSummary(plan), nil
 		}
+		// Build the summarizer request exactly like the agent's automatic
+		// compaction: [system, user] with the conversation rendered to plain
+		// text. Forwarding the projected wire messages can end the request
+		// on an assistant tool call or a tool result; with no tools declared
+		// the provider then answers with empty text.
+		requestMessages := agent.CompactionSummaryRequestMessages(projected)
+		promptChars = compactionRequestChars(requestMessages)
 		stream, streamErr := m.provider.StreamCompletion(m.ctx, qgruntime.CompletionRequest{
-			Messages: append([]qgruntime.Message{{Role: qgruntime.MessageRoleSystem, Content: agent.CompactionSummaryInstructions}}, projected...),
+			Messages: requestMessages,
 		})
 		if streamErr != nil {
 			return "", fmt.Errorf("summarize compacted session: %w", streamErr)
@@ -1080,12 +853,40 @@ func (m model) summarizeCompactionPlan(plan sessions.CompactionPlan, messages []
 		if collected.Error != "" {
 			return "", fmt.Errorf("summarize compacted session: %s", collected.Error)
 		}
+		// The summary request is a compaction-summarizer call like the
+		// agent's automatic compaction: tag it so its cost still counts
+		// while the session-cache stats skip it.
+		summaryUsage = collected.Usage
+		summaryUsage.Summarizer = true
 		result := strings.TrimSpace(collected.Text)
 		if result == "" {
 			return "", fmt.Errorf("summarize compacted session: empty summary")
 		}
 		return result, nil
 	})
+	if err != nil {
+		return result, qgruntime.Usage{}, err
+	}
+	if promptChars > 0 {
+		// ProjectedChars feeds plan.PromptChars below: count what was actually
+		// sent (system instruction plus rendered user message), not the
+		// projected wire messages.
+		result.ProjectedChars = promptChars - len(agent.CompactionSummaryInstructions)
+	}
+	return result, summaryUsage, nil
+}
+
+// compactionRequestChars counts the text content of a provider request,
+// excluding protocol framing.
+func compactionRequestChars(messages []qgruntime.Message) int {
+	total := 0
+	for _, message := range messages {
+		total += len(message.Content)
+		for _, call := range message.ToolCalls {
+			total += len(call.Name) + len(call.Arguments)
+		}
+	}
+	return total
 }
 
 func deterministicCompactionSummary(plan sessions.CompactionPlan) string {
@@ -1161,6 +962,54 @@ func (m model) setCompactStatusRow(text string) model {
 		}
 	}
 	m.transcript = appendTranscriptRow(m.transcript, row)
+	return m
+}
+
+// recordCompactionUsage records the compaction summarizer's provider call
+// through the same path as agent turns: the usage tracker (so the call's
+// cost counts) plus a provider_usage session event in the agent's format,
+// labeled with the model id like every other call. The summarizer tag is
+// what identifies the compaction; it keeps the call out of the
+// session-cache stats, exactly like the agent's automatic compaction. The
+// receipt row goes to the live transcript too, so the live view matches
+// the resumed one. Must run on the Update loop, never in runCompact's
+// goroutine.
+func (m model) recordCompactionUsage(modelID string, event qgruntime.Usage) model {
+	callModelID := strings.TrimSpace(event.ModelID)
+	if callModelID == "" {
+		callModelID = strings.TrimSpace(modelID)
+	}
+	if callModelID == "" {
+		callModelID = strings.TrimSpace(m.modelName)
+	}
+	if callModelID == "" {
+		return m
+	}
+	event.Summarizer = true
+	var info qgaccount.ModelInfo
+	if found := m.apiModel(callModelID); found != nil {
+		info = *found
+	}
+	receipt := callUsageRow(0, m.compactRequests, callModelID, event, info)
+	m.transcript = appendTranscriptRow(m.transcript, receipt)
+	m, usageRows := m.recordUsageEvent(callModelID, event, receipt)
+	for _, row := range usageRows {
+		m.transcript = appendTranscriptRow(m.transcript, row)
+	}
+	payload := usage.EventUsagePayload(event)
+	payload["model"] = callModelID
+	payload["summarizer"] = true
+	payload["call_id"] = receipt.id
+	payload["call_label"] = receipt.text
+	payload["call_tokens"] = receipt.meta["tokens"]
+	payload["cost_exact"] = receipt.meta["amount"]
+	payload["cost_currency"] = receipt.meta["currency"]
+	payload["call_elapsed_ns"] = event.Elapsed.Nanoseconds()
+	var err error
+	m, err = m.appendSessionEvent(sessions.EventUsage, payload)
+	if err != nil {
+		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowError, text: "erro ao gravar a sessão: " + err.Error()})
+	}
 	return m
 }
 

@@ -5,16 +5,18 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/errhint"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgaccount"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
-const goalContinuationPrompt = "Continue pursuing the active goal. Review the existing session context, make concrete progress, and use update_goal when the objective is complete or genuinely blocked."
+const goalContinuationPrompt = "Continue the active goal from where you stopped. Your earlier work and tool results are in the context above: do not re-read files or re-run checks you already did unless something changed since. If the objective is already achieved and verified, call update_goal with complete now. Otherwise make concrete progress and call update_goal when the objective is complete or genuinely blocked."
 
 func (m model) handleGoalCommand(args string) (model, tea.Cmd) {
 	action, rest := splitGoalCommand(args)
@@ -147,16 +149,42 @@ func parseGoalObjective(input string) (string, int, error) {
 			return "", 0, fmt.Errorf("o orçamento de tokens da meta deve ser um inteiro não negativo")
 		}
 		budget = value
-		input = strings.TrimSpace(strings.Join(fields[2:], " "))
+		// Strip only the "--tokens N" prefix, preserving the rest of the
+		// text verbatim, so a multi-line goal keeps its line breaks.
+		input = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(input[len("--tokens"):]), fields[1]))
 	}
 	if input == "" {
 		return "", 0, fmt.Errorf("é preciso informar o objetivo da meta")
+	}
+	if count := utf8.RuneCountInString(input); count > sessions.GoalObjectiveMaxLength {
+		return "", 0, fmt.Errorf(
+			"o objetivo tem %s caracteres e o limite é %s; coloque os detalhes num arquivo (ex.: SPEC.md) e cite o arquivo na meta",
+			qgaccount.GroupThousands(strconv.Itoa(count)),
+			qgaccount.GroupThousands(strconv.Itoa(sessions.GoalObjectiveMaxLength)),
+		)
 	}
 	return input, budget, nil
 }
 
 func goalBudgetSpecified(input string) bool {
 	return strings.HasPrefix(strings.TrimSpace(input), "--tokens")
+}
+
+// goalContinuationSummary renders the "Continuando meta:" row: only the
+// first non-empty line, cut at 80 runes with "…" when truncated, so a
+// long multi-line objective does not flood the transcript on every
+// continuation.
+func goalContinuationSummary(objective string) string {
+	for _, line := range strings.Split(objective, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			runes := []rune(trimmed)
+			if len(runes) <= 80 {
+				return trimmed
+			}
+			return string(runes[:80]) + "…"
+		}
+	}
+	return strings.TrimSpace(objective)
 }
 
 func (m model) appendGoalStatus() model {
@@ -288,8 +316,9 @@ func (m model) goalSystemPrompt(base string) string {
 	instruction := fmt.Sprintf(
 		"Persistent goal for this session:\nObjective: %s\nStatus: %s\n"+
 			"When the status is active, keep pursuing this objective across turns. "+
-			"Call update_goal with complete only after the objective is genuinely achieved, "+
-			"or blocked with a concrete reason when progress requires user input or an external change.",
+			"As soon as the objective is achieved and verified, call update_goal with status complete in that same turn, before your final answer; "+
+			"ending a turn without update_goal makes the session send you an automatic continuation. "+
+			"Call update_goal with blocked and a concrete reason only when progress requires user input or an external change.",
 		goal.Objective,
 		goal.Status,
 	)
@@ -329,7 +358,7 @@ func (m model) launchGoalContinuationIfReady() (model, tea.Cmd) {
 	goal = updated.Goal
 	m.transcript = appendTranscriptRow(m.transcript, transcriptRow{
 		kind: rowSystem,
-		text: "Continuando meta: " + goal.Objective,
+		text: "Continuando meta: " + goalContinuationSummary(goal.Objective),
 	})
 	prompt := m.sessionPrompt(goalContinuationPrompt)
 	m, err = m.appendSessionEvent(sessions.EventMessage, map[string]any{

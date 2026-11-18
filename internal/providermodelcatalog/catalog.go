@@ -14,8 +14,6 @@ type Model struct {
 	Reasoning              bool
 	ReasoningEfforts       []string
 	DefaultReasoningEffort string
-	ServiceTiers           []string
-	DefaultServiceTier     string
 	InputModalities        []string
 	OutputModalities       []string
 	InputCost              float64
@@ -71,7 +69,6 @@ func dedupeModels(defaultModel string, models []Model) []Model {
 		model.InputModalities = append([]string{}, model.InputModalities...)
 		model.OutputModalities = append([]string{}, model.OutputModalities...)
 		model.ReasoningEfforts = append([]string{}, model.ReasoningEfforts...)
-		model.ServiceTiers = append([]string{}, model.ServiceTiers...)
 		model.Tags = append([]string{}, model.Tags...)
 		seen[model.ID] = true
 		result = append(result, model)

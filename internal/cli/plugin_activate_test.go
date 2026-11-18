@@ -307,10 +307,23 @@ func TestSkillInfosCarriesEnvironments(t *testing.T) {
 		t.Fatal(err)
 	}
 	infos := pluginActivation{}.skillInfos(dir)
-	if len(infos) != 1 {
-		t.Fatalf("expected one skill, got %+v", infos)
+	fooIdx := -1
+	var hasComputerUse bool
+	for i := range infos {
+		switch infos[i].Name {
+		case "foo":
+			fooIdx = i
+		case "computer-use":
+			hasComputerUse = true
+		}
 	}
-	if len(infos[0].Environments) != 1 || infos[0].Environments[0] != "FOO_SOCKET" {
-		t.Fatalf("environments not mapped, got %+v", infos[0])
+	if !hasComputerUse {
+		t.Fatalf("expected built-in computer-use skill in %+v", infos)
+	}
+	if fooIdx < 0 {
+		t.Fatalf("expected foo skill in %+v", infos)
+	}
+	if len(infos[fooIdx].Environments) != 1 || infos[fooIdx].Environments[0] != "FOO_SOCKET" {
+		t.Fatalf("environments not mapped, got %+v", infos[fooIdx])
 	}
 }

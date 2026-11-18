@@ -53,6 +53,7 @@ type Options struct {
 	FavoriteModels       []string
 	RecentModels         []config.RecentModelEntry
 	RecapsEnabled        bool
+	LocalControl         config.LocalControlConfig
 	// CompactionModel is the resolved preferences.compactionModel value; see
 	// providers.CompactionModelID for how it combines with the env override
 	// (no curated default: empty means the main model).
@@ -131,6 +132,11 @@ type Options struct {
 	// SavedTheme is the theme persisted in user config (Preferences.Theme). Applied
 	// at startup below --theme and QG_THEME, so a /theme choice survives restart.
 	SavedTheme string
+	// SavedResponseStyle is the reply style persisted in user config
+	// (Preferences.ResponseStyle). Applied at startup below an explicit
+	// ResponseStyle, so a /style choice survives restart. Empty or unknown
+	// values fall back to concise.
+	SavedResponseStyle string
 	// UpdateNotice configures the quiet footer notice about a new release:
 	// current version, detected install method, env, and npm endpoint. Nil
 	// disables the check and the notice.

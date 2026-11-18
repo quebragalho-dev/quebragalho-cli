@@ -17,7 +17,7 @@ import (
 
 const (
 	DefaultBrowserDriver  = "agent-browser"
-	DefaultDesktopDriver  = "cua-driver"
+	DefaultDesktopDriver  = "agent-desktop"
 	DefaultTerminalDriver = "tuistory"
 	DefaultTimeout        = 30 * time.Second
 	EnvHelperManifest     = "QG_LOCAL_CONTROL_HELPERS"
@@ -32,6 +32,7 @@ type HelperOptions struct {
 	MissingHint     string
 	Timeout         time.Duration
 	Runner          CommandRunner
+	Ensure          func(ctx context.Context) (string, error)
 }
 
 type BrowserOptions = HelperOptions
@@ -63,6 +64,13 @@ func (result CommandResult) Output() string {
 
 type CommandRunner interface {
 	Run(ctx context.Context, path string, args []string, env []string, timeout time.Duration) (CommandResult, error)
+}
+
+// StdinCommandRunner is an optional CommandRunner extension for helpers that
+// accept text on standard input (such as agent-desktop --stdin).
+type StdinCommandRunner interface {
+	CommandRunner
+	RunWithStdin(ctx context.Context, path string, args []string, env []string, stdin string, timeout time.Duration) (CommandResult, error)
 }
 
 type ResolvedHelper struct {
@@ -112,8 +120,8 @@ func NewDesktop(options DesktopOptions) Desktop {
 		options.Driver = DefaultDesktopDriver
 	}
 	options.ConfigPath = "localControl.desktop.helperPath"
-	options.DisabledMessage = "local desktop control is disabled; enable localControl.desktop.enabled in user config"
-	options.MissingHint = "install cua-driver or set localControl.desktop.helperPath"
+	options.DisabledMessage = "local desktop control is disabled by user config"
+	options.MissingHint = "install agent-desktop or set localControl.desktop.helperPath"
 	return Desktop{helper: NewHelper(options)}
 }
 
@@ -132,23 +140,43 @@ func (helper Helper) Enabled() bool {
 }
 
 func (helper Helper) Run(ctx context.Context, args ...string) (CommandResult, error) {
+	resolved, runArgs, err := helper.prepareRun(ctx, args)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	return helper.options.Runner.Run(ctx, resolved.Command, runArgs, resolved.Env, helper.options.Timeout)
+}
+
+func (helper Helper) RunWithStdin(ctx context.Context, stdin string, args ...string) (CommandResult, error) {
+	resolved, runArgs, err := helper.prepareRun(ctx, args)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	stdinRunner, ok := helper.options.Runner.(StdinCommandRunner)
+	if !ok {
+		return CommandResult{}, fmt.Errorf("%s helper runner does not support stdin", helper.helperLabel())
+	}
+	return stdinRunner.RunWithStdin(ctx, resolved.Command, runArgs, resolved.Env, stdin, helper.options.Timeout)
+}
+
+func (helper Helper) prepareRun(ctx context.Context, args []string) (ResolvedHelper, []string, error) {
 	if !helper.options.Enabled {
 		message := strings.TrimSpace(helper.options.DisabledMessage)
 		if message == "" {
 			message = "local control helper is disabled"
 		}
-		return CommandResult{}, errors.New(message)
+		return ResolvedHelper{}, nil, errors.New(message)
 	}
-	resolved, err := helper.resolvedHelper()
+	resolved, err := helper.resolvedHelper(ctx)
 	if err != nil {
-		return CommandResult{}, err
+		return ResolvedHelper{}, nil, err
 	}
 	runArgs := append([]string{}, resolved.PrefixArgs...)
 	runArgs = append(runArgs, args...)
-	return helper.options.Runner.Run(ctx, resolved.Command, runArgs, resolved.Env, helper.options.Timeout)
+	return resolved, runArgs, nil
 }
 
-func (helper Helper) resolvedHelper() (ResolvedHelper, error) {
+func (helper Helper) resolvedHelper(ctx context.Context) (ResolvedHelper, error) {
 	label := helper.helperLabel()
 	if helperPath := strings.TrimSpace(helper.options.HelperPath); helperPath != "" {
 		if !filepath.IsAbs(helperPath) {
@@ -174,6 +202,25 @@ func (helper Helper) resolvedHelper() (ResolvedHelper, error) {
 	if resolved, ok, err := adjacentHelper(driver); ok || err != nil {
 		return resolved, err
 	}
+	if helper.options.Ensure != nil {
+		ensuredPath, err := helper.options.Ensure(ctx)
+		if err != nil {
+			return ResolvedHelper{}, err
+		}
+		if ensuredPath = strings.TrimSpace(ensuredPath); ensuredPath != "" {
+			if !filepath.IsAbs(ensuredPath) {
+				abs, err := filepath.Abs(ensuredPath)
+				if err != nil {
+					return ResolvedHelper{}, fmt.Errorf("resolve %s helper path: %w", label, err)
+				}
+				ensuredPath = abs
+			}
+			if err := validateHelperFile(label, ensuredPath); err != nil {
+				return ResolvedHelper{}, err
+			}
+			return ResolvedHelper{Command: ensuredPath}, nil
+		}
+	}
 	path, err := exec.LookPath(driver)
 	if err != nil {
 		hint := strings.TrimSpace(helper.options.MissingHint)
@@ -198,11 +245,150 @@ func (browser Browser) Enabled() bool {
 }
 
 func (browser Browser) Run(ctx context.Context, args ...string) (CommandResult, error) {
-	return browser.helper.Run(ctx, args...)
+	resolved, runArgs, err := browser.helper.prepareRun(ctx, args)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	env, err := browser.prepareEnv(resolved.Env)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	return browser.helper.options.Runner.Run(ctx, resolved.Command, runArgs, env, browser.helper.options.Timeout)
+}
+
+func (browser Browser) prepareEnv(resolvedEnv []string) ([]string, error) {
+	driver := strings.TrimSpace(browser.helper.options.Driver)
+	if (driver != "" && driver != DefaultBrowserDriver) || strings.TrimSpace(browser.helper.options.HelperPath) != "" {
+		return resolvedEnv, nil
+	}
+	switch browserGOOS {
+	case "linux":
+		return prepareLinuxSnapBrowserEnv(resolvedEnv)
+	case "windows":
+		return prepareWindowsEdgeBrowserEnv(resolvedEnv), nil
+	default:
+		return resolvedEnv, nil
+	}
+}
+
+func prepareLinuxSnapBrowserEnv(resolvedEnv []string) ([]string, error) {
+	if !snapChromiumExists() {
+		return resolvedEnv, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return resolvedEnv, nil
+	}
+	snapRoot := filepath.Join(home, "snap", "chromium")
+	if isSubpathOf(snapRoot, effectiveEnvValue(resolvedEnv, "TMPDIR")) {
+		return resolvedEnv, nil
+	}
+	tmpDir := filepath.Join(snapRoot, "common", "qg-agent-browser-tmp")
+	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+		return nil, fmt.Errorf("criar pasta temporária do navegador para o Chromium snap (%s): %w", tmpDir, err)
+	}
+	return mergeEnv(resolvedEnv, []string{"TMPDIR=" + tmpDir}), nil
+}
+
+func prepareWindowsEdgeBrowserEnv(resolvedEnv []string) []string {
+	if strings.TrimSpace(effectiveEnvValue(resolvedEnv, "AGENT_BROWSER_EXECUTABLE_PATH")) != "" {
+		return resolvedEnv
+	}
+	if windowsHasAgentBrowserChrome(resolvedEnv) {
+		return resolvedEnv
+	}
+	edgePath := windowsFindEdgeExecutable()
+	if edgePath == "" {
+		return resolvedEnv
+	}
+	return mergeEnv(resolvedEnv, []string{"AGENT_BROWSER_EXECUTABLE_PATH=" + edgePath})
+}
+
+func windowsHasAgentBrowserChrome(resolvedEnv []string) bool {
+	if userProfile := strings.TrimSpace(effectiveEnvValue(resolvedEnv, "USERPROFILE")); userProfile != "" {
+		browsersDir := joinWindowsPath(userProfile, ".agent-browser", "browsers")
+		if entries, err := browserReadDirNames(browsersDir); err == nil {
+			for _, entry := range entries {
+				if entry != "" && browserFileExists(joinWindowsPath(browsersDir, entry, "chrome-win64", "chrome.exe")) {
+					return true
+				}
+			}
+		}
+	}
+	candidates := []string{
+		`C:\Program Files\Google\Chrome\Application\chrome.exe`,
+		`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`,
+	}
+	if localAppData := strings.TrimSpace(effectiveEnvValue(resolvedEnv, "LOCALAPPDATA")); localAppData != "" {
+		candidates = append(candidates,
+			joinWindowsPath(localAppData, "Google", "Chrome", "Application", "chrome.exe"),
+			joinWindowsPath(localAppData, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+		)
+	}
+	for _, p := range candidates {
+		if browserFileExists(p) {
+			return true
+		}
+	}
+	return false
+}
+
+func windowsFindEdgeExecutable() string {
+	for _, p := range []string{
+		`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
+		`C:\Program Files\Microsoft\Edge\Application\msedge.exe`,
+	} {
+		if browserFileExists(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+func joinWindowsPath(base string, elem ...string) string {
+	out := strings.TrimRight(base, `\/`)
+	for _, part := range elem {
+		part = strings.Trim(part, `\/`)
+		if part == "" {
+			continue
+		}
+		if out == "" {
+			out = part
+		} else {
+			out += `\` + part
+		}
+	}
+	return out
+}
+
+func effectiveEnvValue(overlay []string, key string) string {
+	want := normalizeEnvKey(key)
+	for i := len(overlay) - 1; i >= 0; i-- {
+		if k, v, ok := strings.Cut(overlay[i], "="); ok && normalizeEnvKey(k) == want {
+			return v
+		}
+	}
+	return os.Getenv(key)
+}
+
+func isSubpathOf(baseDir, candidate string) bool {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" || !filepath.IsAbs(candidate) {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(baseDir), filepath.Clean(candidate))
+	if err != nil {
+		return false
+	}
+	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func (desktop Desktop) Run(ctx context.Context, args ...string) (CommandResult, error) {
 	return desktop.helper.Run(ctx, args...)
+}
+
+func (desktop Desktop) RunWithStdin(ctx context.Context, stdin string, args ...string) (CommandResult, error) {
+	return desktop.helper.RunWithStdin(ctx, stdin, args...)
 }
 
 func (desktop Desktop) Enabled() bool {
@@ -219,9 +405,38 @@ func (terminal Terminal) Enabled() bool {
 
 type ExecRunner struct{}
 
-var executablePath = os.Executable
+var (
+	executablePath    = os.Executable
+	browserGOOS       = runtime.GOOS
+	browserFileExists = func(path string) bool {
+		info, err := os.Stat(path)
+		return err == nil && !info.IsDir()
+	}
+	browserReadDirNames = func(dir string) ([]string, error) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return nil, err
+		}
+		names := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		return names, nil
+	}
+	snapChromiumExists = func() bool {
+		return browserFileExists("/snap/bin/chromium")
+	}
+)
 
-func (ExecRunner) Run(ctx context.Context, path string, args []string, env []string, timeout time.Duration) (CommandResult, error) {
+func (r ExecRunner) Run(ctx context.Context, path string, args []string, env []string, timeout time.Duration) (CommandResult, error) {
+	return r.run(ctx, path, args, env, "", false, timeout)
+}
+
+func (r ExecRunner) RunWithStdin(ctx context.Context, path string, args []string, env []string, stdin string, timeout time.Duration) (CommandResult, error) {
+	return r.run(ctx, path, args, env, stdin, true, timeout)
+}
+
+func (ExecRunner) run(ctx context.Context, path string, args []string, env []string, stdin string, hasStdin bool, timeout time.Duration) (CommandResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -233,6 +448,9 @@ func (ExecRunner) Run(ctx context.Context, path string, args []string, env []str
 
 	cmd := exec.CommandContext(runCtx, path, args...)
 	cmd.Env = mergeEnv(os.Environ(), env)
+	if hasStdin {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -390,7 +608,7 @@ func manifestEnv(entry manifestEntry) []string {
 }
 
 func normalizeEnvKey(key string) string {
-	if runtime.GOOS == "windows" {
+	if browserGOOS == "windows" {
 		return strings.ToUpper(key)
 	}
 	return key

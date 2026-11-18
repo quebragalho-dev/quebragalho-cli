@@ -200,9 +200,6 @@ func (m model) statusLine(width int) string {
 		return m.statusReadout(left, width)
 	}
 
-	if m.activeServiceTier() == "priority" {
-		left += qgTheme.muted.Render(" · ") + qgTheme.accent.Render("rápido")
-	}
 	showWorkspace := false
 	if m.exitConfirmActive {
 		left = prefix + btwChip + qgTheme.amber.Render("●") + " " + qgTheme.amber.Render(ctrlCExitConfirmText)
@@ -645,83 +642,84 @@ func (m model) pickerOverlay(width int) string {
 		overlayWidth = width
 	}
 	innerWidth := maxInt(1, overlayWidth-4)
-	maxVisible := pickerMaxVisible(m.picker, width)
+	showDetails := pickerShowsDetails(m.picker, width)
 	start := 0
 	visible := []pickerItem{}
+	upMore, downMore := 0, 0
+	compact := false
+	details := showDetails
 	if len(m.picker.items) > 0 {
 		m.picker.selected = clampInt(m.picker.selected, 0, len(m.picker.items)-1)
-		start = selectableListStart(len(m.picker.items), maxVisible, m.picker.selected)
-		visible = m.picker.items[start : start+maxVisible]
+		if m.picker.kind == pickerConfig {
+			// The /config panel budgets display rows (items plus section
+			// headers and detail lines) from the frame body it actually
+			// occupies instead of the fixed item cap, so every row that
+			// fits is shown and the viewport never clips the panel top.
+			// When not even the selection fits beside the chrome, fall
+			// back to a compact title frame around the selection.
+			compact, start, visible, upMore, downMore, details = m.configPickerPlan(width, showDetails)
+		} else {
+			maxVisible := pickerMaxVisible(m.picker, width)
+			start = selectableListStart(len(m.picker.items), maxVisible, m.picker.selected)
+			visible = m.picker.items[start : start+maxVisible]
+		}
 	}
-	showDetails := pickerShowsDetails(m.picker, width)
 
 	lines := make([]string, 0, len(visible)+7)
 	title := strings.TrimSpace(m.picker.title)
-	// A visible "search > …" line so typing to filter shows what you've typed,
-	// matching the /model picker. Followed by a separator, then the rows.
-	lines = append(lines, renderPickerSearchLine(m.picker.query, "digite para filtrar…", innerWidth))
-	lines = append(lines, qgTheme.line.Render(strings.Repeat("─", innerWidth)))
-	// The voice first-use panel explains itself above the rows; every other
-	// picker leaves header empty, so this renders nothing for them.
-	for _, headerLine := range m.picker.wrappedHeader(innerWidth) {
-		lines = append(lines, qgTheme.faint.Render(headerLine))
-	}
-	lastGroup := ""
-	for index, item := range visible {
-		absoluteIndex := start + index
-		if item.Group != "" && item.Group != lastGroup {
-			lines = append(lines, qgTheme.accent.Render(item.Group))
-			lastGroup = item.Group
+	if compact {
+		// Compact title frame: only the selection fits beside the title,
+		// so both paging sides share a single line and headers, details
+		// and chrome give way.
+		if upMore > 0 || downMore > 0 {
+			lines = append(lines, renderConfigPickerPagingLine(upMore, downMore, innerWidth))
 		}
-		surface := transparentSurface
-		marker := surface(qgTheme.faintest).Render("  ")
-		if absoluteIndex == m.picker.selected {
-			surface = qgTheme.onSel
-			marker = surface(qgTheme.accent).Render("❯ ")
+		if len(visible) > 0 {
+			lines = append(lines, renderPickerItemLines(visible[0], true, innerWidth, false)...)
 		}
-		left := marker
-		switch {
-		case item.Local:
-			left += surface(qgTheme.blue).Render("● ")
-		case item.Remote:
-			left += surface(qgTheme.accent).Render("● ")
+	} else {
+		// A visible "search > …" line so typing to filter shows what you've typed,
+		// matching the /model picker. Followed by a separator, then the rows.
+		lines = append(lines, renderPickerSearchLine(m.picker.query, "digite para filtrar…", innerWidth))
+		lines = append(lines, qgTheme.line.Render(strings.Repeat("─", innerWidth)))
+		// The voice first-use panel explains itself above the rows; every other
+		// picker leaves header empty, so this renders nothing for them.
+		for _, headerLine := range m.picker.wrappedHeader(innerWidth) {
+			lines = append(lines, qgTheme.faint.Render(headerLine))
 		}
-		if item.Favorite {
-			left += surface(qgTheme.accent).Render("* ")
+		// Both paging sides share one line, so the freed row fits one more
+		// item beside the selection.
+		if upMore > 0 || downMore > 0 {
+			lines = append(lines, renderConfigPickerPagingLine(upMore, downMore, innerWidth))
 		}
-		left += surface(qgTheme.ink).Render(item.Label)
-		right := ""
-		if item.Meta != "" {
-			right = surface(qgTheme.faintest).Render(item.Meta)
+		lastGroup := ""
+		for index, item := range visible {
+			absoluteIndex := start + index
+			if item.Group != "" && item.Group != lastGroup {
+				lines = append(lines, qgTheme.accent.Render(item.Group))
+				lastGroup = item.Group
+			}
+			lines = append(lines, renderPickerItemLines(item, absoluteIndex == m.picker.selected, innerWidth, details)...)
 		}
-		// Paint the gap on the row surface so selected rows read as one solid
-		// band; joinHeaderLine would pad with bare (untinted) spaces.
-		gap := innerWidth - lipgloss.Width(left) - lipgloss.Width(right)
-		line := left + surface(qgTheme.ink).Render(strings.Repeat(" ", maxInt(1, gap))) + right
-		lines = append(lines, fitStyledLine(line, innerWidth))
-		if showDetails && item.Detail != "" {
-			// The detail line sits under the row on the same selection band,
-			// indented to the label column so it reads as part of the item.
-			// Pad the remainder like the row above so the band is full-width.
-			detailText := "  " + item.Detail
-			detailGap := innerWidth - lipgloss.Width(detailText)
-			detail := surface(qgTheme.faint).Render(detailText) +
-				surface(qgTheme.faint).Render(strings.Repeat(" ", maxInt(0, detailGap)))
-			lines = append(lines, fitStyledLine(detail, innerWidth))
+		if len(visible) == 0 {
+			if m.picker.loading {
+				lines = append(lines, qgTheme.faint.Render("Buscando modelos disponíveis…"))
+			} else {
+				lines = append(lines, qgTheme.faint.Render("  nenhum item encontrado"))
+			}
 		}
 	}
-	if len(visible) == 0 {
-		if m.picker.loading {
-			lines = append(lines, qgTheme.faint.Render("Buscando modelos disponíveis…"))
-		} else {
-			lines = append(lines, qgTheme.faint.Render("  nenhum item encontrado"))
-		}
+	if compact {
+		return centerRenderedBlock(styledBlockFillTitle(overlayWidth, title, lines, qgTheme.lineStrong, lipgloss.NewStyle()), width)
 	}
 	// Hints live in the footer (a separator + faint keys), matching the /model
 	// picker and the other bordered boxes.
 	lines = append(lines, qgTheme.line.Render(strings.Repeat("─", innerWidth)))
 	footer := qgTheme.faint.Render("↑/↓ mover   Enter selecionar   Esc fechar")
-	if m.picker.kind == pickerSession {
+	switch m.picker.kind {
+	case pickerConfig:
+		footer = renderConfigPickerFooter(innerWidth)
+	case pickerSession:
 		position := 0
 		if len(m.picker.items) > 0 {
 			position = clampInt(m.picker.selected, 0, len(m.picker.items)-1) + 1
@@ -747,6 +745,171 @@ func pickerShowsDetails(p *commandPicker, width int) bool {
 		}
 	}
 	return false
+}
+
+// configPickerChromeRows is the /config overlay chrome surrounding its rows:
+// the search line, two separators, the footer, and the titled top+bottom
+// borders. The row budget is whatever the terminal height leaves after them.
+const configPickerChromeRows = 6
+
+// overlayBodyHeight returns the frame body height an overlay really occupies:
+// the terminal height minus the pinned title bar and the footer. It mirrors
+// the frame transcriptView composites into, so a budgeted overlay always fits
+// the viewport instead of overflowing past it (which bottom-anchors the cut
+// onto the overlay top). With no known height, report huge so callers show
+// everything rather than clipping blindly.
+func (m model) overlayBodyHeight(width int) int {
+	if m.height <= 0 {
+		return 1 << 30
+	}
+	return m.scrollableTranscriptFrame(m.pinnedTitleBar(width), m.footerView(width)).bodyHeight
+}
+
+// configPickerWindow slices the visible /config items so their rendered rows
+// (section headers, items, detail lines) plus the paging indicators fit
+// maxRows, following the selection. It returns the window start, the visible
+// items, and how many items hide above/below the window.
+// configPickerNeed counts the paging lines a window needs: both hidden sides
+// share a single faint line, so it is ever 0 or 1.
+func configPickerNeed(start, end, total int) int {
+	if start > 0 || end < total {
+		return 1
+	}
+	return 0
+}
+
+func configPickerWindow(items []pickerItem, selected, maxRows int, showDetails bool) (int, []pickerItem, int, int) {
+	total := len(items)
+	if total == 0 || maxRows <= 0 {
+		return 0, nil, 0, 0
+	}
+	selected = clampInt(selected, 0, total-1)
+	count := minInt(total, maxInt(1, maxRows))
+	// The shared anchor assumes room for three rows above the selection; with
+	// tiny windows that pushes the start past the selection itself, so clamp
+	// the anchor to the window. Trims below only drop rows away from the
+	// selection, so it stays inside [start, end) throughout.
+	anchor := minInt(selectableListAnchorRow, maxInt(0, count-1))
+	start := clampInt(selected-anchor, 0, total-count)
+	end := start + count
+	for end-start > 1 && configPickerRows(items, start, end, showDetails)+configPickerNeed(start, end, total) > maxRows {
+		if end-1 > selected {
+			end--
+		} else {
+			start++
+		}
+	}
+	return start, items[start:end], start, total - end
+}
+
+// renderPickerItemLines renders one overlay row with its optional Detail line:
+// the selection marker, provider dots, label, right metadata and the indented
+// detail on the same selection band.
+func renderPickerItemLines(item pickerItem, selected bool, innerWidth int, showDetails bool) []string {
+	surface := transparentSurface
+	marker := surface(qgTheme.faintest).Render("  ")
+	if selected {
+		surface = qgTheme.onSel
+		marker = surface(qgTheme.accent).Render("❯ ")
+	}
+	left := marker
+	switch {
+	case item.Local:
+		left += surface(qgTheme.blue).Render("● ")
+	case item.Remote:
+		left += surface(qgTheme.accent).Render("● ")
+	}
+	if item.Favorite {
+		left += surface(qgTheme.accent).Render("* ")
+	}
+	left += surface(qgTheme.ink).Render(item.Label)
+	right := ""
+	if item.Meta != "" {
+		right = surface(qgTheme.faintest).Render(item.Meta)
+	}
+	// Paint the gap on the row surface so selected rows read as one solid
+	// band; joinHeaderLine would pad with bare (untinted) spaces.
+	gap := innerWidth - lipgloss.Width(left) - lipgloss.Width(right)
+	out := []string{fitStyledLine(left+surface(qgTheme.ink).Render(strings.Repeat(" ", maxInt(1, gap)))+right, innerWidth)}
+	if showDetails && item.Detail != "" {
+		// The detail line sits under the row on the same selection band,
+		// indented to the label column so it reads as part of the item.
+		// Pad the remainder like the row above so the band is full-width.
+		detailText := "  " + item.Detail
+		detailGap := innerWidth - lipgloss.Width(detailText)
+		detail := surface(qgTheme.faint).Render(detailText) +
+			surface(qgTheme.faint).Render(strings.Repeat(" ", maxInt(0, detailGap)))
+		out = append(out, fitStyledLine(detail, innerWidth))
+	}
+	return out
+}
+
+// renderConfigPickerPagingLine renders the compact panel's single paging
+// line: both hidden sides merged when the selection sits in the middle.
+func renderConfigPickerPagingLine(upMore, downMore, innerWidth int) string {
+	var text string
+	switch {
+	case upMore > 0 && downMore > 0:
+		text = "↑ mais " + strconv.Itoa(upMore) + " · ↓ mais " + strconv.Itoa(downMore)
+	case upMore > 0:
+		text = "↑ mais " + strconv.Itoa(upMore)
+	case downMore > 0:
+		text = "↓ mais " + strconv.Itoa(downMore)
+	default:
+		text = ""
+	}
+	if text == "" {
+		return ""
+	}
+	return fitStyledLine(qgTheme.faint.Render(text), innerWidth)
+}
+
+// configPickerPlan decides how the /config panel renders in the given width:
+// the full window (search line, section headers, detail lines, separate
+// paging lines) when its rows fit the frame body, else a compact title frame
+// around the selection with a single paging line. Either way the selection is
+// visible and the overlay fits the body, so the title never scrolls off.
+func (m model) configPickerPlan(width int, showDetails bool) (bool, int, []pickerItem, int, int, bool) {
+	if len(m.picker.items) == 0 {
+		return false, 0, nil, 0, 0, showDetails
+	}
+	selected := clampInt(m.picker.selected, 0, len(m.picker.items)-1)
+	body := m.overlayBodyHeight(width)
+	// Paging sides share a single line, so the full frame needs the selected
+	// block beside the chrome plus at most one indicator line. Details give
+	// way when they are what overflows; compact is only for bodies where not
+	// even the bare selection fits.
+	if configPickerRows(m.picker.items, selected, selected+1, showDetails)+configPickerNeed(selected, selected+1, len(m.picker.items))+configPickerChromeRows > body {
+		if configPickerRows(m.picker.items, selected, selected+1, false)+configPickerNeed(selected, selected+1, len(m.picker.items))+configPickerChromeRows > body {
+			return true, selected, m.picker.items[selected : selected+1], selected, len(m.picker.items) - 1 - selected, false
+		}
+		showDetails = false
+	}
+	budget := maxInt(1, body-configPickerChromeRows)
+	start, visible, upMore, downMore := configPickerWindow(m.picker.items, selected, budget, showDetails)
+	if configPickerRows(m.picker.items, start, start+len(visible), showDetails)+configPickerNeed(start, start+len(visible), len(m.picker.items))+configPickerChromeRows > body {
+		return true, selected, m.picker.items[selected : selected+1], selected, len(m.picker.items) - 1 - selected, false
+	}
+	return false, start, visible, upMore, downMore, showDetails
+}
+
+// configPickerRows counts the display rows an item window renders: one per
+// item plus its section header when the group changes and its detail line
+// when details render, mirroring the overlay loop below.
+func configPickerRows(items []pickerItem, start, end int, showDetails bool) int {
+	rows := 0
+	lastGroup := ""
+	for _, item := range items[start:end] {
+		if item.Group != "" && item.Group != lastGroup {
+			rows++
+			lastGroup = item.Group
+		}
+		rows++
+		if showDetails && item.Detail != "" {
+			rows++
+		}
+	}
+	return rows
 }
 
 // pickerMaxVisible caps the visible window in items. When detail lines render,

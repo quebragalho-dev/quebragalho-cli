@@ -181,45 +181,27 @@ type model struct {
 	notifier                    *notify.Notifier
 	permissionMode              agent.PermissionMode
 	// permissionModeBeforePlan holds whatever mode was active when /plan on
-	// entered PermissionModePlan, so /plan off can restore it exactly (mirrors
-	// the execProfile displaced/applied pattern below).
+	// entered PermissionModePlan, so /plan off can restore it exactly.
 	permissionModeBeforePlan agent.PermissionMode
 	selfCorrectTests         bool
 	reasoningEffort          modelregistry.ReasoningEffort
-	serviceTier              string
-	// Active execution profile (set by /profile; applies to the NEXT run).
-	// The displaced/applied pairs let a switch or /profile balanced restore
-	// exactly what the profile replaced while leaving later manual overrides
-	// (/turns, Ctrl+T, /selfcorrect) alone: each knob is only reverted when it
-	// still holds the value the profile applied.
-	execProfileName              string
-	execProfileDisplacedMaxTurns int
-	execProfileAppliedMaxTurns   int
-	execProfileAppliedEffort     modelregistry.ReasoningEffort
-	execProfileArmedSelfCorrect  bool
-	// The touched bits record explicit user choices made while a profile is
-	// active (/turns, /effort, Ctrl+T, /selfcorrect); a touched knob is never
-	// reverted, even when its value coincides with what the profile applied.
-	execProfileTurnsTouched       bool
-	execProfileEffortTouched      bool
-	execProfileSelfCorrectTouched bool
-	responseStyle                 string
-	attachmentRenderers           []*termimage.ImageRenderer
-	keyBindings                   keyBindings
-	themeMode                     themeMode // palette preference: system (default) or named palette
-	hasDarkBg                     bool      // last terminal background-detection result, if one is delivered
-	updateNotice                  *updatenotice.Config
-	updateNoticeState             string // state file the footer check reads and merges
-	updateAvailable               string // version shown in the footer notice, "" hides it
-	userAgent                     string
-	compactRequests               int
-	compactInFlight               bool
-	compactFrame                  int
-	lastCompactResult             *CompactResult
-	lastCompactError              string
-	unpricedRequests              int
-	unpricedTokens                int
-	streamUsage                   qgruntime.Usage
+	responseStyle            string
+	attachmentRenderers      []*termimage.ImageRenderer
+	keyBindings              keyBindings
+	themeMode                themeMode // palette preference: system (default) or named palette
+	hasDarkBg                bool      // last terminal background-detection result, if one is delivered
+	updateNotice             *updatenotice.Config
+	updateNoticeState        string // state file the footer check reads and merges
+	updateAvailable          string // version shown in the footer notice, "" hides it
+	userAgent                string
+	compactRequests          int
+	compactInFlight          bool
+	compactFrame             int
+	lastCompactResult        *CompactResult
+	lastCompactError         string
+	unpricedRequests         int
+	unpricedTokens           int
+	streamUsage              qgruntime.Usage
 	// streamEstimateChars counts streamed output runes (text, reasoning and
 	// tool-call arguments) since streamEstimateStart, the live speed estimate
 	// behind the composer border. liveEstimateRate divides by the elapsed
@@ -642,8 +624,11 @@ type model struct {
 	// first, capped to config.MaxRecentModels. Unlike favoriteModels (manual
 	// pins), this is maintained by recordRecentModel on every successful
 	// switch and persisted via config.SetRecentModels.
-	recentModels  []config.RecentModelEntry
-	recapsEnabled bool // idle orientation note (config: recaps on|off)
+	recentModels          []config.RecentModelEntry
+	recapsEnabled         bool // idle orientation note (config: recaps on|off)
+	localControl          config.LocalControlConfig
+	desktopControlEnabled bool
+	browserControlEnabled bool
 	// statuslineCfg is the resolved statusline customization (user layout
 	// plus command, optionally with project layout underneath). Zero value
 	// renders the built-in line byte for byte.
@@ -1377,6 +1362,9 @@ func newModel(ctx context.Context, options Options) model {
 		autoCompactLimit:            options.AutoCompactLimit,
 		statuslineCfg:               options.StatusLine,
 		recapsEnabled:               options.RecapsEnabled,
+		localControl:                options.LocalControl,
+		desktopControlEnabled:       options.LocalControl.DesktopEnabled(),
+		browserControlEnabled:       options.LocalControl.BrowserEnabled(),
 		provider:                    options.Provider,
 		newProvider:                 options.NewProvider,
 		newTurnSessionProvider:      options.NewTurnSessionProvider,
@@ -1401,7 +1389,7 @@ func newModel(ctx context.Context, options Options) model {
 		runtimeMessageSink:          options.RuntimeMessageSink,
 		permissionMode:              permissionMode,
 		reasoningEffort:             options.ReasoningEffort,
-		responseStyle:               defaultedResponseStyle(options.ResponseStyle),
+		responseStyle:               defaultedResponseStyle(firstNonEmptyString(options.ResponseStyle, options.SavedResponseStyle)),
 		keyBindings:                 resolvedKeyBindings,
 		themeMode:                   resolveThemeMode(options.Theme, os.Getenv("QG_THEME"), options.SavedTheme),
 		hasDarkBg:                   true,
@@ -3381,6 +3369,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cacheCompactedPending = true
 		}
 		m.lastCompactResult = &msg.result
+		// The summarizer request ran on the compact goroutine, which must
+		// not touch model state: record its usage here, through the same
+		// tracker and provider_usage path as agent turns.
+		if msg.hasCompactionUsage && msg.compactionUsage.TotalTokens() > 0 {
+			m = m.recordCompactionUsage(msg.compactionModel, msg.compactionUsage)
+		}
 		m = m.setCompactStatusRow(m.compactText(true))
 		return m.launchParkedSendNowAfterCompaction()
 	case planUpdateMsg:
@@ -5279,8 +5273,20 @@ func (m model) choosePicker() (tea.Model, tea.Cmd) {
 		if text != "" { // empty when a key prompt opened instead of finalizing
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 		}
+	case pickerStyle:
+		previous := m.responseStyle
+		text := ""
+		var saveErr error
+		m, text, saveErr = m.handleStyleCommand(item.Value)
+		if m.responseStyle != previous {
+			notice, tone := m.styleResultNotice(saveErr)
+			return m.showTransientNoticeInline(notice, tone), cmd
+		}
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 	case pickerSTTDownload:
 		return m.handleSTTDownloadSelection(item.Value)
+	case pickerConfig:
+		return m.chooseConfigRow(item)
 	case pickerTheme:
 		// Selection is applied only after Enter. Moving through the picker renders a
 		// local preview and never changes the active palette.
@@ -5849,7 +5855,8 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 			return m, nil
 		}
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: m.configText()})
+		m.picker = m.newConfigPicker()
+		m.clearSuggestions()
 		return m, nil
 	case commandDebug:
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: m.debugText()})
@@ -5947,21 +5954,20 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		}
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 		return m, nil
-	case commandFast:
-		previous := m.activeServiceTier()
-		text := ""
-		m, text = m.handleFastCommand(command.text)
-		if m.activeServiceTier() != previous {
-			return m.showTransientNoticeInline(m.fastAppliedNotice(), transientNoticeSuccess), nil
-		}
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
-		return m, nil
 	case commandStyle:
+		// Bare `/style` opens the style picker; `/style <valor>` (or
+		// `/style list`) still runs the text handler.
+		if strings.TrimSpace(command.text) == "" {
+			m.picker = m.newStylePicker()
+			return m, nil
+		}
 		previous := m.responseStyle
 		text := ""
-		m, text = m.handleStyleCommand(command.text)
+		var saveErr error
+		m, text, saveErr = m.handleStyleCommand(command.text)
 		if m.responseStyle != previous {
-			return m.showTransientNoticeInline("Style: "+m.responseStyle, transientNoticeSuccess), nil
+			notice, tone := m.styleResultNotice(saveErr)
+			return m.showTransientNoticeInline(notice, tone), nil
 		}
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 		return m, nil
@@ -5974,42 +5980,10 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		}
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
 		return m, nil
-	case commandTurns:
-		// Changing the budget mid-run would mutate the inherited QG_MAX_TURNS env
-		// that sub-agents spawned later in THIS run read, making the run's budget
-		// inconsistent. Require an idle session (the new budget applies next run).
-		if m.pending && strings.TrimSpace(command.text) != "" {
-			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "Turns\nFinish or stop the current run before changing the tool-turn budget."})
-			return m, nil
-		}
-		previous := m.agentOptions.MaxTurns
-		text := ""
-		m, text = m.handleTurnsCommand(command.text)
-		if m.agentOptions.MaxTurns != previous {
-			return m.showTransientNoticeInline(m.turnsAppliedNotice(), transientNoticeSuccess), nil
-		}
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
-		return m, nil
 	case commandAutoCompact:
-		// Unlike /turns, the limit is read when a run starts, so changing it
+		// Unlike the turn budget, the limit is read when a run starts, so changing it
 		// mid-run is safe: it applies to the next message, never this run.
 		return m.handleAutoCompactCommand(command.text)
-	case commandProfile:
-		// Same idle-session rule as /turns: switching the profile mutates the
-		// turn budget (and its QG_MAX_TURNS propagation), so a change needs
-		// an idle session; bare /profile (status) is always allowed.
-		if m.pending && strings.TrimSpace(command.text) != "" && !strings.EqualFold(strings.TrimSpace(command.text), "status") {
-			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "Profile\nFinish or stop the current run before switching the execution profile."})
-			return m, nil
-		}
-		previous := m.execProfileName
-		text := ""
-		m, text = m.handleProfileCommand(command.text)
-		if m.execProfileName != previous {
-			return m.showTransientNoticeInline(m.profileAppliedNotice(), transientNoticeSuccess), nil
-		}
-		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: text})
-		return m, nil
 	case commandTheme:
 		// Bare `/theme` opens a picker with a contained candidate preview. An
 		// explicit `/theme <name>` (or `/theme list`) still runs the text handler.
@@ -6958,7 +6932,6 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		options.ProviderName = m.providerName
 		options.Model = m.modelName
 		options.ReasoningEffort = string(m.reasoningEffort)
-		options.ServiceTier = m.activeServiceTier()
 		options.ResponseStyle = m.responseStyle
 		options.Cwd = m.cwd
 		options.Images = images

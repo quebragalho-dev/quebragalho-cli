@@ -548,11 +548,24 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 			return mouseSelectionTarget{}, false
 		}
 	}
-	maxVisible := pickerMaxVisible(m.picker, width)
 	selected := clampInt(m.picker.selected, 0, len(m.picker.items)-1)
-	start := selectableListStart(len(m.picker.items), maxVisible, selected)
-	visible := m.picker.items[start : start+maxVisible]
 	details := pickerShowsDetails(m.picker, width)
+	start := 0
+	var visible []pickerItem
+	upMore := 0
+	downMore := 0
+	if m.picker.kind == pickerConfig {
+		// Mirror pickerOverlay: full window or compact title frame, same plan.
+		var compact bool
+		compact, start, visible, upMore, downMore, details = m.configPickerPlan(width, details)
+		if compact {
+			return m.selectCompactConfigPickerAtMouse(hit, visible, start, upMore, downMore)
+		}
+	} else {
+		maxVisible := pickerMaxVisible(m.picker, width)
+		start = selectableListStart(len(m.picker.items), maxVisible, selected)
+		visible = m.picker.items[start : start+maxVisible]
+	}
 	// y=0 titled top border, y=1 search line, y=2 separator; rows begin after
 	// the optional header lines (only the voice first-use panel has any).
 	overlayWidth := minInt(width, pickerOverlayMaxWidth)
@@ -560,6 +573,9 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 		overlayWidth = width
 	}
 	line := 3 + len(m.picker.wrappedHeader(maxInt(1, overlayWidth-4)))
+	if upMore > 0 || downMore > 0 {
+		line++
+	}
 	lastGroup := ""
 	for offset, item := range visible {
 		if item.Group != "" && item.Group != lastGroup {
@@ -581,6 +597,24 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 			return mouseSelectionTarget{Scope: "picker", Kind: int(m.picker.kind), Value: item.Value, Index: index}, true
 		}
 		line += rowLines
+	}
+	return mouseSelectionTarget{}, false
+}
+
+// selectCompactConfigPickerAtMouse hit-tests the compact /config frame:
+// titled top border, one optional paging line, the selected row. It mirrors
+// the compact branch of pickerOverlay line for line.
+func (m *model) selectCompactConfigPickerAtMouse(hit mouseOverlayHit, visible []pickerItem, start, upMore, downMore int) (mouseSelectionTarget, bool) {
+	line := 1
+	if upMore > 0 || downMore > 0 {
+		if hit.y == line {
+			return mouseSelectionTarget{}, false
+		}
+		line++
+	}
+	if len(visible) > 0 && hit.y == line {
+		m.picker.selected = start
+		return mouseSelectionTarget{Scope: "picker", Kind: int(m.picker.kind), Value: visible[0].Value, Index: start}, true
 	}
 	return mouseSelectionTarget{}, false
 }

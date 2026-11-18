@@ -207,15 +207,15 @@ func TestCycleReasoningEffortNoOpOnUnsupportedModel(t *testing.T) {
 
 func TestStyleCommandListsAndSetsSessionPreference(t *testing.T) {
 	m := newModel(context.Background(), Options{})
-	m.input.SetValue("/style")
+	m.input.SetValue("/style list")
 
 	updated, cmd := m.Update(testKey(tea.KeyEnter))
 	next := updated.(model)
 
 	if cmd != nil {
-		t.Fatal("expected /style to be handled without starting an agent run")
+		t.Fatal("expected /style list to be handled without starting an agent run")
 	}
-	if !transcriptContains(next.transcript, "active style: concise") || !transcriptContains(next.transcript, "explanatory") {
+	if !transcriptContains(next.transcript, "estilo ativo: conciso") || !transcriptContains(next.transcript, "explicativo") {
 		t.Fatalf("expected style list transcript, got %#v", next.transcript)
 	}
 
@@ -229,7 +229,8 @@ func TestStyleCommandListsAndSetsSessionPreference(t *testing.T) {
 	if next.responseStyle != "explanatory" {
 		t.Fatalf("expected explanatory style, got %q", next.responseStyle)
 	}
-	if next.transientNotice.text != "Style: explanatory" {
+	// No config path in this model, so the notice reports session-only scope.
+	if next.transientNotice.text != "Estilo: explicativo · só nesta sessão" {
 		t.Fatalf("style switch notice = %q", next.transientNotice.text)
 	}
 }
@@ -651,7 +652,7 @@ func TestManualCompactionPersistsStructuralTruncationMetadata(t *testing.T) {
 		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowUser, text: content})
 	}
 
-	next, result, err := m.compactActiveSession()
+	next, result, _, err := m.compactActiveSession()
 	if err != nil || !result.Compacted {
 		t.Fatalf("compactActiveSession() = (%#v, %v)", result, err)
 	}

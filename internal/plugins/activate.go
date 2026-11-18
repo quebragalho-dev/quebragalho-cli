@@ -391,6 +391,7 @@ func (tool skillTool) Run(_ context.Context, args map[string]any) tools.Result {
 		return tools.Result{Status: tools.StatusError, Output: "Error: Invalid arguments for skill: name is required"}
 	}
 	merged, _ := MergedSkillsLoaded(tool.defaultDir, tool.pluginRoots)
+	merged = skills.MergeBuiltins(merged)
 	if len(merged) == 0 {
 		return tools.Result{Status: tools.StatusError, Output: "Error: no skills are available."}
 	}

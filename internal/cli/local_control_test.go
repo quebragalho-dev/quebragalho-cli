@@ -12,7 +12,7 @@ import (
 
 func TestCoreRegistryIncludesDefaultLocalControlTools(t *testing.T) {
 	registry := newCoreRegistry(t.TempDir())
-	for _, name := range []string{"browser_install", "browser_launch", "browser_connect", "browser_open", "browser_snapshot", "browser_click", "browser_type", "browser_press", "terminal_session", "capture_artifact"} {
+	for _, name := range []string{"browser_install", "browser_launch", "browser_connect", "browser_open", "browser_snapshot", "browser_click", "browser_type", "browser_press", "desktop_snapshot", "desktop_action", "terminal_session", "capture_artifact"} {
 		tool, ok := registry.Get(name)
 		if !ok {
 			t.Fatalf("%s not registered", name)
@@ -21,12 +21,8 @@ func TestCoreRegistryIncludesDefaultLocalControlTools(t *testing.T) {
 			t.Fatalf("%s permission = %s, want prompt", name, tool.Safety().Permission)
 		}
 	}
-	desktop, ok := registry.Get("desktop_action")
-	if !ok {
-		t.Fatal("desktop_action not registered")
-	}
-	if desktop.Safety().Permission != tools.PermissionDeny {
-		t.Fatalf("desktop_action permission = %s, want deny", desktop.Safety().Permission)
+	if _, ok := registry.Get("desktop_windows"); ok {
+		t.Fatal("desktop_windows should not be registered; list-windows lives in desktop_action")
 	}
 }
 
@@ -93,7 +89,7 @@ func TestRegisterLocalControlToolsAppliesDefaults(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	registry := newCoreRegistry(workspaceRoot)
 	registerLocalControlTools(registry, workspaceRoot, config.LocalControlConfig{Enabled: true})
-	for _, name := range []string{"browser_install", "browser_launch", "browser_connect", "browser_open", "browser_snapshot", "browser_click", "browser_type", "browser_press", "terminal_session", "capture_artifact"} {
+	for _, name := range []string{"browser_install", "browser_launch", "browser_connect", "browser_open", "browser_snapshot", "browser_click", "browser_type", "browser_press", "desktop_snapshot", "desktop_action", "terminal_session", "capture_artifact"} {
 		tool, ok := registry.Get(name)
 		if !ok {
 			t.Fatalf("%s not registered", name)
@@ -102,11 +98,53 @@ func TestRegisterLocalControlToolsAppliesDefaults(t *testing.T) {
 			t.Fatalf("%s permission = %s, want prompt", name, tool.Safety().Permission)
 		}
 	}
-	desktop, ok := registry.Get("desktop_action")
-	if !ok {
-		t.Fatal("desktop_action not registered")
+
+	var disabledDesktop config.LocalControlConfig
+	if err := json.Unmarshal([]byte(`{"desktop":{"enabled":false}}`), &disabledDesktop); err != nil {
+		t.Fatalf("unmarshal desktop disabled config: %v", err)
 	}
-	if desktop.Safety().Permission != tools.PermissionDeny {
-		t.Fatalf("desktop_action permission = %s, want deny without nested desktop opt-in", desktop.Safety().Permission)
+	registerLocalControlTools(registry, workspaceRoot, disabledDesktop)
+	for _, name := range []string{"desktop_snapshot", "desktop_action"} {
+		tool, ok := registry.Get(name)
+		if !ok {
+			t.Fatalf("%s not registered", name)
+		}
+		if tool.Safety().Permission != tools.PermissionDeny {
+			t.Fatalf("%s permission = %s, want deny when localControl.desktop.enabled=false", name, tool.Safety().Permission)
+		}
+	}
+}
+
+func TestLocalBrowserOptionsInstallAgentBrowserOnlyForDefaultDriver(t *testing.T) {
+	for _, tc := range []struct {
+		driver     string
+		wantEnsure bool
+	}{
+		{driver: "", wantEnsure: true},
+		{driver: "agent-browser", wantEnsure: true},
+		{driver: "custom-driver", wantEnsure: false},
+	} {
+		var cfg config.LocalControlConfig
+		cfg.Browser.Driver = tc.driver
+		if got := localBrowserOptionsFromConfig(cfg).Ensure != nil; got != tc.wantEnsure {
+			t.Fatalf("driver %q: Ensure set = %v, want %v", tc.driver, got, tc.wantEnsure)
+		}
+	}
+}
+
+func TestLocalDesktopOptionsInstallAgentDesktopOnlyForDefaultDriver(t *testing.T) {
+	for _, tc := range []struct {
+		driver     string
+		wantEnsure bool
+	}{
+		{driver: "", wantEnsure: true},
+		{driver: "agent-desktop", wantEnsure: true},
+		{driver: "custom-driver", wantEnsure: false},
+	} {
+		var cfg config.LocalControlConfig
+		cfg.Desktop.Driver = tc.driver
+		if got := localDesktopOptionsFromConfig(cfg).Ensure != nil; got != tc.wantEnsure {
+			t.Fatalf("driver %q: Ensure set = %v, want %v", tc.driver, got, tc.wantEnsure)
+		}
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/hooks"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/plugins"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/skills"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
@@ -102,6 +103,7 @@ func projectPluginsDirExists(workspaceRoot string) bool {
 // the prompt byte-identical.
 func (a pluginActivation) skillInfos(defaultDir string) []agent.SkillInfo {
 	merged, _ := plugins.MergedSkills(defaultDir, a.skillRoots)
+	merged = skills.MergeBuiltinsListed(merged)
 	if len(merged) == 0 {
 		return nil
 	}

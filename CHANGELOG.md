@@ -3,6 +3,29 @@
 O que mudou em cada versão do qg, contado em português simples para quem usa
 o CLI. A versão mais nova está no topo.
 
+## 0.0.21 — 2026-11-17
+
+### Novidades
+
+- Controle do navegador: o qg abre sites, pesquisa, clica, preenche formulários e lê páginas por você, num navegador que fica escondido. Ele usa o Chrome, Chromium, Brave ou Edge que você já tem; se não houver nenhum, baixa um navegador uma única vez (no Linux ARM64, explica como instalar o Chromium do sistema). Quando um site pede login ou CAPTCHA, a janela aparece para você mesmo entrar: o qg nunca pede sua senha pelo chat. Ligue ou desligue em `/config` → "Controle do navegador", e use `/browser-use` para pedir direto.
+- Controle do computador: o qg vê e usa as janelas de outros programas (clicar, digitar, ler o que está na tela). Ligue ou desligue em `/config` → "Controle do computador", e use `/computer-use` para pedir direto. No Windows, se faltar o Visual C++ da Microsoft, o qg explica como instalar.
+- O qg baixa os componentes do controle do navegador e do computador no primeiro uso e confere que cada arquivo é exatamente o esperado antes de rodar.
+- `/config` novo: um painel só, com busca, todo em português, que cabe em qualquer tamanho de terminal.
+- `/style` em português, com seletor, e a escolha fica salva para as próximas vezes.
+
+### Mudanças
+
+- `/goal` mais barato e mais rápido com o mesmo acerto: nos nossos testes, cada meta custou de 11% a 25% menos e terminou até 39% antes, porque o modelo encerra na mesma vez em que conclui e não refaz verificações já feitas.
+- A linha "Continuando meta" mostra só a primeira linha do objetivo, e um objetivo com mais de 4.000 caracteres é recusado com explicação em português.
+- O limite de turnos por execução subiu de 80 para 400.
+- Saíram os comandos `/fast`, `/turns` e `/profile`, e a opção `--exec-profile` do `qg exec`.
+- O resumo feito pelo `/compact` entra no contador de uso e custo.
+
+### Correções
+
+- `/compact` não falha mais com resumo vazio.
+- `/goal --tokens N` mantém as quebras de linha do objetivo.
+
 ## 0.0.20 — 2026-11-16
 
 ### Novidades

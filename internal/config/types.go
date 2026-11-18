@@ -120,6 +120,11 @@ type PreferencesConfig struct {
 	// name (e.g. "dracula"). Applied at startup below the --theme flag and
 	// QG_THEME, so a /theme choice survives restart. Empty = unset (defaults auto).
 	Theme string `json:"theme,omitempty"`
+	// ResponseStyle is the persisted TUI reply-style preference (/style) — one
+	// of "balanced", "concise", "explanatory" or "review". Applied at
+	// startup below an explicit selection, so a /style choice survives
+	// restart. Empty = unset (defaults to concise).
+	ResponseStyle string `json:"responseStyle,omitempty"`
 	// Recaps is a tri-state: nil (unset) defaults to ON; an explicit false means
 	// the user turned idle recaps off. A *bool is its own tri-state, so no
 	// custom unmarshal is needed (unlike ToolsConfig.DeferThreshold's int).
@@ -311,7 +316,7 @@ func (cfg LocalControlConfig) BrowserEnabled() bool {
 }
 
 func (cfg LocalControlConfig) DesktopEnabled() bool {
-	return !cfg.Disabled() && cfg.Desktop.enabledSet && cfg.Desktop.Enabled
+	return !cfg.Disabled() && (!cfg.Desktop.enabledSet || cfg.Desktop.Enabled)
 }
 
 func (cfg LocalControlConfig) TerminalEnabled() bool {

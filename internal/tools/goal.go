@@ -64,7 +64,7 @@ func newCreateGoalTool(store *sessions.Store, sessionID string) Tool {
 					},
 					"token_budget": {
 						Type:        "integer",
-						Description: "Optional maximum total tokens. QG means no goal-specific limit.",
+						Description: "Optional maximum total tokens. 0 means no goal-specific limit.",
 						Minimum:     &minimum,
 						Maximum:     &maximum,
 					},
@@ -91,7 +91,8 @@ func newUpdateGoalTool(store *sessions.Store, sessionID string) Tool {
 		baseTool: baseTool{
 			name: "update_goal",
 			description: "Finish the current goal or mark it blocked. Use complete only when the objective is achieved and no required work remains. " +
-				"Use blocked only when progress cannot continue without user input or an external state change.",
+				"Use blocked only when progress cannot continue without user input or an external state change. " +
+				"Call it in the same turn the objective is achieved, before your final answer.",
 			parameters: Schema{
 				Type: "object",
 				Properties: map[string]PropertySchema{

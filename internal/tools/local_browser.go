@@ -5,14 +5,19 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/localcontrol"
 )
 
-const localBrowserOutputBudgetBytes = 128 * 1024
+const (
+	localBrowserOutputBudgetBytes = 128 * 1024
+	browserInstallTimeout         = 10 * time.Minute
+)
 
 type localControlRunner interface {
 	Run(ctx context.Context, args ...string) (localcontrol.CommandResult, error)
@@ -42,6 +47,9 @@ type browserInstallTool struct {
 }
 
 func newBrowserInstallTool(options localcontrol.BrowserOptions) Tool {
+	if options.Timeout <= 0 {
+		options.Timeout = browserInstallTimeout
+	}
 	return browserInstallTool{
 		baseTool: baseTool{
 			name:        "browser_install",
@@ -209,11 +217,12 @@ func newBrowserOpenTool(options localcontrol.BrowserOptions) Tool {
 		baseTool: baseTool{
 			name:        "browser_open",
 			deferred:    true,
-			description: "Open a URL in the local browser automation session.",
+			description: "Open a URL in the local browser automation session (headless by default; set headed=true only when the user asks to see the browser or for interactive login/captcha).",
 			parameters: Schema{
 				Type: "object",
 				Properties: map[string]PropertySchema{
-					"url": {Type: "string", Description: "HTTP or HTTPS URL to open. Bare hosts are treated as https URLs."},
+					"url":    {Type: "string", Description: "HTTP or HTTPS URL to open. Bare hosts are treated as https URLs."},
+					"headed": {Type: "boolean", Description: "Show the browser window instead of running headless. Use only when the user explicitly asks to see the browser or for interactive login/captcha that requires a person. If a headless daemon is already running, agent-browser relaunches the browser in headed mode (requires a display).", Default: false},
 				},
 				Required:             []string{"url"},
 				AdditionalProperties: false,
@@ -226,18 +235,18 @@ func newBrowserOpenTool(options localcontrol.BrowserOptions) Tool {
 }
 
 func (tool browserOpenTool) RejectBeforePermission(args map[string]any) (Result, bool) {
-	if _, err := browserOpenURLArg(args); err != nil {
+	if _, err := browserOpenCommandArgs(args); err != nil {
 		return errorResult("Error: Invalid arguments for browser_open: " + err.Error()), true
 	}
 	return Result{}, false
 }
 
 func (tool browserOpenTool) Run(ctx context.Context, args map[string]any) Result {
-	rawURL, err := browserOpenURLArg(args)
+	commandArgs, err := browserOpenCommandArgs(args)
 	if err != nil {
 		return errorResult("Error: Invalid arguments for browser_open: " + err.Error())
 	}
-	return browserCommandResult(ctx, tool.browser, "open", []string{"open", rawURL})
+	return browserCommandResult(ctx, tool.browser, "open", commandArgs)
 }
 
 type browserSnapshotTool struct {
@@ -364,7 +373,7 @@ func (tool browserTypeTool) Run(ctx context.Context, args map[string]any) Result
 	if err != nil {
 		return errorResult("Error: Invalid arguments for browser_type: " + err.Error())
 	}
-	return browserCommandResult(ctx, tool.browser, "type", []string{"type", ref, text})
+	return browserCommandResult(ctx, tool.browser, "type", browserAppendTextArg([]string{"type", ref}, text))
 }
 
 type browserPressTool struct {
@@ -463,12 +472,12 @@ func newBrowserActionTool(options localcontrol.BrowserOptions) Tool {
 		baseTool: baseTool{
 			name:        "browser_action",
 			deferred:    true,
-			description: "Run an allowed action against the current local browser automation session.",
+			description: `Run an allowed action against the current local browser automation session. Guide: command="skills", args=["get","core"] (or ["get","core","--full"], ["list"]).`,
 			parameters: Schema{
 				Type: "object",
 				Properties: map[string]PropertySchema{
 					"command": {Type: "string", Description: "Allowed browser command to run.", Enum: browserActionCommandNames()},
-					"args":    {Type: "array", Items: &PropertySchema{Type: "string"}, Description: "Command arguments. Use refs from browser_snapshot where required."},
+					"args":    {Type: "array", Items: &PropertySchema{Type: "string"}, Description: "Command arguments. Use refs from browser_snapshot where required; scroll takes [direction, amount] (up/down/left/right, pixels)."},
 				},
 				Required:             []string{"command"},
 				AdditionalProperties: false,
@@ -518,8 +527,9 @@ var browserActionSpecs = map[string]browserActionSpec{
 	"check":                {argv: []string{"check"}, min: 1, max: 1},
 	"uncheck":              {argv: []string{"uncheck"}, min: 1, max: 1},
 	"select":               {argv: []string{"select"}, min: 2, max: 2},
-	"scroll":               {argv: []string{"scroll"}, min: 2, max: 2},
+	"scroll":               {argv: []string{"scroll"}, min: 0, max: 2},
 	"scroll_into_view":     {argv: []string{"scrollintoview"}, min: 1, max: 1},
+	"skills":               {argv: []string{"skills"}, min: 0, max: 4},
 	"drag":                 {argv: []string{"drag"}, min: 2, max: 2},
 	"wait":                 {argv: []string{"wait"}, min: 1, max: 3},
 	"get_text":             {argv: []string{"get", "text"}, min: 1, max: 1},
@@ -528,7 +538,7 @@ var browserActionSpecs = map[string]browserActionSpec{
 	"get_attr":             {argv: []string{"get", "attr"}, min: 2, max: 2},
 	"get_title":            {argv: []string{"get", "title"}, min: 0, max: 0},
 	"get_url":              {argv: []string{"get", "url"}, min: 0, max: 0},
-	"tab":                  {argv: []string{"tab"}, min: 0, max: 3},
+	"tab":                  {argv: []string{"tab"}, min: 0, max: 4},
 	"eval":                 {argv: []string{"eval"}, min: 1, max: 1},
 	"dialog_accept":        {argv: []string{"dialog", "accept"}, min: 0, max: 1},
 	"dialog_dismiss":       {argv: []string{"dialog", "dismiss"}, min: 0, max: 0},
@@ -596,7 +606,15 @@ func browserActionCommandArgs(command string, spec browserActionSpec, values []s
 		}
 		commandArgs := append([]string{}, spec.argv...)
 		return append(commandArgs, ref), nil
-	case "fill", "type", "select":
+	case "fill", "type":
+		ref, err := browserRefFromString(values[0])
+		if err != nil {
+			return nil, err
+		}
+		commandArgs := append([]string{}, spec.argv...)
+		commandArgs = append(commandArgs, ref)
+		return browserAppendTextArg(commandArgs, values[1]), nil
+	case "select":
 		ref, err := browserRefFromString(values[0])
 		if err != nil {
 			return nil, err
@@ -635,31 +653,52 @@ func browserActionCommandArgs(command string, spec browserActionSpec, values []s
 		commandArgs := append([]string{}, spec.argv...)
 		return append(commandArgs, ref, attr), nil
 	case "scroll":
-		x, err := browserIntegerToken("x", values[0])
+		commandArgs := append([]string{}, spec.argv...)
+		if len(values) == 0 {
+			return commandArgs, nil
+		}
+		dir, err := browserScrollDirection(values[0])
 		if err != nil {
 			return nil, err
 		}
-		y, err := browserIntegerToken("y", values[1])
-		if err != nil {
-			return nil, err
-		}
-		commandArgs := append([]string{}, spec.argv...)
-		return append(commandArgs, x, y), nil
-	case "tab":
-		commandArgs := append([]string{}, spec.argv...)
-		for _, value := range values {
-			arg, err := browserSingleToken("tab argument", value)
+		commandArgs = append(commandArgs, dir)
+		if len(values) == 2 {
+			px, err := browserNonNegativeIntegerToken("amount", values[1])
 			if err != nil {
 				return nil, err
 			}
-			commandArgs = append(commandArgs, arg)
+			commandArgs = append(commandArgs, px)
 		}
 		return commandArgs, nil
+	case "skills":
+		validated, err := validateBrowserSkillsArgs(values)
+		if err != nil {
+			return nil, err
+		}
+		commandArgs := append([]string{}, spec.argv...)
+		return append(commandArgs, validated...), nil
+	case "tab":
+		return browserTabCommandArgs(spec.argv, values)
 	default:
 		commandArgs := append([]string{}, spec.argv...)
 		commandArgs = append(commandArgs, values...)
 		return commandArgs, nil
 	}
+}
+
+func browserOpenCommandArgs(args map[string]any) ([]string, error) {
+	rawURL, err := browserOpenURLArg(args)
+	if err != nil {
+		return nil, err
+	}
+	headed, err := boolArg(args, "headed", false)
+	if err != nil {
+		return nil, err
+	}
+	if headed {
+		return []string{"--headed", "open", rawURL}, nil
+	}
+	return []string{"open", rawURL}, nil
 }
 
 func browserOpenURLArg(args map[string]any) (string, error) {
@@ -833,15 +872,119 @@ func browserSingleToken(name string, value string) (string, error) {
 	return value, nil
 }
 
-func browserIntegerToken(name string, value string) (string, error) {
+func browserAppendTextArg(commandArgs []string, text string) []string {
+	if strings.HasPrefix(text, "-") {
+		return append(commandArgs, "--", text)
+	}
+	return append(commandArgs, text)
+}
+
+func browserScrollDirection(value string) (string, error) {
+	dir := strings.ToLower(strings.TrimSpace(value))
+	switch dir {
+	case "up", "down", "left", "right":
+		return dir, nil
+	default:
+		return "", fmt.Errorf("direction must be one of: up, down, left, right")
+	}
+}
+
+func browserNonNegativeIntegerToken(name string, value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return "", fmt.Errorf("%s is required", name)
 	}
-	if _, err := strconv.Atoi(value); err != nil {
-		return "", fmt.Errorf("%s must be an integer", name)
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return "", fmt.Errorf("%s must be a non-negative integer", name)
 	}
 	return value, nil
+}
+
+func browserTabCommandArgs(prefix []string, values []string) ([]string, error) {
+	commandArgs := append([]string{}, prefix...)
+	for i := 0; i < len(values); i++ {
+		if i == 1 && values[0] == "new" && values[i] == "--label" {
+			if i+1 >= len(values) {
+				return nil, fmt.Errorf("--label requires a label name")
+			}
+			label, err := browserSingleToken("tab label", values[i+1])
+			if err != nil {
+				return nil, err
+			}
+			commandArgs = append(commandArgs, "--label", label)
+			i++
+			continue
+		}
+		arg, err := browserSingleToken("tab argument", values[i])
+		if err != nil {
+			return nil, err
+		}
+		commandArgs = append(commandArgs, arg)
+	}
+	return commandArgs, nil
+}
+
+func validateBrowserSkillsArgs(values []string) ([]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	sub := strings.ToLower(strings.TrimSpace(values[0]))
+	switch sub {
+	case "list":
+		out := []string{"list"}
+		if len(values) == 2 && values[1] == "--json" {
+			return append(out, "--json"), nil
+		}
+		if len(values) > 1 {
+			return nil, fmt.Errorf("skills list accepts only optional --json")
+		}
+		return out, nil
+	case "path":
+		if len(values) > 2 {
+			return nil, fmt.Errorf("skills path accepts at most one skill name")
+		}
+		out := []string{"path"}
+		if len(values) == 2 {
+			name, err := browserSingleToken("skill name", values[1])
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, name)
+		}
+		return out, nil
+	case "get":
+		if len(values) < 2 {
+			return nil, fmt.Errorf("skills get requires a skill name or --all")
+		}
+		out := []string{"get"}
+		for i := 1; i < len(values); i++ {
+			v := values[i]
+			switch v {
+			case "--full", "--all", "--json":
+				out = append(out, v)
+			case "--ref":
+				if i+1 >= len(values) {
+					return nil, fmt.Errorf("--ref requires a reference name")
+				}
+				ref, err := browserSingleToken("ref", values[i+1])
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, "--ref", ref)
+				i++
+			default:
+				name, err := browserSingleToken("skill name", v)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, name)
+			}
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("skills subcommand must be one of: list, get, path")
+	}
 }
 
 func validateBrowserSnapshotSelector(selector string) error {
@@ -940,8 +1083,10 @@ func localControlCommandResult(ctx context.Context, runner localControlRunner, k
 		if strings.TrimSpace(budget.Output) != "" {
 			message += "\n\n" + budget.Output
 		}
-		if kind == "browser" && command != "install" && browserInstallHintApplies(err.Error()+"\n"+budget.Output) {
-			message += "\n\nIf this is a first-use browser runtime error, call browser_install once, then retry the browser command."
+		if kind == "browser" {
+			if hint := browserFirstUseHint(runtime.GOOS, runtime.GOARCH, command, err.Error()+"\n"+budget.Output); hint != "" {
+				message += "\n\n" + hint
+			}
 		}
 		return Result{
 			Status:    StatusError,
@@ -969,10 +1114,37 @@ func localControlCommandResult(ctx context.Context, runner localControlRunner, k
 	}
 }
 
+func browserFirstUseHint(goos string, goarch string, command string, message string) string {
+	lower := strings.ToLower(message)
+	isLinuxARM64 := goos == "linux" && goarch == "arm64"
+	if command == "install" {
+		if isLinuxARM64 || strings.Contains(lower, "does not provide linux arm64 builds") {
+			return "Chrome for Testing is not available on Linux ARM64. Install system Chromium instead (sudo apt install chromium or sudo dnf install chromium), then retry the browser command."
+		}
+		if strings.Contains(lower, "timed out") || strings.Contains(lower, "deadline exceeded") {
+			return "Chrome download did not finish before the timeout (slow network). The user can install Google Chrome normally on the system; do not retry the download in a loop."
+		}
+		return ""
+	}
+	if !browserInstallHintApplies(message) {
+		return ""
+	}
+	if isLinuxARM64 {
+		return "Chrome for Testing is not available on Linux ARM64 (browser_install cannot download it here). Install system Chromium instead (sudo apt install chromium or sudo dnf install chromium), then retry the browser command."
+	}
+	return "If this is a first-use browser runtime error, call browser_install once, then retry the browser command."
+}
+
 func browserInstallHintApplies(message string) bool {
 	lower := strings.ToLower(message)
 	if strings.Contains(lower, "cdp error") {
 		return false
+	}
+	if strings.Contains(lower, "chrome not found") {
+		return true
+	}
+	if strings.Contains(lower, "agent-browser install") {
+		return true
 	}
 	if strings.Contains(lower, "was not found on path") {
 		return true

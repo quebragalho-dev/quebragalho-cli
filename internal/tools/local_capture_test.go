@@ -137,7 +137,7 @@ func TestCaptureArtifactRejectsMissingArtifactDirBeforePermission(t *testing.T) 
 	}
 }
 
-func TestCaptureArtifactDesktopWindowStateBuildsDriverArgs(t *testing.T) {
+func TestCaptureArtifactDesktopScreenshotBuildsAgentDesktopArgs(t *testing.T) {
 	dir := t.TempDir()
 	runner := &fakeArtifactRunner{}
 	tool := newCaptureArtifactTool(LocalControlArtifactOptions{
@@ -146,18 +146,49 @@ func TestCaptureArtifactDesktopWindowStateBuildsDriverArgs(t *testing.T) {
 	})
 
 	result := tool.Run(context.Background(), map[string]any{
-		"action":    "desktop_window_state",
-		"name":      "window",
-		"pid":       float64(123),
-		"window_id": float64(456),
-		"query":     "Save",
+		"action":    "desktop_screenshot",
+		"name":      "shot",
+		"app":       "Finder",
+		"window_id": "w-4521",
 	})
 	if result.Status != StatusOK {
 		t.Fatalf("status = %s output = %q", result.Status, result.Output)
 	}
-	wantPath := filepath.Join(dir, "window.png")
-	wantArgs := []string{"get_window_state", `{"pid":123,"query":"Save","window_id":456}`, "--screenshot-out-file", wantPath}
+	wantPath := filepath.Join(dir, "shot.png")
+	wantArgs := []string{"screenshot", "--app", "Finder", "--window-id", "w-4521", wantPath}
 	if !reflect.DeepEqual(runner.args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.args, wantArgs)
+	}
+}
+
+func TestCaptureArtifactDesktopWindowStateWritesSnapshotJSON(t *testing.T) {
+	dir := t.TempDir()
+	snapshotJSON := `{"version":"2.6","ok":true,"command":"snapshot","data":{"snapshot_id":"s1","tree":{}}}` + "\n"
+	runner := &fakeArtifactRunner{stdout: snapshotJSON}
+	tool := newCaptureArtifactTool(LocalControlArtifactOptions{
+		Desktop:      localBrowserTestOptions(t, runner),
+		ArtifactsDir: dir,
+	})
+
+	result := tool.Run(context.Background(), map[string]any{
+		"action":    "desktop_window_state",
+		"name":      "window",
+		"app":       "Notes",
+		"window_id": "w-99",
+	})
+	if result.Status != StatusOK {
+		t.Fatalf("status = %s output = %q", result.Status, result.Output)
+	}
+	wantArgs := []string{"snapshot", "-i", "--compact", "--app", "Notes", "--window-id", "w-99"}
+	if !reflect.DeepEqual(runner.args, wantArgs) {
+		t.Fatalf("args = %#v, want %#v", runner.args, wantArgs)
+	}
+	wantPath := filepath.Join(dir, "window.json")
+	data, err := os.ReadFile(wantPath)
+	if err != nil {
+		t.Fatalf("read artifact: %v", err)
+	}
+	if string(data) != strings.TrimRight(snapshotJSON, "\n") {
+		t.Fatalf("artifact content = %q, want %q", string(data), strings.TrimRight(snapshotJSON, "\n"))
 	}
 }

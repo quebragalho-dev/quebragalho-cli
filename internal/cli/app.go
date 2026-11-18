@@ -1071,6 +1071,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		Version:               version,
 		Theme:                 theme,
 		SavedTheme:            resolved.Preferences.Theme,
+		SavedResponseStyle:    resolved.Preferences.ResponseStyle,
 		UpdateNotice:          updateNotice,
 		UpdateNoticeStateFile: updateNoticeState,
 		UserConfigPath:        userConfigPath,
@@ -1083,6 +1084,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		FavoriteModels:        resolved.Preferences.FavoriteModels,
 		RecentModels:          resolved.Preferences.RecentModels,
 		RecapsEnabled:         resolved.Preferences.RecapsEnabled(),
+		LocalControl:          resolved.LocalControl,
 		CompactionModel:       resolved.Preferences.CompactionModel,
 		AutoCompactLimit:      resolved.Preferences.AutoCompactLimit,
 		StatusLine:            resolved.StatusLine,
@@ -1170,7 +1172,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		// newly installed skills work without a restart.
 		LoadSkills: cachedSkillsLoader(func() []skills.Skill {
 			merged, _ := plugins.MergedSkillsLoaded(deps.skillsDir(), pluginActivation.skillRoots)
-			return merged
+			return skills.MergeBuiltins(merged)
 		}),
 		PermissionMode:            permissionMode,
 		Notify:                    resolved.Notify,
@@ -1351,38 +1353,19 @@ func registerLocalControlTools(registry *tools.Registry, workspaceRoot string, c
 }
 
 func localBrowserOptionsFromConfig(cfg config.LocalControlConfig) localcontrol.BrowserOptions {
-	return localcontrol.BrowserOptions{
-		Enabled:    cfg.BrowserEnabled(),
-		Driver:     cfg.Browser.Driver,
-		HelperPath: cfg.Browser.HelperPath,
-	}
+	return localcontrol.BrowserOptionsFromConfig(cfg)
 }
 
 func localDesktopOptionsFromConfig(cfg config.LocalControlConfig) localcontrol.DesktopOptions {
-	return localcontrol.DesktopOptions{
-		Enabled:    cfg.DesktopEnabled(),
-		Driver:     cfg.Desktop.Driver,
-		HelperPath: cfg.Desktop.HelperPath,
-	}
+	return localcontrol.DesktopOptionsFromConfig(cfg, cfg.DesktopEnabled())
 }
 
 func localTerminalOptionsFromConfig(cfg config.LocalControlConfig) localcontrol.TerminalOptions {
-	return localcontrol.TerminalOptions{
-		Enabled:    cfg.TerminalEnabled(),
-		Driver:     cfg.Terminal.Driver,
-		HelperPath: cfg.Terminal.HelperPath,
-	}
+	return localcontrol.TerminalOptionsFromConfig(cfg)
 }
 
 func localArtifactsDirFromConfig(workspaceRoot string, cfg config.LocalControlConfig) string {
-	dir := strings.TrimSpace(cfg.ArtifactsDir)
-	if dir == "" {
-		dir = filepath.Join(".qg", "artifacts")
-	}
-	if filepath.IsAbs(dir) {
-		return dir
-	}
-	return filepath.Join(workspaceRoot, dir)
+	return localcontrol.ArtifactsDirFromConfig(workspaceRoot, cfg)
 }
 
 // agentToolRuntime bundles the specialist runtime with the swarm it backs so
@@ -2019,11 +2002,6 @@ Opções:
                                      prefira --plan / --auto no uso interativo.
                                      Para filhos de especialista/swarm.
       --max-turns <number>           Troca o máximo de turnos do loop do agente
-      --exec-profile <name>          Perfil de execução (balanced, fast,
-                                     thorough): postura do loop (turnos,
-                                     esforço, autocorreção, escalação); combina
-                                     com --mode (que escolhe o modelo); flags
-                                     explícitas vencem
       --auto <low|medium|high>       Autonomia (high libera sem confirmar)
       --enabled-tools <tools>        Expõe só estas ferramentas, por vírgula
                                      ou espaço

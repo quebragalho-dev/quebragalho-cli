@@ -263,6 +263,44 @@ func TestActiveGoalLaunchesContinuation(t *testing.T) {
 	}
 }
 
+func TestGoalContinuationShowsOnlyFirstLineOfLongObjective(t *testing.T) {
+	store := testSessionStore(t)
+	session, err := store.Create(sessions.CreateInput{SessionID: "goal_continue_long"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := strings.Repeat("x", 100)
+	session, _, err = store.CreateGoal(session.SessionID, first+"\nsecond line with details\nthird line", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := newModel(context.Background(), Options{
+		Provider:     &scriptedProvider{},
+		Registry:     tools.NewRegistry(),
+		SessionStore: store,
+	})
+	m.activeSession = session
+
+	next, cmd := m.launchGoalContinuationIfReady()
+	if cmd == nil || !next.pending {
+		t.Fatal("active goal should launch a continuation while idle")
+	}
+	want := "Continuando meta: " + strings.Repeat("x", 80) + "…"
+	if !transcriptContains(next.transcript, want) {
+		t.Fatalf("continuation did not shorten the objective: %#v", next.transcript)
+	}
+	if transcriptContains(next.transcript, "second line") {
+		t.Fatalf("continuation leaked later lines: %#v", next.transcript)
+	}
+}
+
+func TestParseGoalObjectiveRejectsOverlongObjective(t *testing.T) {
+	if _, _, err := parseGoalObjective(strings.Repeat("a", sessions.GoalObjectiveMaxLength+1)); err == nil ||
+		!strings.Contains(err.Error(), "4.000") || !strings.Contains(err.Error(), "SPEC.md") {
+		t.Fatalf("overlong objective error = %v", err)
+	}
+}
+
 func TestGoalContinuationChainStopsAtPersistedLimit(t *testing.T) {
 	store := testSessionStore(t)
 	session, err := store.Create(sessions.CreateInput{SessionID: "goal_hard_stop"})
@@ -349,6 +387,16 @@ func TestParseGoalObjective(t *testing.T) {
 	if _, _, err := parseGoalObjective("--tokens nope task"); err == nil ||
 		!strings.Contains(err.Error(), "inteiro não negativo") {
 		t.Fatalf("invalid budget error = %v", err)
+	}
+}
+
+func TestParseGoalObjectivePreservesMultilineAfterTokens(t *testing.T) {
+	objective, budget, err := parseGoalObjective("--tokens 5000 Obj\n1. A\n2. B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if objective != "Obj\n1. A\n2. B" || budget != 5000 {
+		t.Fatalf("parsed objective/budget = %q/%d", objective, budget)
 	}
 }
 

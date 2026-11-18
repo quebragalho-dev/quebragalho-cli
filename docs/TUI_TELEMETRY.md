@@ -52,7 +52,7 @@ montar uma nova (sempre com prévia: Enter aplica, Esc cancela),
 }
 ```
 
-Campos (ids estáveis, em inglês): `mode`, `effort`, `fast`, `voice`,
+Campos (ids estáveis, em inglês): `mode`, `effort`, `voice`,
 `background`, `goal`, `context`, `branch`, `update`, `cwd`, `cache` (taxa de
 acerto do prompt-cache da sessão: `cache —` antes da 1ª chamada), `model`,
 `speed`, `cost` (total da
