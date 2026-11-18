@@ -351,20 +351,31 @@ func TestBrowserActionConnectAcceptsLoopbackTarget(t *testing.T) {
 	}
 }
 
-func TestBrowserActionScrollAcceptsSignedIntegerDeltas(t *testing.T) {
-	runner := &fakeBrowserRunner{}
-	tool := newBrowserActionTool(localBrowserTestOptions(t, runner))
-
-	result := tool.Run(context.Background(), map[string]any{
-		"command": "scroll",
-		"args":    []any{"0", "-500"},
-	})
-	if result.Status != StatusOK {
-		t.Fatalf("status = %s output = %q", result.Status, result.Output)
-	}
-	want := []string{"scroll", "0", "-500"}
-	if !reflect.DeepEqual(runner.args, want) {
-		t.Fatalf("args = %#v, want %#v", runner.args, want)
+func TestBrowserActionScrollUsesDirectionAndAmount(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []any
+		want []string
+	}{
+		{name: "default", args: nil, want: []string{"scroll"}},
+		{name: "direction only", args: []any{"down"}, want: []string{"scroll", "down"}},
+		{name: "direction and amount", args: []any{"up", "500"}, want: []string{"scroll", "up", "500"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := &fakeBrowserRunner{}
+			tool := newBrowserActionTool(localBrowserTestOptions(t, runner))
+			input := map[string]any{"command": "scroll"}
+			if tc.args != nil {
+				input["args"] = tc.args
+			}
+			result := tool.Run(context.Background(), input)
+			if result.Status != StatusOK {
+				t.Fatalf("status = %s output = %q", result.Status, result.Output)
+			}
+			if !reflect.DeepEqual(runner.args, tc.want) {
+				t.Fatalf("args = %#v, want %#v", runner.args, tc.want)
+			}
+		})
 	}
 }
 
@@ -462,5 +473,207 @@ func TestDisabledBrowserToolsAreDenied(t *testing.T) {
 		if tool.Safety().Permission != PermissionDeny {
 			t.Fatalf("%s permission = %s, want deny", tool.Name(), tool.Safety().Permission)
 		}
+	}
+}
+
+func TestBrowserOpenHeadedFlag(t *testing.T) {
+	runner := &fakeBrowserRunner{}
+	tool := newBrowserOpenTool(localBrowserTestOptions(t, runner))
+
+	res := tool.Run(context.Background(), map[string]any{"url": "example.com", "headed": true})
+	if res.Status != StatusOK {
+		t.Fatalf("status = %s output = %q", res.Status, res.Output)
+	}
+	if want := []string{"--headed", "open", "https://example.com"}; !reflect.DeepEqual(runner.args, want) {
+		t.Fatalf("args = %#v, want %#v", runner.args, want)
+	}
+
+	res = tool.Run(context.Background(), map[string]any{"url": "example.com", "headed": false})
+	if res.Status != StatusOK {
+		t.Fatalf("status = %s output = %q", res.Status, res.Output)
+	}
+	if want := []string{"open", "https://example.com"}; !reflect.DeepEqual(runner.args, want) {
+		t.Fatalf("args = %#v, want %#v", runner.args, want)
+	}
+
+	if rej, ok := tool.(PrePermissionRejecter).RejectBeforePermission(map[string]any{"url": "example.com", "headed": "maybe"}); !ok || rej.Status != StatusError {
+		t.Fatalf("non-boolean headed should reject before permission, got (%v, %#v)", ok, rej)
+	}
+}
+
+func TestBrowserTypeAndFillEscapeDashedText(t *testing.T) {
+	runner := &fakeBrowserRunner{}
+	typeTool := newBrowserTypeTool(localBrowserTestOptions(t, runner))
+	res := typeTool.Run(context.Background(), map[string]any{"ref": "@e1", "text": "-abc"})
+	if res.Status != StatusOK {
+		t.Fatalf("browser_type status = %s output = %q", res.Status, res.Output)
+	}
+	if want := []string{"type", "@e1", "--", "-abc"}; !reflect.DeepEqual(runner.args, want) {
+		t.Fatalf("browser_type args = %#v, want %#v", runner.args, want)
+	}
+
+	actionTool := newBrowserActionTool(localBrowserTestOptions(t, runner))
+	for _, cmd := range []string{"fill", "type"} {
+		res := actionTool.Run(context.Background(), map[string]any{"command": cmd, "args": []any{"@e2", "--json"}})
+		if res.Status != StatusOK {
+			t.Fatalf("%s status = %s output = %q", cmd, res.Status, res.Output)
+		}
+		if want := []string{cmd, "@e2", "--", "--json"}; !reflect.DeepEqual(runner.args, want) {
+			t.Fatalf("%s args = %#v, want %#v", cmd, runner.args, want)
+		}
+	}
+}
+
+func TestBrowserActionScrollRejectsOldNumericDeltas(t *testing.T) {
+	tool := newBrowserActionTool(localcontrol.BrowserOptions{Enabled: true})
+	rej, ok := tool.(PrePermissionRejecter).RejectBeforePermission(map[string]any{
+		"command": "scroll",
+		"args":    []any{"0", "-500"},
+	})
+	if !ok || rej.Status != StatusError {
+		t.Fatalf("old numeric scroll deltas should be rejected, got (%v, %#v)", ok, rej)
+	}
+}
+
+func TestBrowserActionTabNewWithLabel(t *testing.T) {
+	runner := &fakeBrowserRunner{}
+	tool := newBrowserActionTool(localBrowserTestOptions(t, runner))
+	res := tool.Run(context.Background(), map[string]any{
+		"command": "tab",
+		"args":    []any{"new", "--label", "docs", "https://example.com"},
+	})
+	if res.Status != StatusOK {
+		t.Fatalf("status = %s output = %q", res.Status, res.Output)
+	}
+	want := []string{"tab", "new", "--label", "docs", "https://example.com"}
+	if !reflect.DeepEqual(runner.args, want) {
+		t.Fatalf("args = %#v, want %#v", runner.args, want)
+	}
+}
+
+func TestBrowserActionSkillsReadOnlyValidation(t *testing.T) {
+	runner := &fakeBrowserRunner{}
+	tool := newBrowserActionTool(localBrowserTestOptions(t, runner))
+
+	for _, tc := range []struct {
+		args []any
+		want []string
+	}{
+		{args: nil, want: []string{"skills"}},
+		{args: []any{"list"}, want: []string{"skills", "list"}},
+		{args: []any{"get", "core"}, want: []string{"skills", "get", "core"}},
+		{args: []any{"get", "core", "--full"}, want: []string{"skills", "get", "core", "--full"}},
+		{args: []any{"get", "core", "--ref", "commands"}, want: []string{"skills", "get", "core", "--ref", "commands"}},
+		{args: []any{"path", "core"}, want: []string{"skills", "path", "core"}},
+	} {
+		input := map[string]any{"command": "skills"}
+		if tc.args != nil {
+			input["args"] = tc.args
+		}
+		res := tool.Run(context.Background(), input)
+		if res.Status != StatusOK {
+			t.Fatalf("skills %v failed: %q", tc.args, res.Output)
+		}
+		if !reflect.DeepEqual(runner.args, tc.want) {
+			t.Fatalf("skills %v args = %#v, want %#v", tc.args, runner.args, tc.want)
+		}
+	}
+
+	for _, bad := range [][]any{
+		{"add", "foo"},
+		{"get", "core", "--executable-path"},
+		{"get"},
+		{"list", "extra"},
+	} {
+		if rej, ok := tool.(PrePermissionRejecter).RejectBeforePermission(map[string]any{
+			"command": "skills",
+			"args":    bad,
+		}); !ok || rej.Status != StatusError {
+			t.Fatalf("skills %v should reject before permission, got (%v, %#v)", bad, ok, rej)
+		}
+	}
+}
+
+func TestBrowserFirstUseErrorsV0430AndLinuxARM64(t *testing.T) {
+	realV0430Missing := "✗ Auto-launch failed: Chrome not found. Checked:\n" +
+		"  - agent-browser cache: /tmp/fake/.agent-browser/browsers\n" +
+		"  - System Chrome installations\n" +
+		"  - Puppeteer browser cache\n" +
+		"  - Playwright browser cache\n" +
+		"Run `agent-browser install` to download Chrome, or use --executable-path.\n"
+
+	if got := browserFirstUseHint("linux", "amd64", "open", realV0430Missing); !strings.Contains(got, "browser_install") {
+		t.Fatalf("linux/amd64 open hint = %q, want browser_install", got)
+	}
+	if got := browserFirstUseHint("linux", "arm64", "open", realV0430Missing); !strings.Contains(got, "sudo apt install chromium") || !strings.Contains(got, "dnf install chromium") {
+		t.Fatalf("linux/arm64 open hint = %q, want system chromium instructions", got)
+	}
+	if got := browserFirstUseHint("linux", "arm64", "install", "Chrome for Testing is not available"); !strings.Contains(got, "sudo apt install chromium") || !strings.Contains(got, "dnf install chromium") {
+		t.Fatalf("linux/arm64 install hint = %q, want system chromium instructions", got)
+	}
+
+	runner := &fakeBrowserRunner{
+		stderr:   realV0430Missing,
+		exitCode: 1,
+		err:      errors.New("exit status 1"),
+	}
+	tool := newBrowserOpenTool(localBrowserTestOptions(t, runner))
+	res := tool.Run(context.Background(), map[string]any{"url": "https://example.com"})
+	if res.Status != StatusError {
+		t.Fatalf("status = %s, want error", res.Status)
+	}
+	if !strings.Contains(res.Output, "browser_install") && !strings.Contains(res.Output, "chromium") {
+		t.Fatalf("real v0.43.0 missing browser error should surface install guidance, got %q", res.Output)
+	}
+}
+
+func TestBrowserToolsRealExampleCom(t *testing.T) {
+	helperPath := strings.TrimSpace(os.Getenv("QG_AGENT_BROWSER_BIN"))
+	if helperPath == "" {
+		t.Skip("set QG_AGENT_BROWSER_BIN to run real agent-browser integration test")
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("AGENT_BROWSER_SESSION", "qg-real-example")
+
+	reg := NewRegistry()
+	for _, tool := range NewLocalBrowserTools(localcontrol.BrowserOptions{
+		Enabled:    true,
+		HelperPath: helperPath,
+	}) {
+		reg.Register(tool)
+	}
+
+	ctx := context.Background()
+	opts := RunOptions{PermissionGranted: true}
+	defer reg.RunWithOptions(ctx, "browser_action", map[string]any{"command": "close"}, opts)
+
+	openRes := reg.RunWithOptions(ctx, "browser_open", map[string]any{"url": "https://example.com"}, opts)
+	if openRes.Status != StatusOK {
+		t.Fatalf("browser_open failed: %s", openRes.Output)
+	}
+	t.Logf("browser_open:\n%s", openRes.Output)
+
+	snapRes := reg.RunWithOptions(ctx, "browser_snapshot", map[string]any{"interactive": true}, opts)
+	if snapRes.Status != StatusOK {
+		t.Fatalf("browser_snapshot failed: %s", snapRes.Output)
+	}
+	t.Logf("browser_snapshot:\n%s", snapRes.Output)
+
+	clickRes := reg.RunWithOptions(ctx, "browser_click", map[string]any{"ref": "@e1"}, opts)
+	if clickRes.Status != StatusOK {
+		t.Fatalf("browser_click failed: %s", clickRes.Output)
+	}
+	t.Logf("browser_click:\n%s", clickRes.Output)
+
+	urlRes := reg.RunWithOptions(ctx, "browser_action", map[string]any{"command": "get_url"}, opts)
+	if urlRes.Status != StatusOK {
+		t.Fatalf("browser_action get_url failed: %s", urlRes.Output)
+	}
+	t.Logf("browser_action get_url:\n%s", urlRes.Output)
+	if !strings.Contains(urlRes.Output, "iana.org") {
+		t.Fatalf("expected navigated URL on iana.org, got %q", urlRes.Output)
 	}
 }
