@@ -465,8 +465,10 @@ func gitSegmentConfigSafe(seg shellCommandSegment) bool {
 const gitConfigCheckTimeout = 5 * time.Second
 
 // gitRepoConfigSafe inspects the repository's effective local/worktree/command
-// git config (including [include]/[includeIf] targets) and fails closed if any
-// active setting can spawn an external program.
+// git config (including [include]/[includeIf] targets) and checks whether the
+// repository resolves an active post-index-change hook (`git status` runs it
+// when rewriting the index). Fails closed if any active setting or hook can
+// spawn an external program, or if git inspection fails.
 func gitRepoConfigSafe(dir string) bool {
 	info, err := os.Stat(dir)
 	if err != nil || !info.IsDir() {
@@ -475,18 +477,48 @@ func gitRepoConfigSafe(dir string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), gitConfigCheckTimeout)
 	defer cancel()
 
+	var configSafe bool
 	out, err := runGitConfigList(ctx, dir, true)
 	if err == nil {
-		return parseAndValidateGitConfigScopeList(out)
-	}
-	if isUnknownGitShowScopeError(err) {
+		configSafe = parseAndValidateGitConfigScopeList(out)
+	} else if isUnknownGitShowScopeError(err) {
 		localOut, localErr := runGitConfigList(ctx, dir, false)
 		if localErr != nil {
 			return false
 		}
-		return parseAndValidateGitConfigLocalList(localOut)
+		configSafe = parseAndValidateGitConfigLocalList(localOut)
 	}
-	return false
+	if !configSafe {
+		return false
+	}
+	return gitPostIndexChangeHookSafe(ctx, dir)
+}
+
+func gitPostIndexChangeHookSafe(ctx context.Context, dir string) bool {
+	// `git rev-parse --git-path` landed in Git 2.5.0 and resolves relative to -C <dir>,
+	// honoring core.hooksPath across all config scopes.
+	out, err := runGitReadOnlyCommand(ctx, dir, "rev-parse", "--git-path", "hooks/post-index-change")
+	if err != nil {
+		return false
+	}
+	hookPath := strings.TrimRight(string(out), "\r\n")
+	if hookPath == "" {
+		return false
+	}
+	if !filepath.IsAbs(hookPath) {
+		hookPath = filepath.Join(dir, hookPath)
+	}
+	info, err := os.Stat(hookPath)
+	if err != nil {
+		return os.IsNotExist(err)
+	}
+	if !info.Mode().IsRegular() {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return false
+	}
+	return info.Mode()&0o111 == 0
 }
 
 type gitConfigListError struct {
@@ -506,13 +538,18 @@ func isUnknownGitShowScopeError(err error) bool {
 }
 
 func runGitConfigList(ctx context.Context, dir string, withScope bool) ([]byte, error) {
-	args := []string{"--no-pager", "-C", dir, "config", "--list", "--includes"}
+	args := []string{"config", "--list", "--includes"}
 	if withScope {
 		args = append(args, "--show-scope")
 	} else {
 		args = append(args, "--local")
 	}
 	args = append(args, "--null")
+	return runGitReadOnlyCommand(ctx, dir, args...)
+}
+
+func runGitReadOnlyCommand(ctx context.Context, dir string, subArgs ...string) ([]byte, error) {
+	args := append([]string{"--no-pager", "-C", dir}, subArgs...)
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	var stdout, stderr bytes.Buffer
@@ -638,7 +675,7 @@ func gitConfigKeyRunsProgram(key string, value string) bool {
 		// Boolean true/false selects Git's built-in daemon or disables it;
 		// any other value is a hook command path.
 		return !isGitBool(trimmed)
-	case !hasSub && section == "core" && (variable == "pager" || variable == "sshcommand" || variable == "askpass" || variable == "gitproxy" || variable == "alternaterefscommand"):
+	case !hasSub && section == "core" && (variable == "pager" || variable == "sshcommand" || variable == "askpass" || variable == "gitproxy" || variable == "alternaterefscommand" || variable == "hookspath"):
 		return true
 	case !hasSub && section == "pager":
 		// pager.<cmd> may be a boolean toggle or a custom command string.

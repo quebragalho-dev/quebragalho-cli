@@ -161,6 +161,7 @@ func TestMatchCommandPrefixChecksEffectiveGitRepoConfig(t *testing.T) {
 		{"core.sshCommand", "[core]\n\tsshCommand = ./payload.sh\n"},
 		{"credential.helper", "[credential]\n\thelper = ./payload.sh\n"},
 		{"gpg.program", "[gpg]\n\tprogram = ./payload.sh\n"},
+		{"core.hooksPath", "[core]\n\thooksPath = .githooks\n"},
 	}
 
 	for _, tc := range unsafeConfigs {
@@ -297,6 +298,58 @@ func TestMatchCommandPrefixChecksEffectiveGitRepoConfig(t *testing.T) {
 		engine.GrantCommandPrefixForSession("bash", []string{"git", "status"})
 		if _, ok, _ := matchCommandPrefix("bash", map[string]any{"command": "cd sub && git status"}, Options{Sandbox: engine, Cwd: root}); ok {
 			t.Fatal("git status grant from parent repo must not auto-allow unsafe nested repo")
+		}
+	})
+
+	t.Run("nested repo executable post-index-change hook requires approval", func(t *testing.T) {
+		root := t.TempDir()
+		initRepo(t, root, "")
+		sub := filepath.Join(root, "sub")
+		initRepo(t, sub, "")
+		hookPath := filepath.Join(sub, ".git", "hooks", "post-index-change")
+		if err := os.MkdirAll(filepath.Dir(hookPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(hookPath, []byte("#!/bin/sh\ntouch evil\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		engine := sandbox.NewEngine(sandbox.EngineOptions{WorkspaceRoot: root})
+		engine.GrantCommandPrefixForSession("bash", []string{"ps", "aux"})
+		if _, ok, _ := matchCommandPrefix("bash", map[string]any{"command": "ps aux && cd sub && git status"}, Options{Sandbox: engine, Cwd: root}); ok {
+			t.Fatal("matchCommandPrefix succeeded despite executable post-index-change hook")
+		}
+		if prefix := proposedCommandPrefixInDir("bash", map[string]any{"command": "cd sub && git status"}, root); prefix != nil {
+			t.Fatalf("proposedCommandPrefixInDir = %#v, want nil with executable post-index-change hook", prefix)
+		}
+	})
+
+	t.Run("global relative core.hooksPath with post-index-change hook requires approval", func(t *testing.T) {
+		root := t.TempDir()
+		initRepo(t, root, "")
+		sub := filepath.Join(root, "sub")
+		initRepo(t, sub, "")
+		globalCfg := os.Getenv("GIT_CONFIG_GLOBAL")
+		if err := os.WriteFile(globalCfg, []byte("[core]\n\thooksPath = .githooks\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		engine := sandbox.NewEngine(sandbox.EngineOptions{WorkspaceRoot: root})
+		engine.GrantCommandPrefixForSession("bash", []string{"ps", "aux"})
+		// Before .githooks/post-index-change exists, the clean repo remains automatic.
+		if _, ok, _ := matchCommandPrefix("bash", map[string]any{"command": "ps aux && cd sub && git status"}, Options{Sandbox: engine, Cwd: root}); !ok {
+			t.Fatal("clean repo with global relative core.hooksPath and no post-index-change hook should stay automatic")
+		}
+
+		hookPath := filepath.Join(sub, ".githooks", "post-index-change")
+		if err := os.MkdirAll(filepath.Dir(hookPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(hookPath, []byte("#!/bin/sh\ntouch evil\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok, _ := matchCommandPrefix("bash", map[string]any{"command": "ps aux && cd sub && git status"}, Options{Sandbox: engine, Cwd: root}); ok {
+			t.Fatal("matchCommandPrefix succeeded despite post-index-change via global relative core.hooksPath")
 		}
 	})
 }
