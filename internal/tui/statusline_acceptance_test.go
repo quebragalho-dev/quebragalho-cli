@@ -1646,7 +1646,7 @@ func TestStatusLineAcceptance_AppliedCommandRunsOnItsCadence(t *testing.T) {
 	// without a restart: wait for them (a loaded machine delays each run, it
 	// does not drop it) and only then stop the clock.
 	window := time.Now()
-	got, ok := p.waitFor(slSetupWait, func(string) bool {
+	got, _ := p.waitFor(slSetupWait, func(string) bool {
 		return len(fileLines(runs))-afterPreview >= 3
 	})
 	elapsed := time.Since(window)
