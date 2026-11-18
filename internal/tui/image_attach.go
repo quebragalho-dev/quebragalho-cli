@@ -38,6 +38,16 @@ func droppedAttachmentPath(content, cwd string) (string, bool) {
 	if s == "" || strings.ContainsAny(s, "\n\r") {
 		return "", false // empty or multi-line: not a single dropped file
 	}
+	// Browsers and some terminals paste a dropped file as a file:// URI
+	// (percent-escaped). Decode it to a local path before the checks below;
+	// anything that is not a file URI keeps the plain-path flow.
+	if len(s) >= 7 && strings.EqualFold(s[:7], "file://") {
+		decoded, ok := imageinput.ClipboardFileURLToPath(s)
+		if !ok {
+			return "", false
+		}
+		s = decoded
+	}
 	if unq, quoted := stripMatchingQuotes(s); quoted {
 		s = unq // a quoted path is literal — do not unescape inside it
 	} else {

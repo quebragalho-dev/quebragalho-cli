@@ -30,6 +30,8 @@ func TestDroppedAttachmentPath(t *testing.T) {
 		// Backslash-escaping of spaces is a Unix terminal drag-drop convention; on
 		// Windows the backslash is the path separator, so this form does not occur.
 		positives["backslash-escaped drop"] = strings.ReplaceAll(img, " ", `\ `)
+		// Browsers and some terminals paste a dropped file as a file:// URI.
+		positives["file URI drop"] = "file://" + strings.ReplaceAll(img, " ", "%20")
 	}
 	for name, in := range positives {
 		got, ok := droppedAttachmentPath(in, dir)
@@ -45,6 +47,7 @@ func TestDroppedAttachmentPath(t *testing.T) {
 		"non-existent image": filepath.Join(dir, "nope.png"),
 		"plain text":         "what is this image?",
 		"non-image file":     txt,
+		"non-file URI":       "https://example.com/photo.png",
 		"multi-line":         strings.ReplaceAll(img, " ", `\ `) + "\nmore text",
 		"empty":              "   ",
 	} {
