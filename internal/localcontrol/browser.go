@@ -245,7 +245,63 @@ func (browser Browser) Enabled() bool {
 }
 
 func (browser Browser) Run(ctx context.Context, args ...string) (CommandResult, error) {
-	return browser.helper.Run(ctx, args...)
+	resolved, runArgs, err := browser.helper.prepareRun(ctx, args)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	env, err := browser.prepareEnv(resolved.Env)
+	if err != nil {
+		return CommandResult{}, err
+	}
+	return browser.helper.options.Runner.Run(ctx, resolved.Command, runArgs, env, browser.helper.options.Timeout)
+}
+
+func (browser Browser) prepareEnv(resolvedEnv []string) ([]string, error) {
+	if browserGOOS != "linux" {
+		return resolvedEnv, nil
+	}
+	driver := strings.TrimSpace(browser.helper.options.Driver)
+	if (driver != "" && driver != DefaultBrowserDriver) || strings.TrimSpace(browser.helper.options.HelperPath) != "" {
+		return resolvedEnv, nil
+	}
+	if !snapChromiumExists() {
+		return resolvedEnv, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return resolvedEnv, nil
+	}
+	snapRoot := filepath.Join(home, "snap", "chromium")
+	if isSubpathOf(snapRoot, effectiveEnvValue(resolvedEnv, "TMPDIR")) {
+		return resolvedEnv, nil
+	}
+	tmpDir := filepath.Join(snapRoot, "common", "qg-agent-browser-tmp")
+	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+		return nil, fmt.Errorf("criar pasta temporária do navegador para o Chromium snap (%s): %w", tmpDir, err)
+	}
+	return mergeEnv(resolvedEnv, []string{"TMPDIR=" + tmpDir}), nil
+}
+
+func effectiveEnvValue(overlay []string, key string) string {
+	want := normalizeEnvKey(key)
+	for i := len(overlay) - 1; i >= 0; i-- {
+		if k, v, ok := strings.Cut(overlay[i], "="); ok && normalizeEnvKey(k) == want {
+			return v
+		}
+	}
+	return os.Getenv(key)
+}
+
+func isSubpathOf(baseDir, candidate string) bool {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" || !filepath.IsAbs(candidate) {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(baseDir), filepath.Clean(candidate))
+	if err != nil {
+		return false
+	}
+	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func (desktop Desktop) Run(ctx context.Context, args ...string) (CommandResult, error) {
@@ -270,7 +326,14 @@ func (terminal Terminal) Enabled() bool {
 
 type ExecRunner struct{}
 
-var executablePath = os.Executable
+var (
+	executablePath     = os.Executable
+	browserGOOS        = runtime.GOOS
+	snapChromiumExists = func() bool {
+		info, err := os.Stat("/snap/bin/chromium")
+		return err == nil && !info.IsDir()
+	}
+)
 
 func (r ExecRunner) Run(ctx context.Context, path string, args []string, env []string, timeout time.Duration) (CommandResult, error) {
 	return r.run(ctx, path, args, env, "", false, timeout)

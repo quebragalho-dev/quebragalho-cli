@@ -94,6 +94,7 @@ func TestBrowserRunMissingHelperPathIsActionable(t *testing.T) {
 }
 
 func TestBrowserRunUsesHelperManifest(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	binDir := filepath.Join(dir, "node_modules", ".bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
@@ -127,6 +128,7 @@ func TestBrowserRunUsesHelperManifest(t *testing.T) {
 }
 
 func TestBrowserRunUsesManifestPrefixArgs(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	runner := &fakeCommandRunner{}
 	t.Setenv(EnvHelperManifest, `{"version":1,"helpers":{"agent-browser":{"command":"cmd.exe","prefixArgs":["/d","/s","/c","C:\\qg\\agent-browser.cmd"]}}}`)
 	browser := NewBrowser(BrowserOptions{
@@ -168,6 +170,7 @@ func TestMergeEnvReplacesPathCaseInsensitivelyOnWindows(t *testing.T) {
 }
 
 func TestBrowserRunUsesAdjacentPackagedHelper(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
 	native := filepath.Join(root, "qg")
 	if err := os.WriteFile(native, []byte("#!/bin/sh\n"), 0o755); err != nil {
@@ -199,6 +202,7 @@ func TestBrowserRunUsesAdjacentPackagedHelper(t *testing.T) {
 }
 
 func TestBrowserRunUsesAdjacentPackagedNodeBinHelper(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
 	native := filepath.Join(root, "qg")
 	if err := os.WriteFile(native, []byte("#!/bin/sh\n"), 0o755); err != nil {
@@ -415,4 +419,223 @@ func TestExecRunnerRunWithStdinPassesInputToChild(t *testing.T) {
 	if res.Stdout != "hello\nstdin" {
 		t.Fatalf("Stdout = %q, want %q", res.Stdout, "hello\nstdin")
 	}
+}
+
+func stubSnapChromiumEnv(t *testing.T, goos string, snapExists bool, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv(EnvHelperManifest, "")
+	oldExecutablePath := executablePath
+	executablePath = func() (string, error) { return filepath.Join(t.TempDir(), "qg"), nil }
+	oldGOOS := browserGOOS
+	browserGOOS = goos
+	oldSnap := snapChromiumExists
+	snapChromiumExists = func() bool { return snapExists }
+	t.Cleanup(func() {
+		executablePath = oldExecutablePath
+		browserGOOS = oldGOOS
+		snapChromiumExists = oldSnap
+	})
+}
+
+func TestBrowserRunSetsSnapChromiumTmpDirOnLinux(t *testing.T) {
+	home := canonicalPath(t, t.TempDir())
+	stubSnapChromiumEnv(t, "linux", true, home)
+	t.Setenv("TMPDIR", "")
+
+	ensuredBin := filepath.Join(t.TempDir(), "agent-browser")
+	if err := os.WriteFile(ensuredBin, []byte("#!/bin/sh\nprintf '%s' \"$TMPDIR\"\n"), 0o755); err != nil {
+		t.Fatalf("write ensured binary: %v", err)
+	}
+
+	runner := &fakeCommandRunner{}
+	browser := NewBrowser(BrowserOptions{
+		Enabled: true,
+		Runner:  runner,
+		Ensure:  func(context.Context) (string, error) { return ensuredBin, nil },
+	})
+
+	wantTmp := filepath.Join(home, "snap", "chromium", "common", "qg-agent-browser-tmp")
+	for _, cmdArgs := range [][]string{{"open", "https://example.com"}, {"snapshot", "-i"}} {
+		if _, err := browser.Run(context.Background(), cmdArgs...); err != nil {
+			t.Fatalf("Run(%v) returned error: %v", cmdArgs, err)
+		}
+		if got := envValue(runner.env, "TMPDIR"); got != wantTmp {
+			t.Fatalf("Run(%v) TMPDIR = %q, want %q (env=%#v)", cmdArgs, got, wantTmp, runner.env)
+		}
+	}
+
+	info, err := os.Stat(wantTmp)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("Stat(%q): info=%v err=%v", wantTmp, info, err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
+		t.Fatalf("dir perm = %o, want 0700", info.Mode().Perm())
+	}
+
+	if runtime.GOOS != "windows" {
+		t.Setenv("TMPDIR", "/tmp/outside-snap")
+		execBrowser := NewBrowser(BrowserOptions{
+			Enabled: true,
+			Ensure:  func(context.Context) (string, error) { return ensuredBin, nil },
+		})
+		res, err := execBrowser.Run(context.Background(), "open")
+		if err != nil {
+			t.Fatalf("ExecRunner Run returned error: %v", err)
+		}
+		if res.Stdout != wantTmp {
+			t.Fatalf("child TMPDIR = %q, want %q", res.Stdout, wantTmp)
+		}
+	}
+}
+
+func TestBrowserRunSnapChromiumTmpDirRespectsSnapTmpAndOverridesOutsideTmp(t *testing.T) {
+	ensuredBin := filepath.Join(t.TempDir(), "agent-browser")
+	if err := os.WriteFile(ensuredBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write ensured binary: %v", err)
+	}
+
+	t.Run("overrides-outside-and-traversal-tmpdir", func(t *testing.T) {
+		home := canonicalPath(t, t.TempDir())
+		stubSnapChromiumEnv(t, "linux", true, home)
+		wantTmp := filepath.Join(home, "snap", "chromium", "common", "qg-agent-browser-tmp")
+
+		for _, badTmp := range []string{
+			"/tmp/user-1000",
+			filepath.Join(home, "snap", "chromium-beta", "common"),
+			filepath.Join(home, "snap", "chromium") + "/../../tmp",
+		} {
+			t.Setenv("TMPDIR", badTmp)
+			runner := &fakeCommandRunner{}
+			browser := NewBrowser(BrowserOptions{
+				Enabled: true,
+				Runner:  runner,
+				Ensure:  func(context.Context) (string, error) { return ensuredBin, nil },
+			})
+			if _, err := browser.Run(context.Background(), "open", "https://example.com"); err != nil {
+				t.Fatalf("TMPDIR=%q: Run error = %v", badTmp, err)
+			}
+			if got := envValue(runner.env, "TMPDIR"); got != wantTmp {
+				t.Fatalf("TMPDIR=%q: got overlay TMPDIR=%q, want %q", badTmp, got, wantTmp)
+			}
+		}
+	})
+
+	t.Run("preserves-tmpdir-already-under-snap-chromium", func(t *testing.T) {
+		home := canonicalPath(t, t.TempDir())
+		stubSnapChromiumEnv(t, "linux", true, home)
+		customSnapTmp := filepath.Join(home, "snap", "chromium", "common", "custom-tmp")
+		t.Setenv("TMPDIR", customSnapTmp)
+
+		runner := &fakeCommandRunner{}
+		browser := NewBrowser(BrowserOptions{
+			Enabled: true,
+			Runner:  runner,
+			Ensure:  func(context.Context) (string, error) { return ensuredBin, nil },
+		})
+		if _, err := browser.Run(context.Background(), "open", "https://example.com"); err != nil {
+			t.Fatalf("Run error = %v", err)
+		}
+		if got := envValue(runner.env, "TMPDIR"); got != "" {
+			t.Fatalf("overlay TMPDIR = %q, want empty so user TMPDIR %q is preserved", got, customSnapTmp)
+		}
+		defaultTmp := filepath.Join(home, "snap", "chromium", "common", "qg-agent-browser-tmp")
+		if _, err := os.Stat(defaultTmp); !os.IsNotExist(err) {
+			t.Fatalf("default snap tmp %q should not be created when user TMPDIR is already under ~/snap/chromium", defaultTmp)
+		}
+	})
+}
+
+func TestBrowserRunSkipsSnapChromiumTmpDirWhenNotApplicable(t *testing.T) {
+	helperBin := filepath.Join(t.TempDir(), "helper-bin")
+	if err := os.WriteFile(helperBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write helper: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name       string
+		goos       string
+		snapExists bool
+		driver     string
+		helperPath string
+	}{
+		{name: "darwin-even-if-snap-exists", goos: "darwin", snapExists: true},
+		{name: "windows-even-if-snap-exists", goos: "windows", snapExists: true},
+		{name: "linux-without-snap-chromium", goos: "linux", snapExists: false},
+		{name: "linux-custom-driver", goos: "linux", snapExists: true, driver: "custom-browser"},
+		{name: "linux-custom-helper-path", goos: "linux", snapExists: true, helperPath: helperBin},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := canonicalPath(t, t.TempDir())
+			stubSnapChromiumEnv(t, tc.goos, tc.snapExists, home)
+			t.Setenv("TMPDIR", "")
+
+			pathDir := t.TempDir()
+			driverName := tc.driver
+			if driverName == "" {
+				driverName = DefaultBrowserDriver
+			}
+			for _, ext := range []string{"", ".exe"} {
+				if err := os.WriteFile(filepath.Join(pathDir, driverName+ext), []byte("#!/bin/sh\n"), 0o755); err != nil {
+					t.Fatalf("write path helper: %v", err)
+				}
+			}
+			t.Setenv("PATH", pathDir)
+
+			runner := &fakeCommandRunner{}
+			browser := NewBrowser(BrowserOptions{
+				Enabled:    true,
+				Driver:     tc.driver,
+				HelperPath: tc.helperPath,
+				Runner:     runner,
+			})
+			if _, err := browser.Run(context.Background(), "snapshot"); err != nil {
+				t.Fatalf("Run error = %v", err)
+			}
+			if got := envValue(runner.env, "TMPDIR"); got != "" {
+				t.Fatalf("TMPDIR = %q, want empty", got)
+			}
+			if _, err := os.Stat(filepath.Join(home, "snap")); !os.IsNotExist(err) {
+				t.Fatalf("snap dir should not be created for %s: %v", tc.name, err)
+			}
+		})
+	}
+
+	t.Run("desktop-and-terminal-unaffected", func(t *testing.T) {
+		home := canonicalPath(t, t.TempDir())
+		stubSnapChromiumEnv(t, "linux", true, home)
+		t.Setenv("TMPDIR", "")
+
+		runner := &fakeCommandRunner{}
+		desktop := NewDesktop(DesktopOptions{
+			Enabled: true,
+			Runner:  runner,
+			Ensure:  func(context.Context) (string, error) { return helperBin, nil },
+		})
+		if _, err := desktop.Run(context.Background(), "status"); err != nil {
+			t.Fatalf("desktop.Run error = %v", err)
+		}
+		if got := envValue(runner.env, "TMPDIR"); got != "" {
+			t.Fatalf("desktop TMPDIR = %q, want empty", got)
+		}
+
+		pathDir := t.TempDir()
+		for _, ext := range []string{"", ".exe"} {
+			if err := os.WriteFile(filepath.Join(pathDir, DefaultTerminalDriver+ext), []byte("#!/bin/sh\n"), 0o755); err != nil {
+				t.Fatalf("write terminal helper: %v", err)
+			}
+		}
+		t.Setenv("PATH", pathDir)
+		terminal := NewTerminal(TerminalOptions{Enabled: true, Runner: runner})
+		if _, err := terminal.Run(context.Background(), "snapshot"); err != nil {
+			t.Fatalf("terminal.Run error = %v", err)
+		}
+		if got := envValue(runner.env, "TMPDIR"); got != "" {
+			t.Fatalf("terminal TMPDIR = %q, want empty", got)
+		}
+		if _, err := os.Stat(filepath.Join(home, "snap")); !os.IsNotExist(err) {
+			t.Fatalf("desktop/terminal must not create snap dir: %v", err)
+		}
+	})
 }
