@@ -153,18 +153,15 @@ func detectModelArgs(dir string) ([]string, error) {
 	return detectModelArgsFor(dir, false)
 }
 
-// detectModelArgsFor inspects a sherpa-onnx model directory and builds the
-// family-specific --*=path flags for either sherpa-onnx-offline (online=false)
-// or sherpa-onnx (online=true). tokens.txt is required by every family.
-func detectModelArgsFor(dir string, online bool) ([]string, error) {
+func scanModelDir(dir string) (dirName string, files map[string]string, tokens string, err error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, &SetupError{
+		return "", nil, "", &SetupError{
 			Tool: "modelo de ditado local",
 			Hint: fmt.Sprintf("stt.localModelPath %q não pode ser lido: %v", dir, err),
 		}
 	}
-	files := map[string]string{} // lowercased basename -> absolute path
+	files = map[string]string{} // lowercased basename -> absolute path
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
@@ -172,15 +169,24 @@ func detectModelArgsFor(dir string, online bool) ([]string, error) {
 		files[strings.ToLower(e.Name())] = filepath.Join(dir, e.Name())
 	}
 
-	tokens := findTokensFile(files)
+	tokens = findTokensFile(files)
 	if tokens == "" {
-		return nil, &SetupError{
+		return "", nil, "", &SetupError{
 			Tool: "modelo de ditado local",
 			Hint: fmt.Sprintf("nenhum tokens.txt em stt.localModelPath %q — é uma pasta de modelo sherpa-onnx?", dir),
 		}
 	}
+	return strings.ToLower(filepath.Base(dir)), files, tokens, nil
+}
 
-	dirName := strings.ToLower(filepath.Base(dir))
+// detectModelArgsFor inspects a sherpa-onnx model directory and builds the
+// family-specific --*=path flags for either sherpa-onnx-offline (online=false)
+// or sherpa-onnx (online=true). tokens.txt is required by every family.
+func detectModelArgsFor(dir string, online bool) ([]string, error) {
+	dirName, files, tokens, err := scanModelDir(dir)
+	if err != nil {
+		return nil, err
+	}
 
 	// Order matters — check the most specific signatures first so a model is
 	// never mis-classified as a family it only partially resembles.
