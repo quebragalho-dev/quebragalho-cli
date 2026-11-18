@@ -442,3 +442,111 @@ func TestDedupeWindowsACLEntriesMergesMaterializeOnDuplicateDenyPaths(t *testing
 		t.Fatalf("deduped entry = %#v, want Materialize kept: the operator-named duplicate must not disarm the metadata deny", out[0])
 	}
 }
+
+// THE FULL RESTRICTED TOKEN CHECKS READS TOO, SO IT NEEDS READ GRANTS.
+//
+// A profile with DenyRead runs without WRITE_RESTRICTED: the restricted-SID
+// check then applies to reads, and the workspace is unreadable unless the plan
+// grants the capability SIDs read access on it. These allow-read entries are
+// inert under WRITE_RESTRICTED (reads there already pass via the user identity)
+// and load-bearing without it.
+func TestBuildWindowsACLPlanGrantsCapabilityReadOnWriteRoots(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	plan, err := BuildWindowsACLPlan(WindowsSandboxCommandConfig{
+		SandboxHome:    home,
+		WorkspaceRoots: []string{workspace},
+		PermissionProfile: PermissionProfile{
+			FileSystem: FileSystemPolicy{
+				Kind:       FileSystemRestricted,
+				WriteRoots: []WritableRoot{{Root: workspace}},
+			},
+			Network: NetworkPolicy{Mode: NetworkDeny},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildWindowsACLPlan: %v", err)
+	}
+	sid, err := WindowsWorkspaceCapabilitySID(home, workspace)
+	if err != nil {
+		t.Fatalf("WindowsWorkspaceCapabilitySID: %v", err)
+	}
+	assertWindowsACLEntry(t, plan, WindowsACLAllowRead, workspace, sid, false)
+}
+
+// CREDENTIAL PATHS GET DENY ENTRIES WITHOUT MATERIALIZING.
+//
+// Credential stores (~/.ssh, tokens, ...) must be denied to the sandbox, but
+// the plan must never create them: materializing an absent ~/.ssh as elevated
+// setup would plant an admin-owned directory the user can no longer write,
+// breaking their own ssh. Best-effort like the Linux mount backend for absent
+// paths: deny what exists, skip what does not (a path created later is picked
+// up by the next on-demand apply, and creation races towards denial because the
+// apply denies whatever exists when it runs).
+func TestBuildWindowsACLPlanDeniesCredentialPathsWithoutMaterializing(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	present := t.TempDir()
+	absent := filepath.Join(t.TempDir(), "not-created-yet")
+	plan, err := BuildWindowsACLPlan(WindowsSandboxCommandConfig{
+		SandboxHome:    home,
+		WorkspaceRoots: []string{workspace},
+		PermissionProfile: PermissionProfile{
+			FileSystem: FileSystemPolicy{
+				Kind:             FileSystemRestricted,
+				WriteRoots:       []WritableRoot{{Root: workspace}},
+				DenyReadIfExists: []string{present, absent},
+			},
+			Network: NetworkPolicy{Mode: NetworkDeny},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildWindowsACLPlan: %v", err)
+	}
+	sid, err := WindowsWorkspaceCapabilitySID(home, workspace)
+	if err != nil {
+		t.Fatalf("WindowsWorkspaceCapabilitySID: %v", err)
+	}
+	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, present, sid, false)
+	assertWindowsACLEntry(t, plan, WindowsACLDenyRead, present, sid, false)
+	for _, entry := range plan.Entries {
+		if windowsCapabilityPathKey(entry.Path) == windowsCapabilityPathKey(absent) {
+			t.Fatalf("plan entry for absent credential path %s: the plan must not plant host directories", absent)
+		}
+	}
+}
+
+// CARVEOUTS STAY READABLE INSIDE A DENIED CREDENTIAL ROOT.
+//
+// A directory-level credential deny (QG's own config dir) would otherwise hide
+// the supported non-secret subtrees (plugins, specialists, commands) whose
+// contents run through the sandbox. The carveout allow-read ACEs sit on the
+// child objects themselves, so they win over the inherited parent deny.
+func TestBuildWindowsACLPlanKeepsCredentialCarveoutsReadable(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	parent := t.TempDir()
+	carveout := filepath.Join(parent, "plugins")
+	plan, err := BuildWindowsACLPlan(WindowsSandboxCommandConfig{
+		SandboxHome:    home,
+		WorkspaceRoots: []string{workspace},
+		PermissionProfile: PermissionProfile{
+			FileSystem: FileSystemPolicy{
+				Kind:              FileSystemRestricted,
+				WriteRoots:        []WritableRoot{{Root: workspace}},
+				DenyReadIfExists:  []string{parent},
+				DenyReadCarveouts: []string{carveout},
+			},
+			Network: NetworkPolicy{Mode: NetworkDeny},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildWindowsACLPlan: %v", err)
+	}
+	sid, err := WindowsWorkspaceCapabilitySID(home, workspace)
+	if err != nil {
+		t.Fatalf("WindowsWorkspaceCapabilitySID: %v", err)
+	}
+	assertWindowsACLEntry(t, plan, WindowsACLDenyRead, parent, sid, false)
+	assertWindowsACLEntry(t, plan, WindowsACLAllowRead, carveout, sid, false)
+}

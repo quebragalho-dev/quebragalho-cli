@@ -3,7 +3,6 @@ package sandbox
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
@@ -239,11 +238,12 @@ type credentialDenyPaths struct {
 // the preserved caller environment and QG's own config/token stores. Four
 // deliberate limits:
 //
-//   - Windows is skipped: a non-empty profile DenyRead is unsupported on both
-//     restricted-token runner levels under the narrow SID set (PR #640). The
-//     fully restricted token cannot load ordinary system binaries without
-//     Users/AuthUsers, and adding those groups reopens write grants outside
-//     WriteRoots. Revisit once access-time confinement exists.
+//   - Windows denies are best-effort DACL entries, not mounts: the Windows ACL
+//     plan stamps deny-write (both token modes) and deny-read (fully
+//     restricted token only) ACEs on the stores that exist when it applies,
+//     and skips the ones that do not rather than planting host directories.
+//     Reads stay unrestricted under WRITE_RESTRICTED, where the kernel skips
+//     restricted-SID deny ACEs for reads (#612).
 //   - A candidate nested under a user-configured AllowRead entry is dropped,
 //     so `allowRead: ["~/.aws"]` remains an explicit opt-out.
 //   - Candidates are emitted whether or not they currently exist on disk.
@@ -263,10 +263,6 @@ type credentialDenyPaths struct {
 // Policy.DenyRead, whose emptiness gates escalated (unsandboxed) execution and
 // must keep reflecting user configuration alone.
 func credentialDenyReadPaths(policy Policy, commandDir string, commandEnv []string, commandAllowedRoots []string) credentialDenyPaths {
-	if runtime.GOOS == "windows" {
-		return credentialDenyPaths{}
-	}
-
 	// Only roots derived from QG's own process environment may produce
 	// carveouts or host directories. CommandSpec.Env can contain project-controlled
 	// MCP environment overrides, so it contributes deny-if-present paths only.

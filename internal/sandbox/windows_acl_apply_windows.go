@@ -586,6 +586,8 @@ func windowsACLAccess(action WindowsACLAction) (windows.ACCESS_MODE, windows.ACC
 	switch action {
 	case WindowsACLAllowWrite:
 		return windows.GRANT_ACCESS, windows.FILE_GENERIC_READ | windows.FILE_GENERIC_WRITE | windows.FILE_GENERIC_EXECUTE, nil
+	case WindowsACLAllowRead:
+		return windows.GRANT_ACCESS, windows.FILE_GENERIC_READ | windows.FILE_GENERIC_EXECUTE, nil
 	case WindowsACLDenyRead:
 		return windows.DENY_ACCESS, windows.FILE_GENERIC_READ | windows.FILE_GENERIC_EXECUTE, nil
 	case WindowsACLDenyWrite:

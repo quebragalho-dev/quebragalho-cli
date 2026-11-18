@@ -211,17 +211,25 @@ func TestWindowsUnelevatedRealSandboxSmoke(t *testing.T) {
 		t.Fatalf("expected the unelevated setup marker to be recorded: %v", err)
 	}
 
-	// DenyRead is unsupported on both restricted-token tiers under the narrow
-	// SID set (PR #640): the runner must reject before launch rather than
-	// attempting a fully restricted token that cannot load system tools.
+	// DenyRead is SUPPORTED on both restricted-token tiers: the profile runs
+	// under the fully restricted token (no WRITE_RESTRICTED, so denies apply to
+	// reads per #612), which launches because Everyone is back in the restricted
+	// list and the plan grants capability-SID read access on the workspace.
+	// The read itself must be denied: the command proves it ran by recording a
+	// marker (locale-independent — cmd's own "Access is denied" text varies),
+	// and a leaked secret in the marker fails the test just as loudly.
 	denyReadConfig := config
 	denyReadConfig.PermissionProfile.FileSystem.DenyRead = []string{privateDir}
-	runWindowsRealSmokeCommandExpectError(t, runnerExe, denyReadConfig, []string{
-		"cmd.exe", "/d", "/s", "/c", "type " + secretFile,
-	}, "DenyRead", "not supported")
-	// The secret must remain readable from the host; the sandbox never ran.
+	deniedMarker := filepath.Join(root, "read-denied.txt")
+	runWindowsRealSmokeCommand(t, runnerExe, denyReadConfig, []string{
+		"cmd.exe", "/d", "/s", "/c", "(type \"" + secretFile + "\" 2>nul || echo READ-DENIED)>\"" + deniedMarker + "\"",
+	}, 0)
+	if contents, err := os.ReadFile(deniedMarker); err != nil || strings.TrimSpace(string(contents)) != "READ-DENIED" {
+		t.Fatalf("sandboxed read of a DenyRead path = %q, %v; want READ-DENIED", contents, err)
+	}
+	// The secret must remain intact on the host; the sandbox only failed to read it.
 	if data, err := os.ReadFile(secretFile); err != nil || string(data) != "super-secret" {
-		t.Fatalf("host secret file after rejected DenyRead launch: %q, %v", data, err)
+		t.Fatalf("host secret file after denied DenyRead read: %q, %v", data, err)
 	}
 
 	outsideMarker := filepath.Join(outside, "unelevated-write-denied.txt")
@@ -456,27 +464,24 @@ func runWindowsRealSmokeCommandExpectError(t *testing.T, runnerExe string, base 
 	}
 }
 
-// The write jail must hold on a path whose DACL grants Everyone write access.
+// The write jail must hold on a PLAN-COVERED path whose DACL grants Everyone
+// write access.
 //
-// A WRITE_RESTRICTED token runs TWO checks for a write and needs both to pass:
-// the normal one against its enabled SIDs, and a second against its RESTRICTED
-// SID list. The jail is built on the second check only succeeding where QG has
-// explicitly ACL'd a capability SID. Putting the World SID (S-1-1-0) in the
-// restricted list breaks that globally — every principal is a member of
-// Everyone, so on a DACL that grants Everyone write, the restricted half passes
-// for free and confinement collapses back to the ordinary user's own
-// permissions, which is precisely the boundary the sandbox exists to be
-// stricter than.
+// Everyone is back in the restricted-SID list in both token modes because real
+// programs need it (managed PowerShell/.NET fail to initialize without it, and
+// the fully restricted token cannot open cmd.exe without it). That reopens the
+// #865 hole for ARBITRARY Everyone-writable paths outside plan coverage — share
+// roots opened with Everyone:F and loose installer ACLs — which now fall back
+// to the ordinary user's own permissions. That residual is stated plainly
+// rather than claimed away.
 //
-// The runner already states this rule for the SIDs it refuses to add ("None of
-// the granted SIDs can be added to the restricted list without collapsing the
-// write jail"); Everyone was in the list anyway, since the original sandbox
-// baseline.
-//
-// Realistic rather than theoretical: administrators open share roots with
-// Everyone:F, and third-party installers ship loose ACLs. It needs no privilege,
-// no symlink and no race. Checked and ruled out: C:\Users\Public\Documents
-// grants BATCH, not Everyone, so the common "public folder" case is not this.
+// What the compensation keeps closed is every SENSITIVE path the plan manages:
+// the ACL plan stamps capability-SID deny ACEs on workspace .qg/.agents, .git
+// hooks/config, operator DenyWrite/DenyRead and credential stores, and a
+// restricted-SID deny fails the write check in both modes, with Everyone
+// present or not. This test proves exactly that: a protected metadata
+// directory that ALSO grants Everyone write must stay unwritable to the
+// sandbox, even though the restricted-SID check passes for free on it.
 func TestWindowsRestrictedTokenDeniesWritesToEveryoneWritablePaths(t *testing.T) {
 	if os.Getenv("QG_SANDBOX_REAL_SMOKE") != "1" {
 		t.Skip("set QG_SANDBOX_REAL_SMOKE=1 to run real Windows sandbox smoke tests")
@@ -485,32 +490,10 @@ func TestWindowsRestrictedTokenDeniesWritesToEveryoneWritablePaths(t *testing.T)
 
 	root := t.TempDir()
 	outside := t.TempDir()
-	everyoneDir := filepath.Join(outside, "everyone-writable")
-	if err := os.MkdirAll(everyoneDir, 0o700); err != nil {
-		t.Fatalf("MkdirAll everyone-writable: %v", err)
-	}
-	// Granted through the production ACL applier, so the hostile DACL is built
-	// the same way a real one is rather than by a test-only shortcut.
-	snapshot, applied, err := applyWindowsACLPathGroup(windowsACLPathGroup{
-		Path: everyoneDir,
-		Entries: []WindowsACLEntry{{
-			Action:     WindowsACLAllowWrite,
-			Path:       everyoneDir,
-			Capability: "S-1-1-0",
-		}},
-	})
-	if err != nil {
-		t.Fatalf("grant Everyone write: %v", err)
-	}
-	if !applied {
-		t.Fatal("precondition: the Everyone grant did not apply, so there is no bypass to test for")
-	}
-	t.Cleanup(func() { _ = rollbackWindowsACLSnapshots([]windowsACLSnapshot{snapshot}) })
 
 	sandboxHome := filepath.Join(root, ".qg-sandbox")
 	// No DenyRead on purpose: that is what makes the runner choose the
-	// WRITE_RESTRICTED token, which is the default posture and the one whose
-	// restricted-SID list this test is about.
+	// WRITE_RESTRICTED token, which is the default posture.
 	profile := PermissionProfile{
 		FileSystem: FileSystemPolicy{
 			Kind:                 FileSystemRestricted,
@@ -529,8 +512,10 @@ func TestWindowsRestrictedTokenDeniesWritesToEveryoneWritablePaths(t *testing.T)
 		SandboxLevel:      WindowsSandboxLevelUnelevated,
 	}
 
-	// Granted root first. A jail that denies everything would satisfy the two
+	// Granted root first. A jail that denies everything would satisfy the
 	// assertions below while being useless, and this separates the two outcomes.
+	// It also triggers the unelevated on-demand apply, which materializes .qg
+	// and stamps the capability deny on it.
 	insideMarker := filepath.Join(root, "write-ok.txt")
 	runWindowsRealSmokeCommand(t, runnerExe, config, []string{
 		"cmd.exe", "/d", "/s", "/c", "echo ok>" + insideMarker,
@@ -539,19 +524,38 @@ func TestWindowsRestrictedTokenDeniesWritesToEveryoneWritablePaths(t *testing.T)
 		t.Fatalf("sandboxed write to a granted root = %q, %v; want ok", contents, err)
 	}
 
-	// Control: an ordinary directory outside every granted root. This is the
-	// behaviour the Everyone case must match.
+	// Control: an ordinary directory outside every granted root.
 	controlMarker := filepath.Join(outside, "control-denied.txt")
 	runWindowsRealSmokeCommand(t, runnerExe, config, deniedWriteCommand(controlMarker), deniedWriteExitCode)
 	if _, err := os.Stat(controlMarker); err == nil {
 		t.Fatal("precondition: the sandbox allowed a write to an ordinary path outside every granted root, so this test cannot measure the Everyone case")
 	}
 
-	// The assertion. Same as the control in every respect except the DACL.
-	everyoneMarker := filepath.Join(everyoneDir, "everyone-denied.txt")
+	// The compensation case: open the protected metadata directory itself to
+	// Everyone write through the production ACL applier, the way a hostile or
+	// careless DACL would. The capability-SID deny the plan stamped on it must
+	// win over the Everyone grant even though the token carries Everyone.
+	metadataDir := filepath.Join(root, ".qg")
+	snapshot, applied, err := applyWindowsACLPathGroup(windowsACLPathGroup{
+		Path: metadataDir,
+		Entries: []WindowsACLEntry{{
+			Action:     WindowsACLAllowWrite,
+			Path:       metadataDir,
+			Capability: "S-1-1-0",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("grant Everyone write on the metadata dir: %v", err)
+	}
+	if !applied {
+		t.Fatal("precondition: the Everyone grant did not apply, so there is no bypass to test for")
+	}
+	t.Cleanup(func() { _ = rollbackWindowsACLSnapshots([]windowsACLSnapshot{snapshot}) })
+
+	everyoneMarker := filepath.Join(metadataDir, "everyone-denied.txt")
 	runWindowsRealSmokeCommand(t, runnerExe, config, deniedWriteCommand(everyoneMarker), deniedWriteExitCode)
 	if _, err := os.Stat(everyoneMarker); err == nil {
-		t.Error("the sandbox wrote outside every granted root because the path grants Everyone write; the restricted-SID list is satisfied by a SID every principal carries")
+		t.Error("the sandbox wrote to a plan-covered metadata dir despite its capability deny: the Everyone grant must not override the sensitive-path compensation")
 	} else if !os.IsNotExist(err) {
 		t.Errorf("stat the Everyone-writable marker: %v", err)
 	}

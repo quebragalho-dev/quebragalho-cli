@@ -11,8 +11,13 @@ type WindowsACLAction string
 
 const (
 	WindowsACLAllowWrite WindowsACLAction = "allow-write"
-	WindowsACLDenyRead   WindowsACLAction = "deny-read"
-	WindowsACLDenyWrite  WindowsACLAction = "deny-write"
+	// WindowsACLAllowRead grants a capability SID read access on a path. It is
+	// load-bearing only for the fully restricted token (DenyRead profiles),
+	// whose restricted-SID check applies to reads; under WRITE_RESTRICTED reads
+	// already pass via the user identity, so the extra ACE changes nothing.
+	WindowsACLAllowRead WindowsACLAction = "allow-read"
+	WindowsACLDenyRead  WindowsACLAction = "deny-read"
+	WindowsACLDenyWrite WindowsACLAction = "deny-write"
 	// WindowsACLRevokeCapability removes any existing ACE (allow or deny) for
 	// Capability at Path, without itself granting or denying anything (applied
 	// via SetEntriesInAclW's SET_ACCESS mode with a qg mask, not
@@ -57,11 +62,22 @@ func BuildWindowsACLPlan(config WindowsSandboxCommandConfig) (WindowsACLPlan, er
 	}
 	var entries []WindowsACLEntry
 	for _, capability := range writeCapabilities {
-		entries = append(entries, WindowsACLEntry{
-			Action:     WindowsACLAllowWrite,
-			Path:       capability.Root,
-			Capability: capability.SID,
-		})
+		entries = append(entries, []WindowsACLEntry{
+			{
+				Action:     WindowsACLAllowWrite,
+				Path:       capability.Root,
+				Capability: capability.SID,
+			},
+			// The fully restricted token (DenyRead profiles) checks reads
+			// against the restricted list too, so the workspace needs an
+			// explicit read grant or nothing inside it opens. Inert under
+			// WRITE_RESTRICTED, where reads pass via the user identity.
+			{
+				Action:     WindowsACLAllowRead,
+				Path:       capability.Root,
+				Capability: capability.SID,
+			},
+		}...)
 		for _, path := range capability.MaterializedWriteDenyPaths {
 			// Protected metadata (.qg, .agents) denies materialize: a deny ACE
 			// cannot attach to a path that does not exist, and the apply skips
@@ -123,6 +139,37 @@ func BuildWindowsACLPlan(config WindowsSandboxCommandConfig) (WindowsACLPlan, er
 				Path:        path,
 				Capability:  sid,
 				Materialize: true,
+			})
+		}
+	}
+	// Credential stores (~/.ssh, tokens, ...) are denied best-effort: deny
+	// what exists, never plant what does not. Materializing an absent store
+	// during (possibly elevated) setup would create a host directory the user
+	// no longer owns, breaking their own tools — so unlike operator-named
+	// DenyRead, these entries skip missing targets instead of creating them.
+	// The write deny holds under both token modes; the read deny is enforced
+	// by the fully restricted token (DenyRead profiles) and inert under
+	// WRITE_RESTRICTED, where reads bypass the restricted-SID check (#612).
+	for _, path := range planWindowsCredentialDenyPaths(config.PermissionProfile.FileSystem.DenyReadIfExists) {
+		for _, sid := range readDenySIDs {
+			entries = append(entries,
+				WindowsACLEntry{Action: WindowsACLDenyWrite, Path: path, Capability: sid},
+				WindowsACLEntry{Action: WindowsACLDenyRead, Path: path, Capability: sid},
+			)
+		}
+	}
+	// Carveouts stay readable inside a denied credential root (QG plugin,
+	// specialist and command trees run through the sandbox). The allow sits on
+	// the child object itself, so it wins over the inherited parent deny.
+	for _, path := range config.PermissionProfile.FileSystem.DenyReadCarveouts {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		for _, sid := range readDenySIDs {
+			entries = append(entries, WindowsACLEntry{
+				Action:     WindowsACLAllowRead,
+				Path:       path,
+				Capability: sid,
 			})
 		}
 	}
@@ -228,6 +275,39 @@ func windowsReadDenyCapabilitySIDs(config WindowsSandboxCommandConfig, writeSIDs
 		return nil, err
 	}
 	return []string{caps.ReadOnly}, nil
+}
+
+// planWindowsCredentialDenyPaths resolves best-effort credential deny paths to
+// the entries the Windows ACL plan can actually stamp.
+//
+// Only the resolved spelling is emitted: the profile path itself may be a
+// symlink, and the apply refuses reparse-point targets outright, so emitting
+// the link spelling would fail closed on every such host. Denying the resolved
+// object covers access through the link too, because the target's DACL governs
+// both. Missing paths are skipped (never materialized): the apply denies
+// whatever exists when it runs, so a store created later is picked up by the
+// next on-demand apply.
+func planWindowsCredentialDenyPaths(paths []string) []string {
+	out := make([]string, 0, len(paths))
+	seen := map[string]struct{}{}
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			continue
+		}
+		resolved = filepath.Clean(resolved)
+		key := windowsCapabilityPathKey(resolved)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, resolved)
+	}
+	return out
 }
 
 func planWindowsDenyReadPaths(paths []string) []string {
