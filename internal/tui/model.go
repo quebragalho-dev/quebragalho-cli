@@ -628,6 +628,7 @@ type model struct {
 	recapsEnabled         bool // idle orientation note (config: recaps on|off)
 	localControl          config.LocalControlConfig
 	desktopControlEnabled bool
+	browserControlEnabled bool
 	// statuslineCfg is the resolved statusline customization (user layout
 	// plus command, optionally with project layout underneath). Zero value
 	// renders the built-in line byte for byte.
@@ -1363,6 +1364,7 @@ func newModel(ctx context.Context, options Options) model {
 		recapsEnabled:               options.RecapsEnabled,
 		localControl:                options.LocalControl,
 		desktopControlEnabled:       options.LocalControl.DesktopEnabled(),
+		browserControlEnabled:       options.LocalControl.BrowserEnabled(),
 		provider:                    options.Provider,
 		newProvider:                 options.NewProvider,
 		newTurnSessionProvider:      options.NewTurnSessionProvider,

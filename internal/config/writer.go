@@ -462,7 +462,23 @@ func SetRecapsEnabled(path string, enabled bool) (result FileConfig, err error) 
 
 // SetDesktopControlEnabled persists localControl.desktop.enabled in the user
 // config file (read-modify-atomic-write).
-func SetDesktopControlEnabled(path string, enabled bool) (result FileConfig, err error) {
+func SetDesktopControlEnabled(path string, enabled bool) (FileConfig, error) {
+	return setLocalControlToggle(path, func(lc *LocalControlConfig) {
+		lc.Desktop.Enabled = enabled
+		lc.Desktop.enabledSet = true
+	})
+}
+
+// SetBrowserControlEnabled persists localControl.browser.enabled in the user
+// config file (read-modify-atomic-write).
+func SetBrowserControlEnabled(path string, enabled bool) (FileConfig, error) {
+	return setLocalControlToggle(path, func(lc *LocalControlConfig) {
+		lc.Browser.Enabled = enabled
+		lc.Browser.enabledSet = true
+	})
+}
+
+func setLocalControlToggle(path string, update func(*LocalControlConfig)) (result FileConfig, err error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return FileConfig{}, fmt.Errorf("config path is required")
@@ -480,8 +496,7 @@ func SetDesktopControlEnabled(path string, enabled bool) (result FileConfig, err
 	} else if !os.IsNotExist(err) {
 		return FileConfig{}, fmt.Errorf("read config %s: %w", path, err)
 	}
-	cfg.LocalControl.Desktop.Enabled = enabled
-	cfg.LocalControl.Desktop.enabledSet = true
+	update(&cfg.LocalControl)
 	if err := writeConfigFile(path, cfg); err != nil {
 		return FileConfig{}, err
 	}

@@ -57,8 +57,8 @@ func TestConfigPanelOpensWithRealValues(t *testing.T) {
 	if title := strings.TrimSpace(m.picker.title); title != "Configurações" {
 		t.Fatalf("panel title wrong: %q", title)
 	}
-	if len(m.picker.items) != 14 {
-		t.Fatalf("expected 14 config rows, got %d", len(m.picker.items))
+	if len(m.picker.items) != 15 {
+		t.Fatalf("expected 15 config rows, got %d", len(m.picker.items))
 	}
 	wantGroups := []string{"MODELO", "EXECUÇÃO", "VOZ", "APARÊNCIA", "CONEXÕES"}
 	seen := map[string]bool{}
@@ -81,6 +81,8 @@ func TestConfigPanelOpensWithRealValues(t *testing.T) {
 		configRowEffort:      "automático",
 		configRowAutoCompact: "automático",
 		configRowPermission:  "automático",
+		configRowDesktop:     "ligado",
+		configRowBrowser:     "ligado",
 		configRowVoice:       "desligado",
 		configRowTheme:       "Sistema",
 		configRowStatusline:  "padrão",
@@ -255,6 +257,107 @@ func TestConfigPanelToggleDesktopControlPersistsAndUpdatesRegistry(t *testing.T)
 		}
 		if tool.Safety().Permission != tools.PermissionPrompt {
 			t.Fatalf("%s permission = %s, want prompt when desktop control re-enabled", name, tool.Safety().Permission)
+		}
+	}
+}
+
+func TestConfigPanelToggleBrowserControlPersistsAndUpdatesRegistry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	cwd := t.TempDir()
+	reg := tools.NewRegistry()
+	browserOpts := localcontrol.BrowserOptions{Enabled: true}
+	for _, tool := range tools.NewLocalBrowserTools(browserOpts) {
+		reg.Register(tool)
+	}
+	for _, tool := range tools.NewLocalControlArtifactTools(tools.LocalControlArtifactOptions{
+		Browser:      browserOpts,
+		Desktop:      localcontrol.DesktopOptions{Enabled: true},
+		Terminal:     localcontrol.TerminalOptions{Enabled: true},
+		ArtifactsDir: filepath.Join(cwd, ".qg", "artifacts"),
+	}) {
+		reg.Register(tool)
+	}
+	m := configPanelTestModel()
+	m.cwd = cwd
+	m.userConfigPath = path
+	m.registry = reg
+	m = openConfigPanel(t, m)
+
+	row := findConfigRow(t, m, configRowBrowser)
+	if row.Meta != "ligado" {
+		t.Fatalf("initial browser row meta = %q, want ligado", row.Meta)
+	}
+
+	// Turn OFF.
+	updated, _ := m.chooseConfigRow(row)
+	next := updated.(model)
+	if next.browserControlEnabled {
+		t.Fatal("browserControlEnabled should be false after toggle")
+	}
+	if got := findConfigRow(t, next, configRowBrowser).Meta; got != "desligado" {
+		t.Fatalf("browser row after toggle = %q, want desligado", got)
+	}
+	browserToolNames := []string{
+		"browser_install",
+		"browser_launch",
+		"browser_connect",
+		"browser_open",
+		"browser_snapshot",
+		"browser_click",
+		"browser_type",
+		"browser_press",
+		"browser_action",
+	}
+	for _, name := range browserToolNames {
+		tool, ok := reg.Get(name)
+		if !ok {
+			t.Fatalf("%s missing from registry", name)
+		}
+		if tool.Safety().Permission != tools.PermissionDeny {
+			t.Fatalf("%s permission = %s, want deny when browser control disabled", name, tool.Safety().Permission)
+		}
+	}
+	for _, action := range []string{"browser_screenshot", "browser_pdf"} {
+		res := reg.Run(context.Background(), "capture_artifact", map[string]any{"action": action})
+		if res.Status != tools.StatusError || !strings.Contains(res.Output, "disabled") {
+			t.Fatalf("capture_artifact action=%s should refuse when browser disabled, got status=%s output=%q", action, res.Status, res.Output)
+		}
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		LocalControl struct {
+			Browser struct {
+				Enabled *bool `json:"enabled"`
+			} `json:"browser"`
+		} `json:"localControl"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.LocalControl.Browser.Enabled == nil || *decoded.LocalControl.Browser.Enabled {
+		t.Fatalf("config file should persist localControl.browser.enabled=false, got %s", raw)
+	}
+
+	// Turn ON again.
+	updated2, _ := next.chooseConfigRow(findConfigRow(t, next, configRowBrowser))
+	reEnabled := updated2.(model)
+	if !reEnabled.browserControlEnabled {
+		t.Fatal("browserControlEnabled should be true after second toggle")
+	}
+	if got := findConfigRow(t, reEnabled, configRowBrowser).Meta; got != "ligado" {
+		t.Fatalf("browser row after re-enable = %q, want ligado", got)
+	}
+	for _, name := range browserToolNames {
+		tool, ok := reg.Get(name)
+		if !ok {
+			t.Fatalf("%s missing from registry", name)
+		}
+		if tool.Safety().Permission != tools.PermissionPrompt {
+			t.Fatalf("%s permission = %s, want prompt when browser control re-enabled", name, tool.Safety().Permission)
 		}
 	}
 }

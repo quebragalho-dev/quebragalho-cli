@@ -8,7 +8,7 @@ import (
 )
 
 // Every /config row label in panel order: the budget, windowing and
-// indicators below are all expressed over these 13 rows.
+// indicators below are all expressed over these 15 rows.
 var configRowsPanelLabels = []string{
 	"Provedor",
 	"Modelo",
@@ -16,6 +16,7 @@ var configRowsPanelLabels = []string{
 	"Resumir conversa a partir de",
 	"Modo de permissão",
 	"Controle do computador",
+	"Controle do navegador",
 	"Modo de voz",
 	"Modelo de ditado",
 	"Tema",

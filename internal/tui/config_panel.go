@@ -20,6 +20,7 @@ const (
 	configRowAutoCompact = "autocompact"
 	configRowPermission  = "permissao"
 	configRowDesktop     = "desktop"
+	configRowBrowser     = "browser"
 	configRowVoice       = "voz"
 	configRowSTT         = "ditado"
 	configRowTheme       = "tema"
@@ -52,6 +53,7 @@ func (m model) newConfigPicker() *commandPicker {
 		{Group: "MODELO", Label: "Resumir conversa a partir de", Value: configRowAutoCompact, Meta: m.configAutoCompactValue()},
 		{Group: "EXECUÇÃO", Label: "Modo de permissão", Value: configRowPermission, Meta: permissionLabel, Detail: "Shift+Tab alterna"},
 		{Group: "EXECUÇÃO", Label: "Controle do computador", Value: configRowDesktop, Meta: ligadoDesligado(m.desktopControlEnabled)},
+		{Group: "EXECUÇÃO", Label: "Controle do navegador", Value: configRowBrowser, Meta: ligadoDesligado(m.browserControlEnabled)},
 		{Group: "VOZ", Label: "Modo de voz", Value: configRowVoice, Meta: ligadoDesligado(m.dictation.voiceModeEnabled)},
 		{Group: "VOZ", Label: "Modelo de ditado", Value: configRowSTT, Meta: m.dictation.currentModelLabel()},
 		{Group: "APARÊNCIA", Label: "Tema", Value: configRowTheme, Meta: m.themeDisplayLabel()},
@@ -146,6 +148,15 @@ func (m model) chooseConfigRow(item pickerItem) (tea.Model, tea.Cmd) {
 			m = m.showTransientNoticeInline("Controle do computador "+ligadoDesligado(m.desktopControlEnabled)+".", transientNoticeSuccess)
 		}
 		return m.refreshConfigPicker(), nil
+	case configRowBrowser:
+		m.browserControlEnabled = !m.browserControlEnabled
+		m.syncBrowserControlTools()
+		if err := m.persistBrowserControlEnabled(); err != nil {
+			m = m.appendSystemNotice("Controle do navegador: falha ao salvar: " + err.Error())
+		} else {
+			m = m.showTransientNoticeInline("Controle do navegador "+ligadoDesligado(m.browserControlEnabled)+".", transientNoticeSuccess)
+		}
+		return m.refreshConfigPicker(), nil
 	case configRowVoice:
 		next, cmd := m.toggleVoiceMode()
 		m = next
@@ -203,6 +214,12 @@ func renderConfigPickerFooter(innerWidth int) string {
 	return fitStyledLine(full, innerWidth)
 }
 
+func (m model) localControlBrowserOptions() localcontrol.BrowserOptions {
+	options := localcontrol.BrowserOptionsFromConfig(m.localControl)
+	options.Enabled = m.browserControlEnabled && !m.localControl.Disabled()
+	return options
+}
+
 func (m model) syncDesktopControlTools() {
 	if m.registry == nil {
 		return
@@ -211,7 +228,24 @@ func (m model) syncDesktopControlTools() {
 	batch := make([]tools.Tool, 0, 3)
 	batch = append(batch, tools.NewLocalDesktopTools(desktopOptions)...)
 	batch = append(batch, tools.NewLocalControlArtifactTools(tools.LocalControlArtifactOptions{
-		Browser:      localcontrol.BrowserOptionsFromConfig(m.localControl),
+		Browser:      m.localControlBrowserOptions(),
+		Desktop:      desktopOptions,
+		Terminal:     localcontrol.TerminalOptionsFromConfig(m.localControl),
+		ArtifactsDir: localcontrol.ArtifactsDirFromConfig(m.cwd, m.localControl),
+	})...)
+	m.registry.RegisterBatch(batch)
+}
+
+func (m model) syncBrowserControlTools() {
+	if m.registry == nil {
+		return
+	}
+	browserOptions := m.localControlBrowserOptions()
+	desktopOptions := localcontrol.DesktopOptionsFromConfig(m.localControl, m.desktopControlEnabled)
+	batch := make([]tools.Tool, 0, 10)
+	batch = append(batch, tools.NewLocalBrowserTools(browserOptions)...)
+	batch = append(batch, tools.NewLocalControlArtifactTools(tools.LocalControlArtifactOptions{
+		Browser:      browserOptions,
 		Desktop:      desktopOptions,
 		Terminal:     localcontrol.TerminalOptionsFromConfig(m.localControl),
 		ArtifactsDir: localcontrol.ArtifactsDirFromConfig(m.cwd, m.localControl),
@@ -224,5 +258,13 @@ func (m model) persistDesktopControlEnabled() error {
 		return nil
 	}
 	_, err := config.SetDesktopControlEnabled(m.userConfigPath, m.desktopControlEnabled)
+	return err
+}
+
+func (m model) persistBrowserControlEnabled() error {
+	if strings.TrimSpace(m.userConfigPath) == "" {
+		return nil
+	}
+	_, err := config.SetBrowserControlEnabled(m.userConfigPath, m.browserControlEnabled)
 	return err
 }
