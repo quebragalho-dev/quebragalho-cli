@@ -9,8 +9,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 var benchPreexistingCounts = []int{0, 1000, 5000}
@@ -138,8 +136,10 @@ func realisticToolOutput2KB() string {
 }
 
 // appendEventWithSyncForBench mirrors Store.AppendEvent step for step while
-// routing the three (*os.File).Sync calls through syncFn so the benchmark can
-// isolate fsync cost without modifying production code.
+// routing the single (*os.File).Sync of the normal path through syncFn so the
+// benchmark can isolate fsync cost without modifying production code.
+// (metadata.json is no longer rewritten on append: its derived counters are
+// reconciled from the log on read.)
 func appendEventWithSyncForBench(
 	store *Store,
 	sessionID string,
@@ -200,59 +200,7 @@ func appendEventWithSyncForBench(
 	if err := file.Close(); err != nil {
 		return Event{}, fmt.Errorf("close qg session event file: %w", err)
 	}
-
-	session.UpdatedAt = event.CreatedAt
-	session.EventCount = event.Sequence
-	session.LastEventType = event.Type
-	if err := writeMetadataWithSyncForBench(store, session, syncFn); err != nil {
-		return Event{}, err
-	}
 	return event, nil
-}
-
-func writeMetadataWithSyncForBench(store *Store, session Metadata, syncFn func(*os.File) error) error {
-	data, err := json.MarshalIndent(session, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode qg session metadata: %w", err)
-	}
-	path := store.metadataPath(session.SessionID)
-	tmp := fmt.Sprintf("%s.tmp-%d", path, store.idCounter.Add(1))
-
-	file, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return fmt.Errorf("write qg session metadata: %w", err)
-	}
-	if _, err := file.Write(append(data, '\n')); err != nil {
-		_ = file.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("write qg session metadata: %w", err)
-	}
-	if err := syncFn(file); err != nil {
-		_ = file.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("write qg session metadata: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("write qg session metadata: %w", err)
-	}
-	if err := fsutil.RenameWithRetry(tmp, path, nil); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("replace qg session metadata: %w", err)
-	}
-	if runtime.GOOS != "windows" {
-		if d, openErr := os.Open(filepath.Dir(path)); openErr == nil {
-			syncErr := syncFn(d)
-			closeErr := d.Close()
-			if syncErr != nil {
-				return fmt.Errorf("sync qg session dir: %w", syncErr)
-			}
-			if closeErr != nil {
-				return fmt.Errorf("sync qg session dir: %w", closeErr)
-			}
-		}
-	}
-	return nil
 }
 
 // realDiskBenchDir returns a temporary directory backed by a real disk

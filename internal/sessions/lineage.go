@@ -55,7 +55,7 @@ func (store *Store) CreateChild(parentSessionID string, input ChildInput) (Metad
 	if _, err := store.AppendEvent(child.SessionID, AppendEventInput{Type: EventSessionChild, Payload: payload}); err != nil {
 		return Metadata{}, err
 	}
-	loaded, err := store.readMetadata(child.SessionID)
+	loaded, err := store.loadSession(child.SessionID)
 	if err != nil {
 		return Metadata{}, err
 	}
