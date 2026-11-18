@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/quebragalho-dev/quebragalho-cli/internal/filelock"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
@@ -105,10 +107,55 @@ func (marker WindowsUnelevatedSetupMarker) contains(applied WindowsUnelevatedApp
 	return false
 }
 
+// lockWindowsUnelevatedSetupMarkerFile serializes the marker read-modify-write
+// sequence across processes with the stable "<file>.lockfile" sibling,
+// mirroring lockWindowsCapabilitySIDFile: without it two runners recording at
+// once both load the same snapshot and the last save silently drops the
+// other's plan. The lock never covers the ACL apply itself, only the marker
+// bookkeeping. Timeouts fail closed and name the lock path.
+func lockWindowsUnelevatedSetupMarkerFile(path string) (func(), error) {
+	lockPath := path + ".lockfile"
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	deadline := time.Now().Add(grantLockTimeout)
+	for {
+		locked, err := filelock.TryLockExclusive(file)
+		if err != nil {
+			_ = file.Close()
+			return nil, err
+		}
+		if locked {
+			return func() {
+				_ = filelock.Unlock(file)
+				_ = file.Close()
+			}, nil
+		}
+		if time.Now().After(deadline) {
+			_ = file.Close()
+			return nil, fmt.Errorf("timed out waiting for windows unelevated setup marker lock at %s", lockPath)
+		}
+		time.Sleep(grantLockRetry)
+	}
+}
+
 // recordWindowsUnelevatedAppliedPlan appends the plan to the marker (dropping
 // the oldest entries past the cap) and writes it atomically, following the
 // temp-file-then-rename pattern of the sibling marker writers.
 func recordWindowsUnelevatedAppliedPlan(sandboxHome string, applied WindowsUnelevatedAppliedPlan) error {
+	sandboxHome = strings.TrimSpace(sandboxHome)
+	if sandboxHome == "" {
+		return errors.New("windows sandbox home is required")
+	}
+	unlock, err := lockWindowsUnelevatedSetupMarkerFile(WindowsUnelevatedSetupMarkerPath(sandboxHome))
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	marker, err := loadWindowsUnelevatedSetupMarker(sandboxHome)
 	if err != nil {
 		return err
