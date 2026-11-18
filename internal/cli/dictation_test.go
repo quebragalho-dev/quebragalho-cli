@@ -359,11 +359,15 @@ func TestFactoryUsesSherpaCAPIForStreamingAndKeepsRollingForBatch(t *testing.T) 
 	chunks := make(chan []byte, 1)
 	chunks <- make([]byte, 1600)
 	close(chunks)
-	// Stub shared library fails to load via C API (proving the C API path was
-	// selected rather than rollingTranscriber executing the stub binary).
+	// Stub shared library fails dlopen, so StreamTranscribe falls back to the
+	// rolling file path (executing the stub onlineBin, which fails to exec
+	// rather than surfacing a C API error) and remembers the failure in-process.
 	_, serr := tr.StreamTranscribe(context.Background(), chunks, nil)
-	if serr == nil || !strings.Contains(serr.Error(), "sherpa-onnx C API") {
-		t.Fatalf("expected C API load error on stub library, got %v", serr)
+	if serr == nil || strings.Contains(serr.Error(), "sherpa-onnx C API") {
+		t.Fatalf("expected fallback file execution error (not C API error), got %v", serr)
+	}
+	if got := dictation.CanUseSherpaCAPI(streamModel, onlineBin); got != "" {
+		t.Fatalf("CanUseSherpaCAPI after C API failure = %q, want empty (remembered)", got)
 	}
 
 	// Batch model (Parakeet v3) in the exact same environment must keep the
