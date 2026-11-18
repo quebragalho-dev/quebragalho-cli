@@ -370,6 +370,140 @@ func TestLocalStreamingTranscriberEmptyStream(t *testing.T) {
 	}
 }
 
+func TestSherpaCAPIVersionCheck(t *testing.T) {
+	wantVer := strings.TrimPrefix(DefaultSherpaVersion, "v")
+	cases := []struct {
+		name       string
+		version    string
+		missingSym bool
+		wantOK     bool
+	}{
+		{name: "matching version", version: wantVer, wantOK: true},
+		{name: "different version", version: "1.14.0", wantOK: false},
+		{name: "empty version", version: "", wantOK: false},
+		{name: "missing version symbol", missingSym: true, wantOK: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			libPath := filepath.Join(t.TempDir(), "libsherpa-onnx-c-api.so")
+			t.Cleanup(func() {
+				sherpaLibsMu.Lock()
+				delete(sherpaLibs, libPath)
+				delete(failedCAPILibs, libPath)
+				sherpaLibsMu.Unlock()
+			})
+
+			closed := false
+			ldr := sherpaRawLoader{
+				open: func(string) (sherpaLibHandle, error) { return sherpaLibHandle(1), nil },
+				sym: func(_ sherpaLibHandle, name string) (uintptr, error) {
+					if tc.missingSym && name == "SherpaOnnxGetVersionStr" {
+						return 0, errors.New("missing symbol")
+					}
+					return 1, nil
+				},
+				close:       func(sherpaLibHandle) { closed = true },
+				register:    func(any, uintptr) {},
+				readVersion: func(*sherpaCAPI) string { return tc.version },
+			}
+
+			api, err := openAndVerifySherpaCAPI(libPath, ldr)
+			if tc.wantOK {
+				if err != nil || api == nil {
+					t.Fatalf("openAndVerifySherpaCAPI(%q) = (%v, %v), want success", tc.version, api, err)
+				}
+				if closed {
+					t.Error("matching version should keep library handle open")
+				}
+				if isSherpaCAPIFailed(libPath, "") {
+					t.Error("matching version must not mark library as failed")
+				}
+				return
+			}
+			if err == nil || api != nil {
+				t.Fatalf("openAndVerifySherpaCAPI(%q) = (%v, %v), want rejection", tc.version, api, err)
+			}
+			if !closed {
+				t.Error("rejected library handle should be closed")
+			}
+			if !isSherpaCAPIFailed(libPath, "") {
+				t.Error("rejected library should be remembered as failed in-process")
+			}
+		})
+	}
+}
+
+func TestLocalStreamingTranscriberFallbackOnAcquireFailure(t *testing.T) {
+	libPath := filepath.Join(t.TempDir(), "libsherpa-onnx-c-api.so")
+	modelDir := filepath.Join(t.TempDir(), "sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06")
+	t.Cleanup(func() {
+		recCacheMu.Lock()
+		delete(failedCAPIKeys, failedCAPIKey(libPath, modelDir))
+		recCacheMu.Unlock()
+	})
+
+	fileRec := newScripted(newStubClock(), func(n int, _ context.Context) (string, error) {
+		return "full fallback transcript", nil
+	})
+	started := make(chan struct{})
+	gate := make(chan struct{})
+	tr := &localStreamingTranscriber{
+		cfg:             LocalConfig{ModelPath: modelDir, Online: true},
+		libPath:         libPath,
+		sampleRate:      DefaultSampleRate,
+		fallback:        fileRec,
+		rollingFallback: NewRollingTranscriber(fileRec, RollingOptions{SampleRate: DefaultSampleRate, MinAudio: 10 * time.Second}),
+		acquire: func() (onlineRecognizer, error) {
+			close(started)
+			<-gate
+			return nil, errors.New("c api init failed")
+		},
+	}
+
+	chunks := make(chan []byte)
+	type outcome struct {
+		text string
+		err  error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		txt, err := tr.StreamTranscribe(context.Background(), chunks, nil)
+		done <- outcome{txt, err}
+	}()
+
+	<-started
+	// Send 1600 bytes BEFORE acquire fails (buffered in pending).
+	chunks <- make([]byte, 1600)
+	// Let acquire fail while chunks channel is still open.
+	close(gate)
+	// Send 1600 more bytes AFTER acquire failed.
+	chunks <- make([]byte, 1600)
+	close(chunks)
+
+	select {
+	case out := <-done:
+		if out.err != nil {
+			t.Fatalf("StreamTranscribe fallback err = %v", out.err)
+		}
+		if out.text != "full fallback transcript" {
+			t.Fatalf("StreamTranscribe fallback text = %q, want %q", out.text, "full fallback transcript")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("StreamTranscribe fallback timed out")
+	}
+
+	if fileRec.count() != 1 {
+		t.Fatalf("fallback file Transcribe calls = %d, want 1", fileRec.count())
+	}
+	if gotBytes := fileRec.dataLen(t, 1); gotBytes != 3200 {
+		t.Fatalf("fallback received %d PCM bytes, want 3200 (must not drop buffered audio)", gotBytes)
+	}
+	if !isSherpaCAPIFailed(libPath, modelDir) {
+		t.Fatal("failed C API acquire should be remembered for future recordings")
+	}
+}
+
 // TestLocalStreamingRealCAPI runs StreamTranscribe against a REAL
 // sherpa-onnx-c-api shared library and streaming model when opt-in env vars are
 // set.

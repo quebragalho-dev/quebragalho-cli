@@ -17,3 +17,5 @@ func openSherpaCAPILib(string) (sherpaLibHandle, error) {
 func symSherpaCAPILib(sherpaLibHandle, string) (uintptr, error) {
 	return 0, errors.New("sherpa-onnx C API is not supported on this platform")
 }
+
+func closeSherpaCAPILib(sherpaLibHandle) {}

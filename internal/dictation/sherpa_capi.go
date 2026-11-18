@@ -69,7 +69,11 @@ func CanUseSherpaCAPI(modelPath, binaryHint string) string {
 	if _, ok, err := detectOnlineModelSpec(modelPath); err == nil && !ok {
 		return ""
 	}
-	return FindSherpaCAPILibrary(binaryHint)
+	libPath := FindSherpaCAPILibrary(binaryHint)
+	if libPath == "" || isSherpaCAPIFailed(libPath, modelPath) {
+		return ""
+	}
+	return libPath
 }
 
 type onlineModelSpec struct {
@@ -95,16 +99,13 @@ func detectOnlineModelSpec(dir string) (onlineModelSpec, bool, error) {
 	}
 
 	if set := consistentQuantizedSet(files, "encoder", "decoder", "joiner"); set != nil {
-		spec := onlineModelSpec{
-			encoder: set[0],
-			decoder: set[1],
-			joiner:  set[2],
-			tokens:  tokens,
-		}
-		if strings.Contains(dirName, "streaming-zipformer-en-kroko") {
-			spec.modelType = "zipformer2"
-		}
-		return spec, true, nil
+		return onlineModelSpec{
+			encoder:   set[0],
+			decoder:   set[1],
+			joiner:    set[2],
+			tokens:    tokens,
+			modelType: onlineTransducerModelType(dirName),
+		}, true, nil
 	}
 
 	if nameMatchesFamily(dirName, files, []string{"paraformer"}) {
@@ -203,6 +204,7 @@ type (
 )
 
 type sherpaCAPI struct {
+	getVersionStr           func() *byte
 	createOnlineRecognizer  func(cfg *cOnlineRecognizerConfig) uintptr
 	destroyOnlineRecognizer func(rec uintptr)
 	createOnlineStream      func(rec uintptr) uintptr
@@ -215,22 +217,75 @@ type sherpaCAPI struct {
 	destroyStreamResultJson func(s *byte)
 }
 
+type sherpaRawLoader struct {
+	open        func(path string) (sherpaLibHandle, error)
+	sym         func(h sherpaLibHandle, name string) (uintptr, error)
+	close       func(h sherpaLibHandle)
+	register    func(fn any, addr uintptr)
+	readVersion func(api *sherpaCAPI) string
+}
+
+var defaultSherpaRawLoader = sherpaRawLoader{
+	open:     openSherpaCAPILib,
+	sym:      symSherpaCAPILib,
+	close:    closeSherpaCAPILib,
+	register: purego.RegisterFunc,
+	readVersion: func(api *sherpaCAPI) string {
+		if api.getVersionStr == nil {
+			return ""
+		}
+		return cStringToGo(api.getVersionStr())
+	},
+}
+
 var (
-	sherpaLibsMu sync.Mutex
-	sherpaLibs   = map[string]*sherpaCAPI{}
+	sherpaLibsMu   sync.Mutex
+	sherpaLibs     = map[string]*sherpaCAPI{}
+	failedCAPILibs = map[string]error{}
 )
 
+func expectedSherpaCAPIVersion() string {
+	return strings.TrimPrefix(DefaultSherpaVersion, "v")
+}
+
+func sherpaCAPIVersionAllowed(got string) bool {
+	return got != "" && got == expectedSherpaCAPIVersion()
+}
+
 func loadSherpaCAPI(libPath string) (*sherpaCAPI, error) {
+	return openAndVerifySherpaCAPI(libPath, defaultSherpaRawLoader)
+}
+
+func openAndVerifySherpaCAPI(libPath string, ldr sherpaRawLoader) (*sherpaCAPI, error) {
 	sherpaLibsMu.Lock()
 	defer sherpaLibsMu.Unlock()
 	if api, ok := sherpaLibs[libPath]; ok {
 		return api, nil
 	}
-	h, err := openSherpaCAPILib(libPath)
-	if err != nil {
+	if err, failed := failedCAPILibs[libPath]; failed {
 		return nil, err
 	}
+	h, err := ldr.open(libPath)
+	if err != nil {
+		failedCAPILibs[libPath] = err
+		return nil, err
+	}
+	fail := func(err error) (*sherpaCAPI, error) {
+		ldr.close(h)
+		failedCAPILibs[libPath] = err
+		return nil, err
+	}
+
 	api := &sherpaCAPI{}
+	verAddr, err := ldr.sym(h, "SherpaOnnxGetVersionStr")
+	if err != nil {
+		return fail(err)
+	}
+	ldr.register(&api.getVersionStr, verAddr)
+	if gotVer := ldr.readVersion(api); !sherpaCAPIVersionAllowed(gotVer) {
+		return fail(fmt.Errorf("sherpa-onnx C API version %q does not match %q", gotVer, expectedSherpaCAPIVersion()))
+	}
+
 	bindings := []struct {
 		sym string
 		fn  any
@@ -247,11 +302,11 @@ func loadSherpaCAPI(libPath string) (*sherpaCAPI, error) {
 		{"SherpaOnnxDestroyOnlineStreamResultJson", &api.destroyStreamResultJson},
 	}
 	for _, b := range bindings {
-		addr, err := symSherpaCAPILib(h, b.sym)
+		addr, err := ldr.sym(h, b.sym)
 		if err != nil {
-			return nil, err
+			return fail(err)
 		}
-		purego.RegisterFunc(b.fn, addr)
+		ldr.register(b.fn, addr)
 	}
 	sherpaLibs[libPath] = api
 	return api, nil
@@ -368,10 +423,40 @@ type inflightRec struct {
 }
 
 var (
-	recCacheMu   sync.Mutex
-	cachedRec    *cachedOnlineRecognizer
-	inflightInit *inflightRec
+	recCacheMu     sync.Mutex
+	cachedRec      *cachedOnlineRecognizer
+	inflightInit   *inflightRec
+	failedCAPIKeys = map[string]bool{}
 )
+
+func failedCAPIKey(libPath, modelPath string) string {
+	return libPath + "\x00" + filepath.Clean(modelPath)
+}
+
+func markSherpaCAPIFailed(libPath, modelPath string) {
+	if libPath == "" || modelPath == "" {
+		return
+	}
+	recCacheMu.Lock()
+	failedCAPIKeys[failedCAPIKey(libPath, modelPath)] = true
+	recCacheMu.Unlock()
+}
+
+func isSherpaCAPIFailed(libPath, modelPath string) bool {
+	sherpaLibsMu.Lock()
+	_, libFailed := failedCAPILibs[libPath]
+	sherpaLibsMu.Unlock()
+	if libFailed {
+		return true
+	}
+	if modelPath == "" {
+		return false
+	}
+	recCacheMu.Lock()
+	keyFailed := failedCAPIKeys[failedCAPIKey(libPath, modelPath)]
+	recCacheMu.Unlock()
+	return keyFailed
+}
 
 func acquireCachedRecognizer(key onlineRecCacheKey) (onlineRecognizer, error) {
 	for {
@@ -518,16 +603,18 @@ func pcm16ToFloat32(pcm []byte) []float32 {
 }
 
 type localStreamingTranscriber struct {
-	cfg        LocalConfig
-	libPath    string
-	sampleRate int
-	fallback   Transcriber
-	acquire    func() (onlineRecognizer, error)
+	cfg             LocalConfig
+	libPath         string
+	sampleRate      int
+	fallback        Transcriber
+	rollingFallback Transcriber
+	acquire         func() (onlineRecognizer, error)
 }
 
 // NewLocalStreamingTranscriber builds an in-process streaming transcriber backed
 // by sherpa-onnx's shared C API library (no network ports or per-partial
-// subprocesses). Whole-clip Transcribe delegates to NewLocalTranscriber.
+// subprocesses). Whole-clip Transcribe delegates to NewLocalTranscriber, and any
+// C API load/init failure falls back seamlessly to rollingTranscriber.
 func NewLocalStreamingTranscriber(cfg LocalConfig, libPath string) (Transcriber, error) {
 	cfg.Online = true
 	fallback, err := NewLocalTranscriber(cfg)
@@ -538,10 +625,11 @@ func NewLocalStreamingTranscriber(cfg LocalConfig, libPath string) (Transcriber,
 		return nil, errors.New("sherpa-onnx C API library path is empty")
 	}
 	s := &localStreamingTranscriber{
-		cfg:        cfg,
-		libPath:    libPath,
-		sampleRate: DefaultSampleRate,
-		fallback:   fallback,
+		cfg:             cfg,
+		libPath:         libPath,
+		sampleRate:      DefaultSampleRate,
+		fallback:        fallback,
+		rollingFallback: NewRollingTranscriber(fallback, RollingOptions{SampleRate: DefaultSampleRate}),
 	}
 	s.acquire = s.defaultAcquire
 	return s, nil
@@ -556,6 +644,9 @@ func (s *localStreamingTranscriber) Transcribe(ctx context.Context, audio []byte
 }
 
 func (s *localStreamingTranscriber) defaultAcquire() (onlineRecognizer, error) {
+	if isSherpaCAPIFailed(s.libPath, s.cfg.ModelPath) {
+		return nil, errors.New("sherpa-onnx C API disabled after earlier failure")
+	}
 	spec, ok, err := detectOnlineModelSpec(s.cfg.ModelPath)
 	if err != nil {
 		return nil, err
@@ -572,7 +663,12 @@ func (s *localStreamingTranscriber) defaultAcquire() (onlineRecognizer, error) {
 		numThreads: effectiveNumThreads(s.cfg.NumThreads),
 		sampleRate: s.sampleRate,
 	}
-	return acquireCachedRecognizer(key)
+	rec, err := acquireCachedRecognizer(key)
+	if err != nil {
+		markSherpaCAPIFailed(s.libPath, s.cfg.ModelPath)
+		return nil, err
+	}
+	return rec, nil
 }
 
 func (s *localStreamingTranscriber) StreamTranscribe(ctx context.Context, chunks <-chan []byte, onPartial func(string, bool)) (string, error) {
@@ -645,6 +741,42 @@ func (s *localStreamingTranscriber) StreamTranscribe(ctx context.Context, chunks
 		}
 	}
 
+	fallbackToRolling := func(buffered []byte) (string, error) {
+		if s.rollingFallback == nil {
+			return "", errors.New("sherpa-onnx C API unavailable and no rolling fallback configured")
+		}
+		relay := make(chan []byte, 16)
+		go func() {
+			defer close(relay)
+			if len(buffered) > 0 {
+				select {
+				case relay <- buffered:
+				case <-ctx.Done():
+					return
+				}
+			}
+			for chunks != nil {
+				select {
+				case <-ctx.Done():
+					return
+				case chunk, ok := <-chunks:
+					if !ok {
+						return
+					}
+					if len(chunk) == 0 {
+						continue
+					}
+					select {
+					case relay <- chunk:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
+		}()
+		return s.rollingFallback.StreamTranscribe(ctx, relay, onPartial)
+	}
+
 	for chunks != nil || rec == nil {
 		select {
 		case <-ctx.Done():
@@ -653,7 +785,11 @@ func (s *localStreamingTranscriber) StreamTranscribe(ctx context.Context, chunks
 			recChDone = true
 			recCh = nil
 			if r.err != nil {
-				return "", r.err
+				markSherpaCAPIFailed(s.libPath, s.cfg.ModelPath)
+				if chunks == nil && !hasAudio {
+					return "", nil
+				}
+				return fallbackToRolling(pending)
 			}
 			rec = r.rec
 			if chunks == nil && !hasAudio {

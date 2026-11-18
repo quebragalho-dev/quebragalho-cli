@@ -33,3 +33,9 @@ func symSherpaCAPILib(h sherpaLibHandle, name string) (uintptr, error) {
 	}
 	return addr, nil
 }
+
+func closeSherpaCAPILib(h sherpaLibHandle) {
+	if h != 0 {
+		_ = purego.Dlclose(uintptr(h))
+	}
+}
