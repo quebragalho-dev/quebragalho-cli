@@ -3,8 +3,17 @@ package installtest
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
+	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -574,7 +583,7 @@ func wgetOnlyPath(t *testing.T, wgetPath string) string {
 	t.Helper()
 	dir := t.TempDir()
 	for _, cmd := range []string{
-		"uname", "sed", "tar", "gzip", "mktemp", "head",
+		"uname", "sed", "tar", "gzip", "mktemp", "head", "grep", "openssl",
 		"shasum", "sha256sum",
 		"mkdir", "rm", "cp", "chmod", "mv", "ln", "cat", "env", "sh", "bash",
 	} {
@@ -608,6 +617,10 @@ func writeMockRedirectWget(t *testing.T, fixture unixInstallFixture, mode string
 
 	script := fmt.Sprintf(`#!/usr/bin/env sh
 set -eu
+if [ "${1:-}" = "--help" ]; then
+  printf 'GNU Wget mock\n  --max-redirect\n  --https-only\n'
+  exit 0
+fi
 printf '%%s\n' "$*" >> %s
 
 max_redirect=-1
@@ -872,6 +885,156 @@ func TestUnixInstallerWgetRefusesHTTPSToHTTPRedirects(t *testing.T) {
 		}
 		if !strings.Contains(stderr, "https://") || !strings.Contains(stderr, "QG_ALLOW_INSECURE_DOWNLOAD=1") {
 			t.Fatalf("expected https redirect refusal naming QG_ALLOW_INSECURE_DOWNLOAD=1, got:\n%s", stderr)
+		}
+	})
+}
+
+func newLocalhostTLSServer(t *testing.T, handler http.Handler) (baseURL string, certPath string) {
+	t.Helper()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "localhost"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:              []string{"localhost"},
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")},
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("CreateCertificate: %v", err)
+	}
+	certPath = filepath.Join(t.TempDir(), "ca.pem")
+	writeFile(t, certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600)
+
+	srv := httptest.NewUnstartedServer(handler)
+	srv.TLS = &tls.Config{
+		Certificates: []tls.Certificate{{
+			Certificate: [][]byte{der},
+			PrivateKey:  priv,
+		}},
+	}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+
+	port := srv.Listener.Addr().(*net.TCPAddr).Port
+	return fmt.Sprintf("https://localhost:%d", port), certPath
+}
+
+func TestUnixInstallerBusyBoxWget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix installer smoke does not run on Windows")
+	}
+	busybox := requireCommand(t, "busybox")
+
+	t.Run("https download with https redirect installs", func(t *testing.T) {
+		fixture := newUnixInstallFixture(t)
+		pathOnlyBusyBox := wgetOnlyPath(t, busybox)
+		archiveData := readFile(t, fixture.archivePath)
+		checksumData := readFile(t, fixture.checksumPath)
+		checksumName := fixture.archiveName + ".sha256"
+
+		var baseURL string
+		mux := http.NewServeMux()
+		mux.HandleFunc("/repos/quebragalho-dev/quebragalho-cli/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, baseURL+"/api-final/latest", http.StatusFound)
+		})
+		mux.HandleFunc("/api-final/latest", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"tag_name":"v0.1.0"}`))
+		})
+		mux.HandleFunc("/quebragalho-dev/quebragalho-cli/releases/download/v0.1.0/"+fixture.archiveName, func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/hop/"+fixture.archiveName, http.StatusFound)
+		})
+		mux.HandleFunc("/hop/"+fixture.archiveName, func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, baseURL+"/cdn/"+fixture.archiveName, http.StatusMovedPermanently)
+		})
+		mux.HandleFunc("/cdn/"+fixture.archiveName, func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write(archiveData)
+		})
+		mux.HandleFunc("/quebragalho-dev/quebragalho-cli/releases/download/v0.1.0/"+checksumName, func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, baseURL+"/cdn/"+checksumName, http.StatusFound)
+		})
+		mux.HandleFunc("/cdn/"+checksumName, func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write(checksumData)
+		})
+		var certPath string
+		baseURL, certPath = newLocalhostTLSServer(t, mux)
+
+		stdout, stderr, err := runUnixInstallerWithEnv(t, fixture, "", "latest",
+			"PATH="+pathOnlyBusyBox,
+			"SSL_CERT_FILE="+certPath,
+			"QG_GITHUB_API="+baseURL,
+			"QG_GITHUB_BASE_URL="+baseURL,
+		)
+		if err != nil {
+			t.Fatalf("install.sh with busybox wget failed across https redirects: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+		}
+		installed := readFile(t, filepath.Join(fixture.installDir, "qg"))
+		if !strings.Contains(string(installed), "mock-qg") {
+			t.Fatalf("installed binary = %q, want mock-qg", string(installed))
+		}
+	})
+
+	t.Run("https to http redirect is refused and downloaded file is removed", func(t *testing.T) {
+		fixture := newUnixInstallFixture(t)
+		pathOnlyBusyBox := wgetOnlyPath(t, busybox)
+		archiveData := readFile(t, fixture.archivePath)
+		checksumData := readFile(t, fixture.checksumPath)
+		checksumName := fixture.archiveName + ".sha256"
+
+		var plainHits atomic.Int32
+		plainServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			plainHits.Add(1)
+			switch {
+			case strings.HasSuffix(r.URL.Path, "/"+fixture.archiveName):
+				_, _ = w.Write(archiveData)
+			case strings.HasSuffix(r.URL.Path, "/"+checksumName):
+				_, _ = w.Write(checksumData)
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer plainServer.Close()
+
+		baseURL, certPath := newLocalhostTLSServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, plainServer.URL+r.URL.Path, http.StatusFound)
+		}))
+
+		customTmp := t.TempDir()
+		stdout, stderr, err := runUnixInstallerWithEnv(t, fixture, "", "0.1.0",
+			"PATH="+pathOnlyBusyBox,
+			"SSL_CERT_FILE="+certPath,
+			"TMPDIR="+customTmp,
+			"QG_GITHUB_BASE_URL="+baseURL,
+		)
+		if err == nil {
+			t.Fatalf("install.sh with busybox wget succeeded across https->http redirect\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+		}
+		if !strings.Contains(stderr, "redirecionamento inseguro recusado") || !strings.Contains(stderr, "https://") {
+			t.Fatalf("expected insecure redirect refusal in stderr, got:\n%s", stderr)
+		}
+		// BusyBox wget cannot stop before following the 302, so it hits the
+		// archive URL once and secure_wget must abort before checksum/install.
+		if got := plainHits.Load(); got != 1 {
+			t.Fatalf("plain HTTP server hits = %d, want 1 (aborted right after first download)", got)
+		}
+		if _, statErr := os.Stat(filepath.Join(fixture.installDir, "qg")); !os.IsNotExist(statErr) {
+			t.Fatalf("installed binary exists after refused redirect: %v", statErr)
+		}
+		entries, readErr := os.ReadDir(customTmp)
+		if readErr != nil {
+			t.Fatalf("ReadDir %s: %v", customTmp, readErr)
+		}
+		if len(entries) != 0 {
+			t.Fatalf("downloaded/temp files left behind in %s: %v", customTmp, entries)
 		}
 	})
 }

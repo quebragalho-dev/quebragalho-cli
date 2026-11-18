@@ -163,20 +163,118 @@ resolve_redirect_url() {
 }
 
 # O --https-only do GNU wget vale só para modo recursivo (-r), não para 30x:
-# inspeciona cada salto com --max-redirect=0 para recusar queda para http://.
+# quando há --max-redirect (GNU wget), inspeciona cada salto com --max-redirect=0;
+# quando não há (busybox wget), segue com -S e confere todos os Location antes
+# de aceitar o arquivo baixado.
+wget_max_redirect_mode=""
+wget_supports_max_redirect() {
+  if [ -z "$wget_max_redirect_mode" ]; then
+    case "$(wget --help 2>&1 || true)" in
+      *--max-redirect*) wget_max_redirect_mode="yes" ;;
+      *) wget_max_redirect_mode="no" ;;
+    esac
+  fi
+  [ "$wget_max_redirect_mode" = "yes" ]
+}
+
+advance_wget_hop() {
+  local base_url="$1"
+  local status="$2"
+  local location="$3"
+  local location_count="$4"
+  local hdr_file="$5"
+  local output="$6"
+  local resolved
+
+  next_hop_url="$base_url"
+  case "$status" in
+    301|302|303|307|308)
+      if [ "$location_count" -ne 1 ] || [ -z "$location" ]; then
+        rm -f "$hdr_file" "$output"
+        fail "redirecionamento inválido recusado ao baixar $base_url"
+      fi
+      case "$location" in
+        *[[:cntrl:]]*)
+          rm -f "$hdr_file" "$output"
+          fail "redirecionamento inválido recusado ao baixar $base_url"
+          ;;
+      esac
+      resolved="$(resolve_redirect_url "$base_url" "$location")"
+      case "$resolved" in
+        [Hh][Tt][Tt][Pp][Ss]://*)
+          next_hop_url="https://${resolved#*://}"
+          ;;
+        *)
+          rm -f "$hdr_file" "$output"
+          fail "redirecionamento inseguro recusado para $resolved: só https:// é permitido (defina QG_ALLOW_INSECURE_DOWNLOAD=1 para liberar em testes locais)"
+          ;;
+      esac
+      ;;
+  esac
+}
+
+verify_wget_redirect_chain() {
+  local current_url="$1"
+  local hdr_file="$2"
+  local output="$3"
+  local line rest val status="" location="" location_count=0
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    case "$line" in
+      "  HTTP/"*)
+        advance_wget_hop "$current_url" "$status" "$location" "$location_count" "$hdr_file" "$output"
+        current_url="$next_hop_url"
+        rest="${line#  HTTP/}"
+        rest="${rest#* }"
+        status="${rest%% *}"
+        location=""
+        location_count=0
+        ;;
+      "  "[Ll][Oo][Cc][Aa][Tt][Ii][Oo][Nn]:*)
+        val="${line#*:}"
+        val="${val#"${val%%[![:space:]]*}"}"
+        val="${val%"${val##*[![:space:]]}"}"
+        location="$val"
+        location_count=$((location_count + 1))
+        ;;
+    esac
+  done < "$hdr_file"
+  advance_wget_hop "$current_url" "$status" "$location" "$location_count" "$hdr_file" "$output"
+}
+
 secure_wget() {
   local url="$1"
   local output="$2"
   shift 2
 
   if insecure_download_allowed; then
-    wget "$@" "$url" --output-document "$output"
+    wget "$@" -O "$output" "$url"
+    return 0
+  fi
+
+  local hdr_file rc=0
+  if ! wget_supports_max_redirect; then
+    require_https "$url"
+    hdr_file="$(mktemp "${tmp_dir:-${TMPDIR:-/tmp}}/wget-headers.XXXXXX")"
+    if wget -q -S "$@" -O "$output" "$url" 2>"$hdr_file"; then
+      rc=0
+    else
+      rc=$?
+    fi
+    verify_wget_redirect_chain "$url" "$hdr_file" "$output"
+    if [ "$rc" -ne 0 ]; then
+      cat "$hdr_file" >&2
+      rm -f "$hdr_file" "$output"
+      return "$rc"
+    fi
+    rm -f "$hdr_file"
     return 0
   fi
 
   local current_url="$url"
   local hops=0
-  local hdr_file rc location next_url
+  local location next_url
 
   while :; do
     require_https "$current_url"
