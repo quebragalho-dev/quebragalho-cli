@@ -160,11 +160,13 @@ func BuildWindowsACLPlan(config WindowsSandboxCommandConfig) (WindowsACLPlan, er
 	}
 	// Carveouts stay readable inside a denied credential root (QG plugin,
 	// specialist and command trees run through the sandbox). The allow sits on
-	// the child object itself, so it wins over the inherited parent deny.
-	for _, path := range config.PermissionProfile.FileSystem.DenyReadCarveouts {
-		if strings.TrimSpace(path) == "" {
-			continue
-		}
+	// the child object itself, so it wins over the inherited parent deny. Like
+	// the denies above, carveouts name the resolved object: an unresolved
+	// spelling under a symlinked parent would make the apply refuse a
+	// reparse-point target, and the plan content then tracks existence — a
+	// carveout created later changes the hash and the on-demand apply picks it
+	// up, instead of the hash staying stable while coverage silently lags.
+	for _, path := range planWindowsCredentialDenyPaths(config.PermissionProfile.FileSystem.DenyReadCarveouts) {
 		for _, sid := range readDenySIDs {
 			entries = append(entries, WindowsACLEntry{
 				Action:     WindowsACLAllowRead,

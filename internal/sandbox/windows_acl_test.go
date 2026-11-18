@@ -474,6 +474,19 @@ func TestBuildWindowsACLPlanGrantsCapabilityReadOnWriteRoots(t *testing.T) {
 	assertWindowsACLEntry(t, plan, WindowsACLAllowRead, workspace, sid, false)
 }
 
+// mustResolveWindowsCredentialPath returns the spelling the Windows ACL plan
+// uses for an existing path: fully symlink-resolved. t.TempDir() sits under a
+// symlink on macOS (/var -> /private/var), so asserting the raw spelling
+// fails there while the plan is correct.
+func mustResolveWindowsCredentialPath(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("EvalSymlinks %s: %v", path, err)
+	}
+	return resolved
+}
+
 // CREDENTIAL PATHS GET DENY ENTRIES WITHOUT MATERIALIZING.
 //
 // Credential stores (~/.ssh, tokens, ...) must be denied to the sandbox, but
@@ -507,8 +520,11 @@ func TestBuildWindowsACLPlanDeniesCredentialPathsWithoutMaterializing(t *testing
 	if err != nil {
 		t.Fatalf("WindowsWorkspaceCapabilitySID: %v", err)
 	}
-	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, present, sid, false)
-	assertWindowsACLEntry(t, plan, WindowsACLDenyRead, present, sid, false)
+	// The plan stamps the resolved object, never the possibly-symlinked
+	// spelling the profile carried.
+	resolvedPresent := mustResolveWindowsCredentialPath(t, present)
+	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, resolvedPresent, sid, false)
+	assertWindowsACLEntry(t, plan, WindowsACLDenyRead, resolvedPresent, sid, false)
 	for _, entry := range plan.Entries {
 		if windowsCapabilityPathKey(entry.Path) == windowsCapabilityPathKey(absent) {
 			t.Fatalf("plan entry for absent credential path %s: the plan must not plant host directories", absent)
@@ -527,6 +543,12 @@ func TestBuildWindowsACLPlanKeepsCredentialCarveoutsReadable(t *testing.T) {
 	workspace := t.TempDir()
 	parent := t.TempDir()
 	carveout := filepath.Join(parent, "plugins")
+	// The allow entry names an existing object: a carveout created later is
+	// picked up by the next plan build (and its hash change re-triggers the
+	// on-demand apply) instead of being spelled raw.
+	if err := os.Mkdir(carveout, 0o700); err != nil {
+		t.Fatalf("mkdir carveout: %v", err)
+	}
 	plan, err := BuildWindowsACLPlan(WindowsSandboxCommandConfig{
 		SandboxHome:    home,
 		WorkspaceRoots: []string{workspace},
@@ -547,6 +569,8 @@ func TestBuildWindowsACLPlanKeepsCredentialCarveoutsReadable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WindowsWorkspaceCapabilitySID: %v", err)
 	}
-	assertWindowsACLEntry(t, plan, WindowsACLDenyRead, parent, sid, false)
-	assertWindowsACLEntry(t, plan, WindowsACLAllowRead, carveout, sid, false)
+	resolvedParent := mustResolveWindowsCredentialPath(t, parent)
+	resolvedCarveout := mustResolveWindowsCredentialPath(t, carveout)
+	assertWindowsACLEntry(t, plan, WindowsACLDenyRead, resolvedParent, sid, false)
+	assertWindowsACLEntry(t, plan, WindowsACLAllowRead, resolvedCarveout, sid, false)
 }
