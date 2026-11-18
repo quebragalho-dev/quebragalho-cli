@@ -708,6 +708,11 @@ type model struct {
 	// counts); their frames ride pendingImages like ordinary images. Both are
 	// cleared after a prompt is submitted (or /image clear).
 	pendingVideoInfos []pendingVideoInfo
+	// pendingVideoExtractions tracks in-flight background frame extractions by
+	// id (label + cancel). Frames are staged only when the extraction
+	// completes; until then submits wait and stale completions are dropped.
+	pendingVideoExtractions map[uint64]pendingVideoExtraction
+	videoExtractSeq         uint64
 	// pendingImageThumbnails are decoded previews for a bounded gallery of staged
 	// images. They are only rendered by terminals with an inline-image protocol;
 	// every other terminal continues to use the compact text attachment row.
@@ -1993,6 +1998,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case videoFramesMsg:
+		ext, ok := m.pendingVideoExtractions[msg.id]
+		if !ok {
+			return m, nil
+		}
+		delete(m.pendingVideoExtractions, msg.id)
+		ext.cancel()
 		if msg.err != nil {
 			return m.appendImageNotice(msg.err.Error()), nil
 		}

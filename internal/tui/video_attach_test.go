@@ -7,6 +7,8 @@ import (
 	"image/gif"
 	"os"
 	"path/filepath"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/media"
 	"runtime"
 	"strings"
 	"testing"
@@ -313,5 +315,61 @@ func TestRemoveLastAttachmentDropsWholeVideo(t *testing.T) {
 	if len(removed.pendingImages) != 0 || len(removed.pendingVideoInfos) != 0 {
 		t.Fatalf("vídeo deveria sair inteiro: %d imagens, %d infos",
 			len(removed.pendingImages), len(removed.pendingVideoInfos))
+	}
+}
+
+// /image clear durante a extração descarta os quadros tardios.
+func TestClearDuringExtractionDropsLateFrames(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", root)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("FAKE_FFMPEG_LOG", filepath.Join(root, "argv.log"))
+	writeFakeFFmpegTUI(t, root, "ffmpeg")
+	writeFakeFFmpegTUI(t, root, "ffprobe")
+	video := filepath.Join(root, "clip.mp4")
+	if err := os.WriteFile(video, []byte("fake-video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := videoAttachModel(t, root)
+	attached, _ := m.handleImageCommand(video)
+	wantID := attached.videoExtractSeq
+	if wantID == 0 {
+		t.Fatal("setup: extração deveria estar registrada")
+	}
+	cleared, _ := attached.handleImageCommand("clear")
+	stale := videoFramesMsg{id: wantID, label: "clip.mp4", frames: []media.Frame{{Data: []byte("x")}}, duration: 1}
+	final, _ := cleared.Update(stale)
+	got := final.(model)
+	if len(got.pendingImages) != 0 || len(got.pendingVideoInfos) != 0 {
+		t.Fatal("quadros tardios deveriam ser descartados após /image clear")
+	}
+}
+
+// Backspace durante a extração cancela o envio e descarta os quadros tardios.
+func TestBackspaceDuringExtractionCancelsIt(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", root)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("FAKE_FFMPEG_LOG", filepath.Join(root, "argv.log"))
+	writeFakeFFmpegTUI(t, root, "ffmpeg")
+	writeFakeFFmpegTUI(t, root, "ffprobe")
+	video := filepath.Join(root, "clip.mp4")
+	if err := os.WriteFile(video, []byte("fake-video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := videoAttachModel(t, root)
+	attached, _ := m.handleImageCommand(video)
+	wantID := attached.videoExtractSeq
+	if wantID == 0 {
+		t.Fatal("setup: extração em andamento deveria estar registrada")
+	}
+	without, removed := attached.removeLastAttachment()
+	if !removed {
+		t.Fatal("Backspace deveria cancelar a extração em andamento")
+	}
+	stale := videoFramesMsg{id: wantID, label: "clip.mp4", frames: []media.Frame{{Data: []byte("x")}}, duration: 1}
+	final, _ := without.Update(stale)
+	if got := final.(model); len(got.pendingImages) != 0 {
+		t.Fatal("quadros tardios deveriam ser descartados após cancelar")
 	}
 }

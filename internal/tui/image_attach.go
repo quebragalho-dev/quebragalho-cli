@@ -278,6 +278,7 @@ func (m model) handleImageCommand(arg string) (model, tea.Cmd) {
 		return m.appendImageNotice("Usage: /image <path>  (image or PDF; or /image clear)"), nil
 	case strings.EqualFold(trimmed, "clear"):
 		m.discardPendingImageTemps()
+		m.cancelPendingVideoExtractions()
 		m.pendingImages = nil
 		m.pendingImageLabels = nil
 		m.pendingImageThumbnails = nil
@@ -356,6 +357,36 @@ func (m model) handleDocumentAttach(path string) model {
 // pendingVideoInfo is a staged video attachment: its frames ride pendingImages
 // like ordinary images, and text names the video plus when each frame was
 // taken so the model can attribute them.
+// pendingVideoExtraction is an in-flight background frame extraction.
+type pendingVideoExtraction struct {
+	label  string
+	cancel context.CancelFunc
+}
+
+// newestPendingVideoExtraction returns the most recently started in-flight
+// extraction, if any.
+func (m model) newestPendingVideoExtraction() (uint64, pendingVideoExtraction, bool) {
+	var best uint64
+	var bestExt pendingVideoExtraction
+	found := false
+	for id, ext := range m.pendingVideoExtractions {
+		if !found || id > best {
+			best, bestExt, found = id, ext, true
+		}
+	}
+	return best, bestExt, found
+}
+
+// cancelPendingVideoExtractions drops every in-flight frame extraction and
+// stops its ffmpeg. Call it wherever staged attachments are discarded, so
+// late frames never land in the wrong turn.
+func (m *model) cancelPendingVideoExtractions() {
+	for id, ext := range m.pendingVideoExtractions {
+		ext.cancel()
+		delete(m.pendingVideoExtractions, id)
+	}
+}
+
 type pendingVideoInfo struct {
 	label  string
 	text   string
@@ -365,6 +396,7 @@ type pendingVideoInfo struct {
 // videoFramesMsg carries a finished background frame extraction: on success
 // the frames stage as image attachments with their context line.
 type videoFramesMsg struct {
+	id       uint64
 	label    string
 	frames   []media.Frame
 	duration float64
@@ -373,12 +405,12 @@ type videoFramesMsg struct {
 
 // extractVideoFramesCmd runs the ffmpeg extraction off the TUI thread: even a
 // short clip blocks the UI for seconds, and a long one for over ten.
-func extractVideoFramesCmd(path, cwd, ffmpegPath, ffprobePath string) tea.Cmd {
+func extractVideoFramesCmd(ctx context.Context, path, cwd, ffmpegPath, ffprobePath string, id uint64) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), media.VideoAttachTimeout)
+		tctx, cancel := context.WithTimeout(ctx, media.VideoAttachTimeout)
 		defer cancel()
-		frames, duration, err := media.ExtractAttachmentFrames(ctx, ffmpegPath, ffprobePath, path, cwd, media.ExtractOptions{})
-		return videoFramesMsg{label: filepath.Base(path), frames: frames, duration: duration, err: err}
+		frames, duration, err := media.ExtractAttachmentFrames(tctx, ffmpegPath, ffprobePath, path, cwd, media.ExtractOptions{})
+		return videoFramesMsg{id: id, label: filepath.Base(path), frames: frames, duration: duration, err: err}
 	}
 }
 
@@ -399,7 +431,14 @@ func (m model) handleVideoAttach(path string) (model, tea.Cmd) {
 			return m.appendImageNotice("ffmpeg não encontrado para extrair os quadros do vídeo. Baixe com: qg ffmpeg baixar (download único, ~115–170 MB conforme a plataforma). Ou instale manualmente: brew install ffmpeg (macOS), winget install Gyan.FFmpeg (Windows) ou sudo apt install ffmpeg (Linux)."), nil
 		}
 		m = m.showTransientNoticeInline("Extraindo quadros de "+label+"…", transientNoticeInfo)
-		return m, extractVideoFramesCmd(path, m.cwd, ffmpegPath, ffprobePath)
+		m.videoExtractSeq++
+		id := m.videoExtractSeq
+		ctx, cancel := context.WithCancel(context.Background())
+		if m.pendingVideoExtractions == nil {
+			m.pendingVideoExtractions = map[uint64]pendingVideoExtraction{}
+		}
+		m.pendingVideoExtractions[id] = pendingVideoExtraction{label: label, cancel: cancel}
+		return m, extractVideoFramesCmd(ctx, path, m.cwd, ffmpegPath, ffprobePath, id)
 	}
 	frames, duration, err := media.ExtractAttachmentFrames(context.Background(), "", "", path, m.cwd, media.ExtractOptions{})
 	if err != nil {
@@ -529,6 +568,14 @@ func (m model) removeLastAttachment() (model, bool) {
 			m.pendingImageTemps = m.pendingImageTemps[:len(m.pendingImageTemps)-1]
 		}
 		m.refreshPendingImageThumbnail()
+		return m, true
+	}
+	// Nada anexado, mas há em andamento: Backspace cancela a mais
+	// recente em vez de deixar os quadros caírem no próximo turno.
+	if id, ext, ok := m.newestPendingVideoExtraction(); ok {
+		ext.cancel()
+		delete(m.pendingVideoExtractions, id)
+		m = m.showTransientNoticeInline("Extração de vídeo cancelada: "+ext.label, transientNoticeInfo)
 		return m, true
 	}
 	return m, false
