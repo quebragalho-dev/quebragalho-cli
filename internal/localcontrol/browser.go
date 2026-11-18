@@ -257,13 +257,21 @@ func (browser Browser) Run(ctx context.Context, args ...string) (CommandResult, 
 }
 
 func (browser Browser) prepareEnv(resolvedEnv []string) ([]string, error) {
-	if browserGOOS != "linux" {
-		return resolvedEnv, nil
-	}
 	driver := strings.TrimSpace(browser.helper.options.Driver)
 	if (driver != "" && driver != DefaultBrowserDriver) || strings.TrimSpace(browser.helper.options.HelperPath) != "" {
 		return resolvedEnv, nil
 	}
+	switch browserGOOS {
+	case "linux":
+		return prepareLinuxSnapBrowserEnv(resolvedEnv)
+	case "windows":
+		return prepareWindowsEdgeBrowserEnv(resolvedEnv), nil
+	default:
+		return resolvedEnv, nil
+	}
+}
+
+func prepareLinuxSnapBrowserEnv(resolvedEnv []string) ([]string, error) {
 	if !snapChromiumExists() {
 		return resolvedEnv, nil
 	}
@@ -280,6 +288,77 @@ func (browser Browser) prepareEnv(resolvedEnv []string) ([]string, error) {
 		return nil, fmt.Errorf("criar pasta temporária do navegador para o Chromium snap (%s): %w", tmpDir, err)
 	}
 	return mergeEnv(resolvedEnv, []string{"TMPDIR=" + tmpDir}), nil
+}
+
+func prepareWindowsEdgeBrowserEnv(resolvedEnv []string) []string {
+	if strings.TrimSpace(effectiveEnvValue(resolvedEnv, "AGENT_BROWSER_EXECUTABLE_PATH")) != "" {
+		return resolvedEnv
+	}
+	if windowsHasAgentBrowserChrome(resolvedEnv) {
+		return resolvedEnv
+	}
+	edgePath := windowsFindEdgeExecutable()
+	if edgePath == "" {
+		return resolvedEnv
+	}
+	return mergeEnv(resolvedEnv, []string{"AGENT_BROWSER_EXECUTABLE_PATH=" + edgePath})
+}
+
+func windowsHasAgentBrowserChrome(resolvedEnv []string) bool {
+	if userProfile := strings.TrimSpace(effectiveEnvValue(resolvedEnv, "USERPROFILE")); userProfile != "" {
+		browsersDir := joinWindowsPath(userProfile, ".agent-browser", "browsers")
+		if entries, err := browserReadDirNames(browsersDir); err == nil {
+			for _, entry := range entries {
+				if entry != "" && browserFileExists(joinWindowsPath(browsersDir, entry, "chrome-win64", "chrome.exe")) {
+					return true
+				}
+			}
+		}
+	}
+	candidates := []string{
+		`C:\Program Files\Google\Chrome\Application\chrome.exe`,
+		`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`,
+	}
+	if localAppData := strings.TrimSpace(effectiveEnvValue(resolvedEnv, "LOCALAPPDATA")); localAppData != "" {
+		candidates = append(candidates,
+			joinWindowsPath(localAppData, "Google", "Chrome", "Application", "chrome.exe"),
+			joinWindowsPath(localAppData, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+		)
+	}
+	for _, p := range candidates {
+		if browserFileExists(p) {
+			return true
+		}
+	}
+	return false
+}
+
+func windowsFindEdgeExecutable() string {
+	for _, p := range []string{
+		`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
+		`C:\Program Files\Microsoft\Edge\Application\msedge.exe`,
+	} {
+		if browserFileExists(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+func joinWindowsPath(base string, elem ...string) string {
+	out := strings.TrimRight(base, `\/`)
+	for _, part := range elem {
+		part = strings.Trim(part, `\/`)
+		if part == "" {
+			continue
+		}
+		if out == "" {
+			out = part
+		} else {
+			out += `\` + part
+		}
+	}
+	return out
 }
 
 func effectiveEnvValue(overlay []string, key string) string {
@@ -327,11 +406,25 @@ func (terminal Terminal) Enabled() bool {
 type ExecRunner struct{}
 
 var (
-	executablePath     = os.Executable
-	browserGOOS        = runtime.GOOS
-	snapChromiumExists = func() bool {
-		info, err := os.Stat("/snap/bin/chromium")
+	executablePath    = os.Executable
+	browserGOOS       = runtime.GOOS
+	browserFileExists = func(path string) bool {
+		info, err := os.Stat(path)
 		return err == nil && !info.IsDir()
+	}
+	browserReadDirNames = func(dir string) ([]string, error) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return nil, err
+		}
+		names := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		return names, nil
+	}
+	snapChromiumExists = func() bool {
+		return browserFileExists("/snap/bin/chromium")
 	}
 )
 
@@ -515,7 +608,7 @@ func manifestEnv(entry manifestEntry) []string {
 }
 
 func normalizeEnvKey(key string) string {
-	if runtime.GOOS == "windows" {
+	if browserGOOS == "windows" {
 		return strings.ToUpper(key)
 	}
 	return key

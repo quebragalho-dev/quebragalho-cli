@@ -639,3 +639,219 @@ func TestBrowserRunSkipsSnapChromiumTmpDirWhenNotApplicable(t *testing.T) {
 		}
 	})
 }
+
+func stubWindowsBrowserFS(t *testing.T, goos string, existingFiles []string, dirEntries map[string][]string) {
+	t.Helper()
+	const (
+		fakeUserProfile  = `C:\Users\TestUser`
+		fakeLocalAppData = `C:\Users\TestUser\AppData\Local`
+	)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", fakeUserProfile)
+	t.Setenv("LOCALAPPDATA", fakeLocalAppData)
+	t.Setenv("AGENT_BROWSER_EXECUTABLE_PATH", "")
+	t.Setenv(EnvHelperManifest, "")
+
+	fileSet := make(map[string]bool, len(existingFiles))
+	for _, f := range existingFiles {
+		fileSet[f] = true
+	}
+
+	oldExecutablePath := executablePath
+	executablePath = func() (string, error) { return filepath.Join(t.TempDir(), "qg"), nil }
+	oldGOOS := browserGOOS
+	browserGOOS = goos
+	oldFileExists := browserFileExists
+	browserFileExists = func(path string) bool { return fileSet[path] }
+	oldReadDir := browserReadDirNames
+	browserReadDirNames = func(dir string) ([]string, error) {
+		if entries, ok := dirEntries[dir]; ok {
+			return entries, nil
+		}
+		return nil, os.ErrNotExist
+	}
+	oldSnap := snapChromiumExists
+	snapChromiumExists = func() bool { return false }
+	t.Cleanup(func() {
+		executablePath = oldExecutablePath
+		browserGOOS = oldGOOS
+		browserFileExists = oldFileExists
+		browserReadDirNames = oldReadDir
+		snapChromiumExists = oldSnap
+	})
+}
+
+func TestBrowserRunWindowsEdgeFallback(t *testing.T) {
+	const (
+		edgeX86         = `C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`
+		edgeX64         = `C:\Program Files\Microsoft\Edge\Application\msedge.exe`
+		chromeProgFiles = `C:\Program Files\Google\Chrome\Application\chrome.exe`
+		chromeProgX86   = `C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`
+		chromeLocal     = `C:\Users\TestUser\AppData\Local\Google\Chrome\Application\chrome.exe`
+		braveLocal      = `C:\Users\TestUser\AppData\Local\BraveSoftware\Brave-Browser\Application\brave.exe`
+		cftBrowsersDir  = `C:\Users\TestUser\.agent-browser\browsers`
+		cftChromeExe    = `C:\Users\TestUser\.agent-browser\browsers\chromium-1492\chrome-win64\chrome.exe`
+	)
+
+	ensuredBin := filepath.Join(t.TempDir(), "agent-browser.exe")
+	if err := os.WriteFile(ensuredBin, []byte("MZ"), 0o755); err != nil {
+		t.Fatalf("write ensured binary: %v", err)
+	}
+
+	t.Run("no-chrome-with-edge-x86-sets-executable-path", func(t *testing.T) {
+		stubWindowsBrowserFS(t, "windows", []string{edgeX86, edgeX64}, map[string][]string{
+			cftBrowsersDir: {"incomplete-dir"},
+		})
+		runner := &fakeCommandRunner{}
+		browser := NewBrowser(BrowserOptions{
+			Enabled: true,
+			Runner:  runner,
+			Ensure:  func(context.Context) (string, error) { return ensuredBin, nil },
+		})
+		if _, err := browser.Run(context.Background(), "open", "https://example.com"); err != nil {
+			t.Fatalf("Run error = %v", err)
+		}
+		if got := envValue(runner.env, "AGENT_BROWSER_EXECUTABLE_PATH"); got != edgeX86 {
+			t.Fatalf("AGENT_BROWSER_EXECUTABLE_PATH = %q, want %q (env=%#v)", got, edgeX86, runner.env)
+		}
+	})
+
+	t.Run("no-chrome-with-edge-programfiles-sets-executable-path", func(t *testing.T) {
+		stubWindowsBrowserFS(t, "windows", []string{edgeX64}, nil)
+		runner := &fakeCommandRunner{}
+		browser := NewBrowser(BrowserOptions{
+			Enabled: true,
+			Runner:  runner,
+			Ensure:  func(context.Context) (string, error) { return ensuredBin, nil },
+		})
+		if _, err := browser.Run(context.Background(), "open", "https://example.com"); err != nil {
+			t.Fatalf("Run error = %v", err)
+		}
+		if got := envValue(runner.env, "AGENT_BROWSER_EXECUTABLE_PATH"); got != edgeX64 {
+			t.Fatalf("AGENT_BROWSER_EXECUTABLE_PATH = %q, want %q", got, edgeX64)
+		}
+	})
+
+	t.Run("installed-chrome-or-brave-skips-edge", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			path string
+		}{
+			{"program-files-chrome", chromeProgFiles},
+			{"program-files-x86-chrome", chromeProgX86},
+			{"localappdata-chrome", chromeLocal},
+			{"localappdata-brave", braveLocal},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				stubWindowsBrowserFS(t, "windows", []string{edgeX86, tc.path}, nil)
+				runner := &fakeCommandRunner{}
+				browser := NewBrowser(BrowserOptions{
+					Enabled: true,
+					Runner:  runner,
+					Ensure:  func(context.Context) (string, error) { return ensuredBin, nil },
+				})
+				if _, err := browser.Run(context.Background(), "open", "https://example.com"); err != nil {
+					t.Fatalf("Run error = %v", err)
+				}
+				if got := envValue(runner.env, "AGENT_BROWSER_EXECUTABLE_PATH"); got != "" {
+					t.Fatalf("%s: AGENT_BROWSER_EXECUTABLE_PATH = %q, want empty", tc.name, got)
+				}
+			})
+		}
+	})
+
+	t.Run("chrome-for-testing-skips-edge", func(t *testing.T) {
+		stubWindowsBrowserFS(t, "windows", []string{edgeX86, cftChromeExe}, map[string][]string{
+			cftBrowsersDir: {"chromium-1492"},
+		})
+		runner := &fakeCommandRunner{}
+		browser := NewBrowser(BrowserOptions{
+			Enabled: true,
+			Runner:  runner,
+			Ensure:  func(context.Context) (string, error) { return ensuredBin, nil },
+		})
+		if _, err := browser.Run(context.Background(), "open", "https://example.com"); err != nil {
+			t.Fatalf("Run error = %v", err)
+		}
+		if got := envValue(runner.env, "AGENT_BROWSER_EXECUTABLE_PATH"); got != "" {
+			t.Fatalf("AGENT_BROWSER_EXECUTABLE_PATH = %q, want empty when Chrome for Testing exists", got)
+		}
+	})
+
+	t.Run("without-edge-does-not-set", func(t *testing.T) {
+		stubWindowsBrowserFS(t, "windows", nil, nil)
+		runner := &fakeCommandRunner{}
+		browser := NewBrowser(BrowserOptions{
+			Enabled: true,
+			Runner:  runner,
+			Ensure:  func(context.Context) (string, error) { return ensuredBin, nil },
+		})
+		if _, err := browser.Run(context.Background(), "open", "https://example.com"); err != nil {
+			t.Fatalf("Run error = %v", err)
+		}
+		if got := envValue(runner.env, "AGENT_BROWSER_EXECUTABLE_PATH"); got != "" {
+			t.Fatalf("AGENT_BROWSER_EXECUTABLE_PATH = %q, want empty", got)
+		}
+	})
+
+	t.Run("respects-user-defined-executable-path", func(t *testing.T) {
+		stubWindowsBrowserFS(t, "windows", []string{edgeX86}, nil)
+		t.Setenv("AGENT_BROWSER_EXECUTABLE_PATH", `C:\Custom\browser.exe`)
+
+		runner := &fakeCommandRunner{}
+		browser := NewBrowser(BrowserOptions{
+			Enabled: true,
+			Runner:  runner,
+			Ensure:  func(context.Context) (string, error) { return ensuredBin, nil },
+		})
+		if _, err := browser.Run(context.Background(), "open", "https://example.com"); err != nil {
+			t.Fatalf("Run error = %v", err)
+		}
+		if got := envValue(runner.env, "AGENT_BROWSER_EXECUTABLE_PATH"); got != "" {
+			t.Fatalf("overlay AGENT_BROWSER_EXECUTABLE_PATH = %q, want empty so user env is preserved", got)
+		}
+	})
+
+	t.Run("outside-windows-or-custom-driver-or-helper-path-skips-edge", func(t *testing.T) {
+		for _, tc := range []struct {
+			name       string
+			goos       string
+			driver     string
+			helperPath string
+		}{
+			{name: "linux", goos: "linux"},
+			{name: "darwin", goos: "darwin"},
+			{name: "windows-custom-driver", goos: "windows", driver: "custom-driver"},
+			{name: "windows-custom-helper-path", goos: "windows", helperPath: ensuredBin},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				stubWindowsBrowserFS(t, tc.goos, []string{edgeX86}, nil)
+				pathDir := t.TempDir()
+				driverName := tc.driver
+				if driverName == "" {
+					driverName = DefaultBrowserDriver
+				}
+				for _, ext := range []string{"", ".exe"} {
+					if err := os.WriteFile(filepath.Join(pathDir, driverName+ext), []byte("#!/bin/sh\n"), 0o755); err != nil {
+						t.Fatalf("write path helper: %v", err)
+					}
+				}
+				t.Setenv("PATH", pathDir)
+
+				runner := &fakeCommandRunner{}
+				browser := NewBrowser(BrowserOptions{
+					Enabled:    true,
+					Driver:     tc.driver,
+					HelperPath: tc.helperPath,
+					Runner:     runner,
+				})
+				if _, err := browser.Run(context.Background(), "open", "https://example.com"); err != nil {
+					t.Fatalf("Run error = %v", err)
+				}
+				if got := envValue(runner.env, "AGENT_BROWSER_EXECUTABLE_PATH"); got != "" {
+					t.Fatalf("%s: AGENT_BROWSER_EXECUTABLE_PATH = %q, want empty", tc.name, got)
+				}
+			})
+		}
+	})
+}
