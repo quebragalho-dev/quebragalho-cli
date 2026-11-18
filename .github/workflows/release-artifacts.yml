@@ -18,6 +18,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: write # create/upload the GitHub Release on a tag push
+      id-token: write # keyless Sigstore signing of the release bundles (cosign)
     # One GitHub-hosted Linux runner builds every target. `qg-release
     # package --allow-cross` cross-compiles (GOOS/GOARCH) and skips the native
     # smoke it cannot run for a foreign target; `qg-release verify` re-checks
@@ -83,8 +84,50 @@ jobs:
           windows arm64
           EOF
 
+      # Pinned by commit SHA like every other action in this repo.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: v3.1.4
+
+      # Every archive ships a detached Sigstore bundle (<archive>.sigstore.json)
+      # signed keyless with this job's OIDC token; the release upload below
+      # publishes them next to the archives and checksums via the same glob.
+      - name: Sign release artifacts with Sigstore
+        shell: bash
+        run: |
+          set -euo pipefail
+          for asset in dist/release/*; do
+            case "$asset" in
+              *.sha256|*.sigstore.json) continue ;;
+            esac
+            echo "signing ${asset}"
+            cosign sign-blob --yes --bundle "${asset}.sigstore.json" "$asset"
+          done
+
       - name: Verify release checksums
         run: go run ./cmd/qg-release verify
+
+      # Prove the bundles actually verify under the exact identity the
+      # updater and the installers enforce, before anything is published.
+      # Tag-only: the identity pins the tag ref, and only tag pushes
+      # publish a release.
+      - name: Verify release bundles
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release-artifacts.yml@${GITHUB_REF}"
+          for asset in dist/release/*; do
+            case "$asset" in
+              *.sha256|*.sigstore.json) continue ;;
+            esac
+            echo "verifying ${asset}.sigstore.json"
+            cosign verify-blob --bundle "${asset}.sigstore.json" \
+              --certificate-identity "$identity" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+              "$asset"
+          done
 
       - name: Upload package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -195,7 +238,7 @@ jobs:
             "qg-v${version}-macos-arm64.tar.gz" \
             "qg-v${version}-windows-x64.zip" \
             "qg-v${version}-windows-arm64.zip"; do
-            for url in "${base}/${asset}" "${base}/${asset}.sha256"; do
+            for url in "${base}/${asset}" "${base}/${asset}.sha256" "${base}/${asset}.sigstore.json"; do
               if ! curl -fsSLI -o /dev/null "$url"; then
                 echo "::error::${url} is not publicly downloadable — the wrapper's fallback downloader and install.sh would fail. Is the repo public and are all assets uploaded?" >&2
                 exit 1

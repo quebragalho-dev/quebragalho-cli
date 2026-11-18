@@ -360,7 +360,7 @@ func packageShouldSmoke(goos string, goarch string) bool {
 // checksum, staging) so sibling archives from other targets survive — the
 // release target loops several platforms into one release directory.
 func cleanPackageOutputs(releaseDir string, stagingDir string, archivePath string) error {
-	for _, path := range []string{archivePath, archivePath + ".sha256"} {
+	for _, path := range []string{archivePath, archivePath + ".sha256", SignatureBundleName(archivePath)} {
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("clean release output: %w", err)
 		}
@@ -499,6 +499,31 @@ func VerifySHA256Checksum(checksumPath string) (VerifiedChecksum, error) {
 	}, nil
 }
 
+// SignatureBundleName returns the Sigstore bundle file name published next
+// to a release archive: <archive>.sigstore.json.
+func SignatureBundleName(archiveName string) string {
+	return archiveName + ".sigstore.json"
+}
+
+// VerifySignatureBundle checks that bundlePath holds a non-empty JSON
+// Sigstore bundle. Signature validity itself is checked where the bundle is
+// consumed (cosign in CI, the updater at install time); the release gate
+// only guarantees every archive ships its bundle intact.
+func VerifySignatureBundle(bundlePath string) error {
+	data, err := os.ReadFile(bundlePath)
+	if err != nil {
+		return err
+	}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return fmt.Errorf("signature bundle is empty: %s", bundlePath)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return fmt.Errorf("signature bundle is not valid JSON: %s", bundlePath)
+	}
+	return nil
+}
+
 func VerifyReleaseChecksums(options VerifyOptions) ([]VerifiedChecksum, error) {
 	releaseDir := strings.TrimSpace(options.ReleaseDir)
 	if releaseDir == "" {
@@ -517,10 +542,14 @@ func VerifyReleaseChecksums(options VerifyOptions) ([]VerifiedChecksum, error) {
 	sort.Strings(files)
 	archiveNames := []string{}
 	checksumNames := []string{}
+	bundleNames := []string{}
 	for _, name := range files {
-		if strings.HasSuffix(name, ".sha256") {
+		switch {
+		case strings.HasSuffix(name, ".sha256"):
 			checksumNames = append(checksumNames, name)
-		} else {
+		case strings.HasSuffix(name, ".sigstore.json"):
+			bundleNames = append(bundleNames, name)
+		default:
 			archiveNames = append(archiveNames, name)
 		}
 	}
@@ -528,17 +557,28 @@ func VerifyReleaseChecksums(options VerifyOptions) ([]VerifiedChecksum, error) {
 		return nil, fmt.Errorf("no release archives found in %s", releaseDir)
 	}
 	expectedChecksumNames := map[string]bool{}
+	expectedBundleNames := map[string]bool{}
 	for _, archiveName := range archiveNames {
 		expectedChecksumNames[archiveName+".sha256"] = true
+		expectedBundleNames[SignatureBundleName(archiveName)] = true
 	}
 	for _, checksumName := range checksumNames {
 		if !expectedChecksumNames[checksumName] {
 			return nil, fmt.Errorf("unexpected checksum file without matching archive: %s", checksumName)
 		}
 	}
+	for _, bundleName := range bundleNames {
+		if !expectedBundleNames[bundleName] {
+			return nil, fmt.Errorf("unexpected signature bundle without matching archive: %s", bundleName)
+		}
+	}
 	checksumSet := map[string]bool{}
 	for _, checksumName := range checksumNames {
 		checksumSet[checksumName] = true
+	}
+	bundleSet := map[string]bool{}
+	for _, bundleName := range bundleNames {
+		bundleSet[bundleName] = true
 	}
 	verified := []VerifiedChecksum{}
 	for _, archiveName := range archiveNames {
@@ -546,12 +586,19 @@ func VerifyReleaseChecksums(options VerifyOptions) ([]VerifiedChecksum, error) {
 		if !checksumSet[checksumName] {
 			return nil, fmt.Errorf("missing checksum file: %s", checksumName)
 		}
+		bundleName := SignatureBundleName(archiveName)
+		if !bundleSet[bundleName] {
+			return nil, fmt.Errorf("missing signature bundle: %s", bundleName)
+		}
 		result, err := VerifySHA256Checksum(filepath.Join(releaseDir, checksumName))
 		if err != nil {
 			return nil, err
 		}
 		if result.ArchiveName != archiveName {
 			return nil, fmt.Errorf("checksum file %s references %s, expected %s", checksumName, result.ArchiveName, archiveName)
+		}
+		if err := VerifySignatureBundle(filepath.Join(releaseDir, bundleName)); err != nil {
+			return nil, err
 		}
 		verified = append(verified, result)
 	}
