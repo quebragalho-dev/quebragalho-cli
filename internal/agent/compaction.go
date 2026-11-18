@@ -463,8 +463,7 @@ type compactionState struct {
 // Twin fields lowWaterMark/reactiveAttempted/enabled move only via
 // transition, keyed by this phase, so every path updates them together.
 //
-//	disabled --windowUpdate--> below (run born opt-out CAN be enabled here;
-//	                            kept as characterization: product decision pending)
+//	disabled --*--> REFUSED (a run born with ContextWindow<=0 stays opt-out)
 //	below --pruneFits/paidShrink--> pruned / paid
 //	below --reactivePruneFits--> recovered (budget intact)
 //	below --reactivePaidShrink/Fail--> spent (budget consumed, sticky)
@@ -628,7 +627,6 @@ var compactTransitionTable = map[compactTransitionKey]compactTransition{
 	{phaseRecovered, evReactiveNoop}: {next: phaseRecovered},
 	{phaseSpent, evReactiveNoop}:     {next: phaseSpent},
 
-	{phaseDisabled, evWindowUpdate}:  {next: phaseBelow, enable: true, clearWatermark: true},
 	{phaseBelow, evWindowUpdate}:     {next: phaseBelow, enable: true, clearWatermark: true},
 	{phasePruned, evWindowUpdate}:    {next: phaseBelow, enable: true, clearWatermark: true},
 	{phasePaid, evWindowUpdate}:      {next: phaseBelow, enable: true, clearWatermark: true},
@@ -766,15 +764,14 @@ func (state *compactionState) notifyCompacted() {
 // updateWindow re-derives the compaction threshold after a mid-run model
 // switch. The low-water mark is reset: it was measured against the old
 // threshold, and keeping it could suppress a compaction the smaller window
-// now requires. <= 0 (unknown model) leaves everything unchanged.
-// NOTE: on a run born with ContextWindow==0 this enables compaction;
-// characterization pins that behavior and the product decision is pending.
+// now requires. <= 0 (unknown model) or a disabled run (ContextWindow <= 0 at
+// start) leaves everything unchanged.
 func (state *compactionState) updateWindow(window int) {
 	if window <= 0 {
 		return
 	}
 	state.transition(compactEvent{kind: evWindowUpdate, window: window})
-	if state.planner != nil {
+	if state.enabled && state.planner != nil {
 		state.planner.config.contextWindow = window
 	}
 }

@@ -45,9 +45,6 @@ func compactSnapshot(state *compactionState) compactSnap {
 }
 
 func compactExpectLegal(phase compactPhase, kind compactEventKind) bool {
-	if kind == evWindowUpdate {
-		return true // legal in every phase (pins the pending product decision)
-	}
 	if phase == phaseDisabled {
 		return false
 	}
@@ -194,8 +191,9 @@ func TestCompactIllegalNeverPanics(t *testing.T) {
 	for _, kind := range []compactEventKind{
 		evBelowThreshold, evPruneFits, evPaidShrink, evPaidNoShrink, evPaidError,
 		evReactivePruneFits, evReactivePaidShrink, evReactivePaidFail, evReactiveNoop,
+		evWindowUpdate,
 	} {
-		if notify := state.transition(compactEvent{kind: kind, size: 5, rewrote: true}); notify {
+		if notify := state.transition(compactEvent{kind: kind, size: 5, rewrote: true, window: 2000}); notify {
 			t.Fatalf("disabled+ %s must not notify", kind)
 		}
 	}

@@ -925,7 +925,7 @@ func Run(ctx context.Context, prompt string, provider Provider, options Options)
 					if options.ContextWindowFor != nil {
 						window = options.ContextWindowFor(turnRequestedModel)
 					}
-					if window > 0 {
+					if window > 0 && compactor.enabled {
 						options.ContextWindow = window
 						planner.config.contextWindow = window
 					}
