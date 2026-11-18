@@ -657,6 +657,9 @@ func stubWindowsBrowserFS(t *testing.T, goos string, existingFiles []string, dir
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USERPROFILE", fakeUserProfile)
 	t.Setenv("LOCALAPPDATA", fakeLocalAppData)
+	t.Setenv("ProgramFiles", "")
+	t.Setenv("ProgramFiles(x86)", "")
+	t.Setenv("ProgramW6432", "")
 	t.Setenv("AGENT_BROWSER_EXECUTABLE_PATH", "")
 	t.Setenv(EnvHelperManifest, "")
 
@@ -799,6 +802,129 @@ func TestBrowserRunWindowsEdgeFallback(t *testing.T) {
 		}
 		if got := envValue(runner.env, "AGENT_BROWSER_EXECUTABLE_PATH"); got != "" {
 			t.Fatalf("AGENT_BROWSER_EXECUTABLE_PATH = %q, want empty", got)
+		}
+	})
+
+	t.Run("prefers-programfiles-env-vars-for-edge-over-fixed-paths", func(t *testing.T) {
+		for _, tc := range []struct {
+			name string
+			env  map[string]string
+			want string
+		}{
+			{
+				name: "ProgramFiles(x86)",
+				env: map[string]string{
+					"ProgramFiles":      `D:\Program Files`,
+					"ProgramFiles(x86)": `D:\Program Files (x86)`,
+					"ProgramW6432":      `D:\Program Files`,
+				},
+				want: `D:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
+			},
+			{
+				name: "ProgramFiles",
+				env: map[string]string{
+					"ProgramFiles":      `D:\Arquivos de Programas`,
+					"ProgramFiles(x86)": `D:\Arquivos de Programas (x86)`,
+				},
+				want: `D:\Arquivos de Programas\Microsoft\Edge\Application\msedge.exe`,
+			},
+			{
+				name: "ProgramW6432-under-wow64",
+				env: map[string]string{
+					"ProgramFiles":      `D:\Program Files (x86)`,
+					"ProgramFiles(x86)": `D:\Program Files (x86)`,
+					"ProgramW6432":      `D:\Program Files`,
+				},
+				want: `D:\Program Files\Microsoft\Edge\Application\msedge.exe`,
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				// Include edgeX86 on C:\ too: env-derived roots must win, keeping
+				// hardcoded C:\Program Files* strictly as last resort.
+				stubWindowsBrowserFS(t, "windows", []string{edgeX86, edgeX64, tc.want}, nil)
+				for k, v := range tc.env {
+					t.Setenv(k, v)
+				}
+				runner := &fakeCommandRunner{}
+				browser := NewBrowser(BrowserOptions{
+					Enabled: true,
+					Runner:  runner,
+					Ensure:  func(context.Context) (string, error) { return ensuredBin, nil },
+				})
+				if _, err := browser.Run(context.Background(), "open", "https://example.com"); err != nil {
+					t.Fatalf("Run error = %v", err)
+				}
+				if got := envValue(runner.env, "AGENT_BROWSER_EXECUTABLE_PATH"); got != tc.want {
+					t.Fatalf("AGENT_BROWSER_EXECUTABLE_PATH = %q, want %q", got, tc.want)
+				}
+			})
+		}
+	})
+
+	t.Run("detects-chrome-under-programfiles-env-vars-and-skips-edge", func(t *testing.T) {
+		customEdge := `D:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`
+		for _, tc := range []struct {
+			name       string
+			envKey     string
+			envDir     string
+			chromePath string
+		}{
+			{
+				name:       "ProgramFiles",
+				envKey:     "ProgramFiles",
+				envDir:     `D:\Program Files`,
+				chromePath: `D:\Program Files\Google\Chrome\Application\chrome.exe`,
+			},
+			{
+				name:       "ProgramFiles(x86)",
+				envKey:     "ProgramFiles(x86)",
+				envDir:     `E:\Program Files (x86)`,
+				chromePath: `E:\Program Files (x86)\Google\Chrome\Application\chrome.exe`,
+			},
+			{
+				name:       "ProgramW6432",
+				envKey:     "ProgramW6432",
+				envDir:     `F:\ProgramW6432`,
+				chromePath: `F:\ProgramW6432\Google\Chrome\Application\chrome.exe`,
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				stubWindowsBrowserFS(t, "windows", []string{customEdge, edgeX86, tc.chromePath}, nil)
+				t.Setenv("ProgramFiles(x86)", `D:\Program Files (x86)`)
+				t.Setenv(tc.envKey, tc.envDir)
+				runner := &fakeCommandRunner{}
+				browser := NewBrowser(BrowserOptions{
+					Enabled: true,
+					Runner:  runner,
+					Ensure:  func(context.Context) (string, error) { return ensuredBin, nil },
+				})
+				if _, err := browser.Run(context.Background(), "open", "https://example.com"); err != nil {
+					t.Fatalf("Run error = %v", err)
+				}
+				if got := envValue(runner.env, "AGENT_BROWSER_EXECUTABLE_PATH"); got != "" {
+					t.Fatalf("%s: AGENT_BROWSER_EXECUTABLE_PATH = %q, want empty when Chrome exists at %s", tc.name, got, tc.chromePath)
+				}
+			})
+		}
+	})
+
+	t.Run("uses-fixed-c-program-files-only-as-last-resort", func(t *testing.T) {
+		stubWindowsBrowserFS(t, "windows", []string{edgeX86}, nil)
+		t.Setenv("ProgramFiles", `D:\Program Files`)
+		t.Setenv("ProgramFiles(x86)", `D:\Program Files (x86)`)
+		t.Setenv("ProgramW6432", `D:\Program Files`)
+
+		runner := &fakeCommandRunner{}
+		browser := NewBrowser(BrowserOptions{
+			Enabled: true,
+			Runner:  runner,
+			Ensure:  func(context.Context) (string, error) { return ensuredBin, nil },
+		})
+		if _, err := browser.Run(context.Background(), "open", "https://example.com"); err != nil {
+			t.Fatalf("Run error = %v", err)
+		}
+		if got := envValue(runner.env, "AGENT_BROWSER_EXECUTABLE_PATH"); got != edgeX86 {
+			t.Fatalf("AGENT_BROWSER_EXECUTABLE_PATH = %q, want last-resort %q", got, edgeX86)
 		}
 	})
 

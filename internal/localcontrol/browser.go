@@ -297,7 +297,7 @@ func prepareWindowsEdgeBrowserEnv(resolvedEnv []string) []string {
 	if windowsHasAgentBrowserChrome(resolvedEnv) {
 		return resolvedEnv
 	}
-	edgePath := windowsFindEdgeExecutable()
+	edgePath := windowsFindEdgeExecutable(resolvedEnv)
 	if edgePath == "" {
 		return resolvedEnv
 	}
@@ -315,15 +315,19 @@ func windowsHasAgentBrowserChrome(resolvedEnv []string) bool {
 			}
 		}
 	}
-	candidates := []string{
-		`C:\Program Files\Google\Chrome\Application\chrome.exe`,
-		`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`,
+	envDirs, fallbackDirs := windowsProgramFilesRoots(resolvedEnv, false)
+	var candidates []string
+	for _, dir := range envDirs {
+		candidates = append(candidates, joinWindowsPath(dir, "Google", "Chrome", "Application", "chrome.exe"))
 	}
 	if localAppData := strings.TrimSpace(effectiveEnvValue(resolvedEnv, "LOCALAPPDATA")); localAppData != "" {
 		candidates = append(candidates,
 			joinWindowsPath(localAppData, "Google", "Chrome", "Application", "chrome.exe"),
 			joinWindowsPath(localAppData, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
 		)
+	}
+	for _, dir := range fallbackDirs {
+		candidates = append(candidates, joinWindowsPath(dir, "Google", "Chrome", "Application", "chrome.exe"))
 	}
 	for _, p := range candidates {
 		if browserFileExists(p) {
@@ -333,16 +337,44 @@ func windowsHasAgentBrowserChrome(resolvedEnv []string) bool {
 	return false
 }
 
-func windowsFindEdgeExecutable() string {
-	for _, p := range []string{
-		`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
-		`C:\Program Files\Microsoft\Edge\Application\msedge.exe`,
-	} {
+func windowsFindEdgeExecutable(resolvedEnv []string) string {
+	envDirs, fallbackDirs := windowsProgramFilesRoots(resolvedEnv, true)
+	for _, dir := range append(envDirs, fallbackDirs...) {
+		p := joinWindowsPath(dir, "Microsoft", "Edge", "Application", "msedge.exe")
 		if browserFileExists(p) {
 			return p
 		}
 	}
 	return ""
+}
+
+func windowsProgramFilesRoots(resolvedEnv []string, preferX86 bool) (envDirs []string, fallbackDirs []string) {
+	keys := []string{"ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"}
+	fixed := []string{`C:\Program Files`, `C:\Program Files (x86)`}
+	if preferX86 {
+		keys = []string{"ProgramFiles(x86)", "ProgramFiles", "ProgramW6432"}
+		fixed = []string{`C:\Program Files (x86)`, `C:\Program Files`}
+	}
+	seen := make(map[string]bool, len(keys)+len(fixed))
+	addUnique := func(dst []string, raw string) []string {
+		cleaned := strings.TrimRight(strings.TrimSpace(raw), `\/`)
+		if cleaned == "" {
+			return dst
+		}
+		norm := strings.ToUpper(strings.ReplaceAll(cleaned, "/", `\`))
+		if seen[norm] {
+			return dst
+		}
+		seen[norm] = true
+		return append(dst, cleaned)
+	}
+	for _, key := range keys {
+		envDirs = addUnique(envDirs, effectiveEnvValue(resolvedEnv, key))
+	}
+	for _, dir := range fixed {
+		fallbackDirs = addUnique(fallbackDirs, dir)
+	}
+	return envDirs, fallbackDirs
 }
 
 func joinWindowsPath(base string, elem ...string) string {
@@ -368,7 +400,15 @@ func effectiveEnvValue(overlay []string, key string) string {
 			return v
 		}
 	}
-	return os.Getenv(key)
+	if v, ok := os.LookupEnv(key); ok || browserGOOS != "windows" {
+		return v
+	}
+	for _, item := range os.Environ() {
+		if k, v, ok := strings.Cut(item, "="); ok && normalizeEnvKey(k) == want {
+			return v
+		}
+	}
+	return ""
 }
 
 func isSubpathOf(baseDir, candidate string) bool {
