@@ -113,6 +113,11 @@ const autoCompactPromptMaxRunes = 12
 // the minimum overlay width (52 cells of content) so it is never cut.
 const autoCompactPromptInvalidText = "Valor inválido: número a partir de 20k, off ou auto."
 
+const (
+	autoCompactLowLimitLine1 = "Abaixo de 50k, o QG vai compactar quase todo"
+	autoCompactLowLimitLine2 = "turno e gastar mais chamadas."
+)
+
 // autoCompactPromptState is the panel opened by a bare /autocompact: a short
 // explanation, the current setting and one input line. The input holds what
 // Enter will apply ("400k", "off", "auto"); the arrow keys rewrite it in
@@ -269,6 +274,12 @@ func (m model) autoCompactPromptOverlay(width int) string {
 	lines = append(lines, "", input)
 	if p.err != "" {
 		lines = append(lines, qgTheme.red.Render(p.err), "")
+	} else if limit := p.current(); limit >= config.MinAutoCompactLimit && limit < autoCompactStep {
+		lines = append(lines,
+			qgTheme.amber.Render(autoCompactLowLimitLine1),
+			qgTheme.amber.Render(autoCompactLowLimitLine2),
+			"",
+		)
 	} else {
 		lines = append(lines, "")
 	}
