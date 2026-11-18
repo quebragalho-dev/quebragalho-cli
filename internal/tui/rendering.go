@@ -234,7 +234,7 @@ func (m model) renderRowModeUncached(row transcriptRow, width int, rc rowContext
 	case rowUser:
 		return renderUserRow(row, width)
 	case rowAssistant:
-		return renderAssistantRow(row, width)
+		return linkifyTranscriptLines(renderAssistantRow(row, width), opts.cwd)
 	case rowReasoning:
 		return renderReasoningRow(row, width)
 	case rowSystem:
@@ -338,6 +338,15 @@ func fileURL(cwd string, path string) string {
 	}
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(cwd, path)
+	}
+	// Forward slashes on every platform: a raw backslash either truncates the
+	// sequence in some terminals or gets percent-encoded into an unusable
+	// authority-looking target (file://C:%5C...). filepath.ToSlash is a no-op
+	// on Unix, so replace explicitly. A Windows drive path gains its leading
+	// slash so the URL is canonical (file:///C:/...).
+	path = strings.ReplaceAll(path, `\`, "/")
+	if len(path) >= 2 && path[1] == ':' && (path[0] >= 'A' && path[0] <= 'Z' || path[0] >= 'a' && path[0] <= 'z') {
+		path = "/" + path
 	}
 	link := url.URL{Scheme: "file", Path: path}
 	return link.String()
@@ -2116,7 +2125,7 @@ func genericCardBody(detail string, opts cardRenderOptions) cardBody {
 	raw := strings.Split(detail, "\n")
 	lines := make([]string, 0, len(raw))
 	for _, line := range raw {
-		lines = append(lines, qgTheme.muted.Render(line))
+		lines = append(lines, linkifyStyledLine(qgTheme.muted.Render(line), opts.cwd))
 	}
 	return cardBody{lines: capCardLines(lines, opts.bodyCap)}
 }
@@ -2916,7 +2925,8 @@ func renderCommandOutputLines(output []commandOutputLine, width int, opts cardRe
 		prefix := "  └ "
 		budget := maxInt(8, width-lipgloss.Width(prefix))
 		text := truncateDisplayWidth(output[0].text, budget)
-		return capCardLines([]string{qgTheme.faint.Render(prefix) + output[0].style.Render(text)}, opts.bodyCap)
+		line := qgTheme.faint.Render(prefix) + output[0].style.Render(text)
+		return capCardLines([]string{linkifyStyledLine(line, opts.cwd)}, opts.bodyCap)
 	}
 
 	lines := make([]string, 0, len(output))
@@ -2924,7 +2934,8 @@ func renderCommandOutputLines(output []commandOutputLine, width int, opts cardRe
 	budget := maxInt(8, width-lipgloss.Width(prefix))
 	for _, item := range output {
 		text := truncateDisplayWidth(item.text, budget)
-		lines = append(lines, qgTheme.faint.Render(prefix)+item.style.Render(text))
+		line := qgTheme.faint.Render(prefix) + item.style.Render(text)
+		lines = append(lines, linkifyStyledLine(line, opts.cwd))
 	}
 	return capCardLines(lines, opts.bodyCap)
 }
