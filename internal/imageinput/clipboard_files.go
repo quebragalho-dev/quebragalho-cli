@@ -176,42 +176,33 @@ var (
 	linuxClipboardFileList   = readClipboardFilesLinux
 )
 
-// readClipboardFilesDarwin extracts copied-file paths via osascript: a Finder
-// copy advertises «class furl» in `clipboard info`. osascript ships with macOS,
-// so there is no missing-tool case here. Returns (nil, nil) when the clipboard
-// holds no files.
+// darwinClipboardFileScript lê os NSURL do pasteboard via JXA e imprime um
+// caminho de arquivo por linha. JXA porque o Finder grava «class furl» E
+// texto (só o nome do arquivo): o AppleScript antigo lia `the clipboard` como
+// texto e `as alias` estourava -1700, silenciando o Ctrl+V. Sem checagem
+// prévia de `clipboard info`: sem arquivo copiado o script devolve vazio.
+const darwinClipboardFileScript = `ObjC.import('AppKit');
+var pb = $.NSPasteboard.generalPasteboard;
+var items = pb.readObjectsForClassesOptions($([$.NSURL]), $({}));
+var out = [];
+if (items) { for (var i = 0; i < items.count; i++) { var u = items.objectAtIndex(i); if (u.isFileURL) out.push(u.path.js); } }
+out.join("\n");`
+
+// darwinClipboardFileRunner executa o JXA acima. Var para teste hermético:
+// stubs devolvem a saída do osascript sem rodar nada no Mac.
+var darwinClipboardFileRunner = func(script string) ([]byte, error) {
+	return exec.Command("osascript", "-l", "JavaScript", "-e", script).Output()
+}
+
+// readClipboardFilesDarwin extracts copied-file paths via the JXA script
+// above. osascript ships with macOS, so there is no missing-tool case here.
+// Returns (nil, nil) when the clipboard holds no files or the runner fails.
 func readClipboardFilesDarwin() ([]string, error) {
-	info, err := darwinClipboardInfo()
+	out, err := darwinClipboardFileRunner(darwinClipboardFileScript)
 	if err != nil {
 		return nil, nil
 	}
-	if !strings.Contains(info, "furl") {
-		return nil, nil
-	}
-	// Handles one file and many: `the clipboard` is a single alias for one
-	// file, a list of aliases for several. `log` writes to stderr, so the
-	// script returns the paths on stdout instead.
-	script := `set c to the clipboard
-if (class of c is list) then
-  set out to ""
-  repeat with f in c
-    set out to out & (POSIX path of (f as alias)) & linefeed
-  end repeat
-else
-  set out to (POSIX path of (c as alias)) & linefeed
-end if
-return out`
-	out, err := exec.Command("osascript", "-e", script).Output()
-	if err != nil {
-		return nil, nil
-	}
-	var paths []string
-	for _, line := range strings.Split(string(out), "\n") {
-		if p := strings.TrimSpace(line); p != "" {
-			paths = append(paths, p)
-		}
-	}
-	return paths, nil
+	return splitClipboardLines(string(out)), nil
 }
 
 // readClipboardFilesWindows lists copied files via PowerShell: Get-Clipboard
