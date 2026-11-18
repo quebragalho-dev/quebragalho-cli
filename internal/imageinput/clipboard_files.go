@@ -21,21 +21,6 @@ import (
 var ErrClipboardToolMissing = errors.New(
 	"não foi possível ler a área de transferência: instale wl-clipboard (Wayland) ou xclip (X11)")
 
-// VideoExtensions é o ponto de extensão para anexos de vídeo: o engenheiro de
-// vídeo implementa o pipeline; o paste do clipboard apenas classifica aqui para
-// recusar com aviso em vez de cair no pipeline de imagem. As chaves incluem o
-// ponto e a comparação é case-insensitive via IsVideoPath.
-var VideoExtensions = map[string]bool{
-	".mp4": true, ".mov": true, ".webm": true, ".mkv": true,
-	".m4v": true, ".avi": true,
-}
-
-// IsVideoPath reports whether path names a video file (by extension only —
-// classification for the paste refusal notice, not a content sniff).
-func IsVideoPath(path string) bool {
-	return VideoExtensions[strings.ToLower(filepath.Ext(strings.TrimSpace(path)))]
-}
-
 // ClipboardFileURLToPath converts a file:// URI from the clipboard
 // (text/uri-list on Linux) to a local path, decoding %XX escapes. It reports
 // false for anything that is not a file URI (http(s), plain text, empty), so

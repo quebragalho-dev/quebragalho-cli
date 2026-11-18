@@ -35,22 +35,6 @@ func TestClipboardFileURLToPath(t *testing.T) {
 	}
 }
 
-// Ponto de extensão para vídeo: o engenheiro de vídeo implementa o anexo;
-// aqui apenas garantimos que a classificação existe e não confunde vídeo com
-// imagem (que seguiria para o pipeline de visão e falharia de outro jeito).
-func TestIsVideoPathExtensionPoint(t *testing.T) {
-	for _, p := range []string{"clip.mp4", "CLIP.MOV", "a.webm", "a.mkv", "a.m4v", "a.avi"} {
-		if !IsVideoPath(p) {
-			t.Fatalf("IsVideoPath(%q) = false, want true (extensão de vídeo)", p)
-		}
-	}
-	for _, p := range []string{"foto.png", "doc.pdf", "nota.txt", "foto.jpeg"} {
-		if IsVideoPath(p) {
-			t.Fatalf("IsVideoPath(%q) = true, want false", p)
-		}
-	}
-}
-
 // O temporário do clipboard vive em pasta privada do qg (0700), não no /tmp
 // compartilhado: são bytes do usuário (prints podem conter dados sensíveis).
 func TestWriteClipboardTempPrivateDir(t *testing.T) {
