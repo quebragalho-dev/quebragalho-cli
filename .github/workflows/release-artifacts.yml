@@ -29,13 +29,13 @@ jobs:
       # An empty ref falls back to the triggering ref, so one checkout covers
       # both the tag push and the manual dispatch (with or without a ref).
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Setup Go
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
           cache: true
@@ -130,7 +130,7 @@ jobs:
           done
 
       - name: Upload package
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: qg-release-assets
           path: dist/release/*
@@ -186,7 +186,7 @@ jobs:
       id-token: write # OIDC token exchange for npm trusted publishing + provenance
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           persist-credentials: false
 
@@ -194,7 +194,7 @@ jobs:
       # .npmrc line referencing $NODE_AUTH_TOKEN, and npm hard-fails on the
       # unset env var. Trusted publishing needs no token at all.
       - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
 
@@ -248,7 +248,7 @@ jobs:
           echo "all release assets for v${version} are publicly downloadable."
 
       - name: Download release artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: qg-*
           path: dist/artifacts
