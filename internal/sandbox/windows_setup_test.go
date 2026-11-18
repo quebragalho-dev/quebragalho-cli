@@ -63,7 +63,7 @@ func TestRunWindowsSandboxSetupRejectsInvalidArgs(t *testing.T) {
 	}
 }
 
-func TestRunWindowsSandboxSetupAcceptsDenyReadProfiles(t *testing.T) {
+func TestRunWindowsSandboxSetupRejectsDenyReadUpfront(t *testing.T) {
 	home := t.TempDir()
 	args, err := BuildWindowsSandboxSetupArgs(WindowsSandboxSetupArgsOptions{
 		SandboxHome:    home,
@@ -83,11 +83,14 @@ func TestRunWindowsSandboxSetupAcceptsDenyReadProfiles(t *testing.T) {
 	}
 	var stderr bytes.Buffer
 	code := RunWindowsSandboxSetup(args, &stderr)
-	if code == 2 {
-		t.Fatalf("exit code = 2, want argument parsing to accept a DenyRead profile: %s", stderr.String())
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1 for unsupported DenyRead", code)
 	}
-	if strings.Contains(stderr.String(), "DenyRead is not supported") {
-		t.Fatalf("stderr = %q, DenyRead profiles are supported since Everyone returned to the restricted list", stderr.String())
+	if !strings.Contains(stderr.String(), "DenyRead is not supported") {
+		t.Fatalf("stderr = %q, want DenyRead unsupported rejection before elevation check", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "Administrator rights are required") {
+		t.Fatalf("stderr = %q, should not claim Administrator rights when DenyRead is unsupported", stderr.String())
 	}
 }
 

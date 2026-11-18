@@ -8,13 +8,15 @@ import (
 )
 
 func runWindowsSandboxCommand(config WindowsSandboxCommandConfig, stderr io.Writer) int {
-	// DenyRead profiles run under the fully restricted token (no WRITE_RESTRICTED,
-	// so the restricted-SID check — including capability-SID deny ACEs — applies
-	// to reads as well as writes, per #612). Launch works because Everyone is in
-	// the restricted list and the plan grants capability-SID read access on the
-	// workspace; sensitive paths stay denied via capability-SID deny ACEs. The
-	// Everyone-writable bypass outside plan coverage (#865) survives for these
-	// profiles, deliberately and narrowly — the same posture as every profile.
+	// Fully restricted DenyRead tokens cannot load ordinary Users-granted
+	// system binaries without SID broadening; broadening is permanently off
+	// because it admits write grants outside WriteRoots. Reject on both the
+	// elevated and unelevated restricted-token tiers before setup or launch
+	// until access-time confinement exists (PR #640).
+	if err := windowsDenyReadRestrictedTokenUnsupported(config); err != nil {
+		fmt.Fprintln(stderr, WindowsSandboxCommandRunnerName+": "+err.Error())
+		return 1
+	}
 	switch config.SandboxLevel {
 	case WindowsSandboxLevelRestrictedToken:
 		if err := ensureWindowsSandboxSetup(config); err != nil {

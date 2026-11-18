@@ -322,6 +322,12 @@ func ParseWindowsSandboxCommandArgs(args []string) (WindowsSandboxCommandConfig,
 }
 
 func windowsRestrictedTokenCommandPlan(execRequest SandboxExecutionRequest, policy Policy) (CommandPlan, error) {
+	// Reject DenyRead before provisioning either restricted-token runner level.
+	// Both elevated and unelevated build the same fully restricted narrow-SID
+	// token for DenyRead profiles, which cannot load ordinary system binaries.
+	if err := windowsDenyReadRestrictedTokenUnsupportedProfile(execRequest.PermissionProfile); err != nil {
+		return CommandPlan{}, err
+	}
 	spec := execRequest.Command
 	var sandboxHomeEnv map[string]string
 	if spec.Env != nil {

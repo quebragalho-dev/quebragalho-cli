@@ -1,39 +1,63 @@
 package sandbox
 
 import (
-	"path/filepath"
+	"strings"
 	"testing"
 )
 
-// DenyRead profiles are SUPPORTED on both restricted-token runner levels: they
-// run under the fully restricted token (no WRITE_RESTRICTED, so denies apply
-// to reads per #612), which launches because Everyone is back in the
-// restricted list and the plan grants capability-SID read access on the
-// workspace. The plan builder must therefore emit both the deny and the
-// workspace read grant for such a profile.
-func TestWindowsDenyReadProfileBuildsEnforcingPlan(t *testing.T) {
-	home := t.TempDir()
-	workspace := t.TempDir()
-	secret := filepath.Join(workspace, "secret.txt")
-	plan, err := BuildWindowsACLPlan(WindowsSandboxCommandConfig{
-		SandboxHome:    home,
-		WorkspaceRoots: []string{workspace},
-		PermissionProfile: PermissionProfile{
-			FileSystem: FileSystemPolicy{
-				Kind:       FileSystemRestricted,
-				WriteRoots: []WritableRoot{{Root: workspace}},
-				DenyRead:   []string{secret},
+func TestWindowsDenyReadRestrictedTokenUnsupported(t *testing.T) {
+	// Both restricted-token runner levels reject DenyRead before launch/setup.
+	for _, level := range []WindowsSandboxLevel{
+		WindowsSandboxLevelRestrictedToken,
+		WindowsSandboxLevelUnelevated,
+	} {
+		err := windowsDenyReadRestrictedTokenUnsupported(WindowsSandboxCommandConfig{
+			SandboxLevel: level,
+			PermissionProfile: PermissionProfile{
+				FileSystem: FileSystemPolicy{
+					Kind:     FileSystemRestricted,
+					DenyRead: []string{`C:\secret`, `D:\private`},
+				},
 			},
-			Network: NetworkPolicy{Mode: NetworkDeny},
-		},
-	})
-	if err != nil {
-		t.Fatalf("BuildWindowsACLPlan: %v", err)
+		})
+		if err == nil {
+			t.Fatalf("expected unsupported error for %s DenyRead profile", level)
+		}
+		msg := err.Error()
+		for _, want := range []string{"DenyRead", "not supported", "restricted-token", "unelevated", "path count: 2"} {
+			if !strings.Contains(msg, want) {
+				t.Fatalf("%s error %q missing %q", level, msg, want)
+			}
+		}
+		// DenyRead often names credential or private-file paths; keep them out of stderr.
+		for _, secret := range []string{`C:\secret`, `D:\private`} {
+			if strings.Contains(msg, secret) {
+				t.Fatalf("%s error leaked DenyRead path %q: %q", level, secret, msg)
+			}
+		}
+		if strings.Contains(msg, "--sandbox forbid") {
+			t.Fatalf("%s error advertises unsupported --sandbox forbid recovery: %q", level, msg)
+		}
+		if strings.Contains(msg, "sandbox_permissions") || strings.Contains(msg, "require_escalated") {
+			t.Fatalf("%s error advertises unusable escalation recovery: %q", level, msg)
+		}
+		if !strings.Contains(msg, "Remove DenyRead") {
+			t.Fatalf("%s error should advise removing DenyRead: %q", level, msg)
+		}
 	}
-	sid, err := WindowsWorkspaceCapabilitySID(home, workspace)
-	if err != nil {
-		t.Fatalf("WindowsWorkspaceCapabilitySID: %v", err)
+
+	// No DenyRead: allowed (WRITE_RESTRICTED path can launch system tools).
+	for _, level := range []WindowsSandboxLevel{
+		WindowsSandboxLevelRestrictedToken,
+		WindowsSandboxLevelUnelevated,
+	} {
+		if err := windowsDenyReadRestrictedTokenUnsupported(WindowsSandboxCommandConfig{
+			SandboxLevel: level,
+			PermissionProfile: PermissionProfile{
+				FileSystem: FileSystemPolicy{Kind: FileSystemRestricted},
+			},
+		}); err != nil {
+			t.Fatalf("unexpected error without DenyRead at %s: %v", level, err)
+		}
 	}
-	assertWindowsACLEntry(t, plan, WindowsACLDenyRead, secret, sid, true)
-	assertWindowsACLEntry(t, plan, WindowsACLAllowRead, workspace, sid, false)
 }

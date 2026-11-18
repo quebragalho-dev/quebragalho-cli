@@ -97,9 +97,11 @@ func createWindowsRestrictedTokenFromBase(base windows.Token, capabilitySIDs []w
 	// The World SID (S-1-1-0, Everyone) is present in BOTH token modes. Real
 	// programs need it: managed PowerShell/.NET fail to initialize without it
 	// (CLR and crypto-provider startup perform writes that stock DACLs grant to
-	// Everyone), and the fully restricted token cannot open cmd.exe without it
-	// (default Windows DACLs grant BUILTIN\Users rather than anything else in
-	// this list, so the process would die at launch with STATUS_ACCESS_DENIED).
+	// Everyone). It is necessary but NOT sufficient for the fully restricted
+	// token: ordinary system binaries grant BUILTIN\Users rather than anything
+	// in this list, so a DenyRead-profile launch still dies at start (verified
+	// on real Windows: cmd.exe never runs) — which is why DenyRead stays
+	// rejected outright (PR #640) instead of shipping a mode that runs nothing.
 	//
 	// This is a deliberate tradeoff, not an oversight. A restricted SID is a key
 	// to every object whose DACL names it, so on an Everyone-writable path the

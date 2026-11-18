@@ -211,25 +211,20 @@ func TestWindowsUnelevatedRealSandboxSmoke(t *testing.T) {
 		t.Fatalf("expected the unelevated setup marker to be recorded: %v", err)
 	}
 
-	// DenyRead is SUPPORTED on both restricted-token tiers: the profile runs
-	// under the fully restricted token (no WRITE_RESTRICTED, so denies apply to
-	// reads per #612), which launches because Everyone is back in the restricted
-	// list and the plan grants capability-SID read access on the workspace.
-	// The read itself must be denied: the command proves it ran by recording a
-	// marker (locale-independent — cmd's own "Access is denied" text varies),
-	// and a leaked secret in the marker fails the test just as loudly.
+	// DenyRead is unsupported on both restricted-token tiers under the narrow
+	// SID set (PR #640): the runner must reject before launch rather than
+	// attempting a fully restricted token that cannot load system tools. The
+	// narrow token cannot satisfy the restricted-SID read check on ordinary
+	// Users-granted system binaries (cmd.exe included), and broadening the set
+	// would reopen write grants outside WriteRoots.
 	denyReadConfig := config
 	denyReadConfig.PermissionProfile.FileSystem.DenyRead = []string{privateDir}
-	deniedMarker := filepath.Join(root, "read-denied.txt")
-	runWindowsRealSmokeCommand(t, runnerExe, denyReadConfig, []string{
-		"cmd.exe", "/d", "/s", "/c", "(type \"" + secretFile + "\" 2>nul || echo READ-DENIED)>\"" + deniedMarker + "\"",
-	}, 0)
-	if contents, err := os.ReadFile(deniedMarker); err != nil || strings.TrimSpace(string(contents)) != "READ-DENIED" {
-		t.Fatalf("sandboxed read of a DenyRead path = %q, %v; want READ-DENIED", contents, err)
-	}
-	// The secret must remain intact on the host; the sandbox only failed to read it.
+	runWindowsRealSmokeCommandExpectError(t, runnerExe, denyReadConfig, []string{
+		"cmd.exe", "/d", "/s", "/c", "type " + secretFile,
+	}, "DenyRead", "not supported")
+	// The secret must remain readable from the host; the sandbox never ran.
 	if data, err := os.ReadFile(secretFile); err != nil || string(data) != "super-secret" {
-		t.Fatalf("host secret file after denied DenyRead read: %q, %v", data, err)
+		t.Fatalf("host secret file after rejected DenyRead launch: %q, %v", data, err)
 	}
 
 	outsideMarker := filepath.Join(outside, "unelevated-write-denied.txt")
