@@ -112,14 +112,14 @@ func TestReproExecUTF16SecretIsRedactedThroughRegistry(t *testing.T) {
 }
 
 func TestReproBashStartupHintForMeasuredFailures(t *testing.T) {
-	pwshMarkers := encodeUTF16LE("System.DllNotFoundException: Unable to load DLL 'BCrypt.dll' (0x8007045A)")
 	cases := []struct {
 		name     string
 		output   string
 		exitCode int
 	}{
+		// CLR marker text still hints through the generic branch; the bare
+		// pwsh BCrypt crash no longer does (pwsh starts normally now).
 		{"powershell CLR", measuredCLRUTF16(), 4294901760},
-		{"pwsh bcrypt", pwshMarkers, 3762504530},
 		{"native dll init", "", 3221225794},
 	}
 	for _, tc := range cases {
@@ -131,17 +131,23 @@ func TestReproBashStartupHintForMeasuredFailures(t *testing.T) {
 			}
 		})
 	}
+	t.Run("pwsh bcrypt no longer hints", func(t *testing.T) {
+		pwshMarkers := encodeUTF16LE("System.DllNotFoundException: Unable to load DLL 'BCrypt.dll' (0x8007045A)")
+		meta := map[string]string{}
+		out := formatBashOutputWithShellHintForRuntime("stdout-stub", pwshMarkers, 3762504530, true, detectShellRuntime("windows"), meta)
+		if strings.Contains(out, "[qg] shell issue:") {
+			t.Fatalf("stale pwsh bcrypt hint: %q meta=%#v", out, meta)
+		}
+	})
 }
 
 func TestReproExecStartupHintForMeasuredFailures(t *testing.T) {
-	pwshMarkers := encodeUTF16LE("System.DllNotFoundException: Unable to load DLL 'BCrypt.dll' (0x8007045A)")
 	cases := []struct {
 		name     string
 		output   string
 		exitCode int
 	}{
 		{"powershell CLR", measuredCLRUTF16(), 4294901760},
-		{"pwsh bcrypt", pwshMarkers, 3762504530},
 		{"native dll init", "", 3221225794},
 	}
 	for _, tc := range cases {

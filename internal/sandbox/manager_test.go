@@ -53,8 +53,10 @@ func TestPermissionProfileFromPolicyBuildsWorkspaceWriteProfile(t *testing.T) {
 			t.Fatalf("write roots = %#v, want scope roots %#v", profile.FileSystem.WriteRoots, roots)
 		}
 	}
-	if !stringSliceContains(profile.FileSystem.ReadRoots, profileRootPath()) {
-		t.Fatalf("read roots = %#v, want full read root %q", profile.FileSystem.ReadRoots, profileRootPath())
+	for _, want := range policyFilesystemReadRoots() {
+		if !stringSliceContains(profile.FileSystem.ReadRoots, want) {
+			t.Fatalf("read roots = %#v, want policy filesystem root %q", profile.FileSystem.ReadRoots, want)
+		}
 	}
 	if !stringSliceContains(profile.FileSystem.WriteRoots[0].ProtectedMetadataNames, ".qg") || !stringSliceContains(profile.FileSystem.WriteRoots[0].ProtectedMetadataNames, ".agents") {
 		t.Fatalf("protected metadata names = %#v, want workspace metadata protected", profile.FileSystem.WriteRoots[0].ProtectedMetadataNames)

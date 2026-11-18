@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -374,6 +375,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	// but the native backend is unavailable: commands run without native
 	// isolation and the operator must hear it once, not discover it in `qg doctor`.
 	emitSandboxUnavailableWarning(stderr, resolved.Sandbox.Enabled == nil || *resolved.Sandbox.Enabled, sandboxEngine.Backend())
+	emitSandboxSetupPendingWarning(stderr, resolved.Sandbox.Enabled == nil || *resolved.Sandbox.Enabled, sandboxEngine.Backend(), runtime.GOOS)
 	if notice, err := sandboxEngine.ConsumeGrantMigrationNotice(); err != nil {
 		return writeExecProviderError(stdout, stderr, options.outputFormat, "sandbox_error", "migrate sandbox grants: "+err.Error())
 	} else if notice != "" {

@@ -1096,9 +1096,10 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 			return strings.Join(notes, "\n")
 		}(),
 		// One-time system warning, shown once at startup when the sandbox is
-		// enabled but the native backend is unavailable. The TUI owns the
-		// screen, so a stderr line would scroll away unseen.
-		SandboxWarning: sandboxUnavailableSessionWarning(
+		// enabled but the native backend is unavailable — or, on Windows, when
+		// the backend is installed but `qg sandbox setup` never ran. The TUI
+		// owns the screen, so a stderr line would scroll away unseen.
+		SandboxWarning: firstSandboxSessionWarning(
 			resolved.Sandbox.Enabled == nil || *resolved.Sandbox.Enabled,
 			sandboxBackend,
 		),

@@ -202,6 +202,37 @@ func TestSandboxCheckReportsWindowsNativeSetupStates(t *testing.T) {
 		t.Fatalf("setup warning details = %#v, want missing/out-of-date with setup remedy", needsSetup.Details)
 	}
 
+	// A marker provisioned for ANOTHER workspace is not a warning: the runner
+	// applies the new workspace's plan on demand and records it, so the next
+	// command validates. Only a genuinely missing, corrupt, or
+	// infrastructure-mismatched setup warns.
+	home := t.TempDir()
+	t.Setenv("QG_WINDOWS_SANDBOX_HOME", home)
+	workspaceA := t.TempDir()
+	workspaceB := t.TempDir()
+	profileA := sandbox.PermissionProfileFromPolicy(workspaceA, sandbox.DefaultPolicy(), nil)
+	if _, err := sandbox.WriteWindowsSandboxSetupMarker(sandbox.WindowsSandboxSetupConfig{
+		SandboxHome:       home,
+		CommandCWD:        workspaceA,
+		WorkspaceRoots:    []string{workspaceA},
+		PermissionProfile: profileA,
+	}); err != nil {
+		t.Fatalf("WriteWindowsSandboxSetupMarker A: %v", err)
+	}
+	healed := Run(Options{
+		Now:           fixedDoctorClock("2026-06-12T10:08:45Z"),
+		Runtime:       "go",
+		GOOS:          "windows",
+		WorkspaceRoot: workspaceB,
+		LookupExecutable: stubLookup(
+			sandbox.WindowsSandboxCommandRunnerName,
+			sandbox.WindowsSandboxSetupName,
+		),
+	}).Check("sandbox.backend")
+	if healed != nil && healed.Status != StatusPass {
+		t.Fatalf("expected no warning for a healable plan-mismatch, got %#v", healed)
+	}
+
 	// With self-dispatch, the standalone helper .exe files no longer need to be
 	// on PATH for the Windows backend to be usable — the running qg binary acts
 	// as its own command-runner/setup helper. So a missing PATH helper no longer

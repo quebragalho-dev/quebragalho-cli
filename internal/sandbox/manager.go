@@ -113,6 +113,14 @@ const windowsUnelevatedDowngradeReason = "Windows sandbox running unelevated —
 // marker exists. A missing marker is the common fresh-install state, so the
 // caller degrades rather than bricking the command. Indirected through a var so
 // tests can drive both the initialized and not-initialized paths.
+// WindowsSandboxInitialized reports whether the per-host Windows sandbox setup
+// marker exists. A missing marker means neither `qg sandbox setup` nor the
+// runner's on-demand apply has provisioned this host yet; commands still run
+// (unelevated tier), but without OS-level network enforcement.
+func WindowsSandboxInitialized() bool {
+	return windowsSandboxInitialized()
+}
+
 var windowsSandboxInitialized = func() bool {
 	home, err := ResolveWindowsSandboxHome(nil)
 	if err != nil || home == "" {

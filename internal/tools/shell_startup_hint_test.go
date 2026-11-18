@@ -16,20 +16,15 @@ func windowsCmdShell() shellRuntime {
 }
 
 func TestStartupHintPositives(t *testing.T) {
-	pwshMarkers := "System.DllNotFoundException: Unable to load DLL 'BCrypt.dll' (0x8007045A)"
-	clrOutput := "Falha na inicialização do CLR com HRESULT 80070005.\r\n"
 	cases := []struct {
 		name     string
 		output   string
 		exitCode int
 		shell    shellRuntime
 	}{
-		{"powershell CLR powershell-shell", clrOutput, 4294901760, windowsPowerShellShell()},
-		{"powershell CLR cmd-shell", clrOutput, 4294901760, windowsCmdShell()},
-		{"pwsh bcrypt powershell-shell", pwshMarkers, 3762504530, windowsPowerShellShell()},
 		{"native dll init cmd-shell", "", 3221225794, windowsCmdShell()},
 		{"native dll init powershell-shell no-generalize", "some tool output", 3221225794, windowsPowerShellShell()},
-		{"hresult alone", "something failed with HRESULT 80070005", 4294901760, windowsCmdShell()},
+		{"generic access denied with clr marker", "Falha na inicialização do CLR com HRESULT 80070005.", 1, windowsCmdShell()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -47,11 +42,44 @@ func TestStartupHintPositives(t *testing.T) {
 			if !strings.Contains(rendered, "Suggestion:") {
 				t.Fatalf("missing Suggestion line: %q", rendered)
 			}
-			if !strings.Contains(issue.Suggestion, "require_escalated") {
-				t.Fatalf("suggestion must mention require_escalated: %q", issue.Suggestion)
+			if !strings.Contains(issue.Suggestion, "qg sandbox setup") {
+				t.Fatalf("startup suggestion must lead with setup: %q", issue.Suggestion)
 			}
-			if strings.Contains(rendered, "qg sandbox setup") || strings.Contains(rendered, "qg doctor") {
-				t.Fatalf("suggestion must not cite setup/doctor: %q", rendered)
+			if !strings.Contains(issue.Suggestion, "require_escalated") {
+				t.Fatalf("suggestion must keep require_escalated as the fallback: %q", issue.Suggestion)
+			}
+			if strings.Contains(rendered, "qg doctor") {
+				t.Fatalf("suggestion must not cite qg doctor: %q", rendered)
+			}
+		})
+	}
+}
+
+// PowerShell starts normally since Everyone returned to the restricted-SID
+// list, so the old code-based startup attributions must go: a bare 0xFFFF0000
+// (powershell 5.1 CLR) or a bare pwsh BCrypt crash (0xE0434352) no longer hint
+// by themselves. CLR marker TEXT still hints through the generic branch — that
+// signature means a real initialization failure, whichever runtime produced
+// it — and suggesting setup there is honest triage, not an escalation push.
+// What disappears is hinting on the exit code or DLL name alone.
+func TestStartupHintPowerShellSignaturesNoLongerHint(t *testing.T) {
+	pwshMarkers := "System.DllNotFoundException: Unable to load DLL 'BCrypt.dll' (0x8007045A)"
+	cases := []struct {
+		name     string
+		output   string
+		exitCode int
+	}{
+		{"bare ffff0000", "", 4294901760},
+		{"pwsh bcrypt powershell-shell", pwshMarkers, 3762504530},
+		{"pwsh bcrypt cmd-shell", pwshMarkers, 3762504530},
+		{"hresult alone", "something failed with HRESULT 80070005", 4294901760},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, shell := range []shellRuntime{windowsPowerShellShell(), windowsCmdShell()} {
+				if issue := detectShellOutputIssueForRuntime(tc.output, shell, tc.exitCode, true); issue != nil {
+					t.Fatalf("expected no hint for fixed %s, got %#v", tc.name, issue)
+				}
 			}
 		})
 	}
@@ -160,48 +188,22 @@ func TestStartupHintAtMostOnePerResult(t *testing.T) {
 	}
 }
 
-func TestStartupHintPowerShellSentenceOnlyForOwnShell(t *testing.T) {
-	clrOutput := "Falha na inicialização do CLR com HRESULT 80070005."
-	pwshMarkers := "System.DllNotFoundException: Unable to load DLL 'BCrypt.dll' (0x8007045A)"
-
-	powerShellCases := []struct {
-		name     string
-		output   string
-		exitCode int
-	}{
-		{"powershell CLR", clrOutput, 4294901760},
-		{"pwsh bcrypt", pwshMarkers, 3762504530},
-	}
-	for _, tc := range powerShellCases {
-		t.Run(tc.name+" powershell-shell has sentence", func(t *testing.T) {
-			issue := detectShellOutputIssueForRuntime(tc.output, windowsPowerShellShell(), tc.exitCode, true)
-			if issue == nil {
-				t.Fatalf("expected hint")
-			}
-			if !strings.Contains(issue.Suggestion, "Other commands through this shell") {
-				t.Fatalf("powershell-shell signature must add shell sentence: %q", issue.Suggestion)
-			}
-		})
-		t.Run(tc.name+" cmd-shell lacks sentence", func(t *testing.T) {
-			issue := detectShellOutputIssueForRuntime(tc.output, windowsCmdShell(), tc.exitCode, true)
-			if issue == nil {
-				t.Fatalf("expected hint")
-			}
-			if strings.Contains(issue.Suggestion, "Other commands through this shell") {
-				t.Fatalf("cmd-shell must not add shell sentence: %q", issue.Suggestion)
-			}
-		})
-	}
-
-	t.Run("c0000142 never generalizes even on powershell-shell", func(t *testing.T) {
-		issue := detectShellOutputIssueForRuntime("", windowsPowerShellShell(), 3221225794, true)
+// The shell-wide sentence is gone: PowerShell starts normally now, so a tool
+// failing at DLL init must never generalize to the shell, on any shell. The
+// startup-kind suggestion leads with setup on every shell instead.
+func TestStartupHintNeverGeneralizesToTheShell(t *testing.T) {
+	for _, shell := range []shellRuntime{windowsPowerShellShell(), windowsCmdShell()} {
+		issue := detectShellOutputIssueForRuntime("some tool output", shell, 3221225794, true)
 		if issue == nil {
-			t.Fatalf("expected hint")
+			t.Fatalf("expected hint for DLL-init failure")
 		}
 		if strings.Contains(issue.Suggestion, "Other commands through this shell") {
-			t.Fatalf("0xC0000142 must never generalize: %q", issue.Suggestion)
+			t.Fatalf("0xC0000142 must never generalize to the shell: %q", issue.Suggestion)
 		}
-	})
+		if !strings.Contains(issue.Suggestion, "qg sandbox setup") {
+			t.Fatalf("startup suggestion must lead with setup: %q", issue.Suggestion)
+		}
+	}
 }
 
 func TestStartupHintWithoutSignatureIsByteIdenticalBash(t *testing.T) {
@@ -237,7 +239,7 @@ func TestStartupHintWithoutSignatureIsByteIdenticalExec(t *testing.T) {
 }
 
 func TestStartupHintTextIsTrueAndShort(t *testing.T) {
-	issue := detectShellOutputIssueForRuntime("Falha na inicialização do CLR com HRESULT 80070005.", windowsPowerShellShell(), 4294901760, true)
+	issue := detectShellOutputIssueForRuntime("some tool output", windowsCmdShell(), 3221225794, true)
 	if issue == nil {
 		t.Fatalf("expected hint")
 	}
@@ -245,12 +247,12 @@ func TestStartupHintTextIsTrueAndShort(t *testing.T) {
 	if len(text) > 800 {
 		t.Fatalf("hint text too long (%d): %q", len(text), text)
 	}
-	for _, want := range []string{"could not start", "sandbox", "restricted-token", "PowerShell", "require_escalated"} {
+	for _, want := range []string{"could not start", "sandbox", "restricted-token", "PowerShell", "require_escalated", "qg sandbox setup"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("hint text missing %q: %q", want, text)
 		}
 	}
-	if strings.Contains(text, "qg sandbox setup") || strings.Contains(text, "qg doctor") {
-		t.Fatalf("hint must not cite setup/doctor: %q", text)
+	if strings.Contains(text, "qg doctor") {
+		t.Fatalf("hint must not cite qg doctor: %q", text)
 	}
 }

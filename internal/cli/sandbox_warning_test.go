@@ -162,3 +162,70 @@ func TestExecStaysSilentWithWorkingBackendOrDisabledSandbox(t *testing.T) {
 		}
 	})
 }
+
+// The Windows setup warning fires when the helper is installed but `qg
+// sandbox setup` never ran: commands still run, but without OS-level network
+// enforcement, and the operator should hear it once per session.
+func TestSandboxSetupPendingWarning(t *testing.T) {
+	windowsBackend := sandbox.Backend{Name: sandbox.BackendWindowsRestrictedToken, Available: true, Platform: "windows"}
+	pendingHome := t.TempDir()
+	t.Setenv("QG_WINDOWS_SANDBOX_HOME", pendingHome)
+
+	if got := sandboxSetupPendingWarning(true, windowsBackend, "windows"); got == "" {
+		t.Fatal("expected the setup-pending warning with no marker on disk")
+	} else {
+		for _, want := range []string{"Sandbox do Windows", "qg sandbox setup", "elevado"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("warning = %q, want it to contain %q", got, want)
+			}
+		}
+	}
+
+	t.Run("silent paths", func(t *testing.T) {
+		linuxBackend := sandbox.Backend{Name: sandbox.BackendLinuxBwrap, Available: true, Platform: "linux"}
+		unavailable := sandbox.Backend{Name: sandbox.BackendUnavailable, Platform: "windows"}
+		for _, tc := range []struct {
+			name    string
+			enabled bool
+			backend sandbox.Backend
+			goos    string
+		}{
+			{"disabled stays silent", false, windowsBackend, "windows"},
+			{"off windows stays silent", true, windowsBackend, "linux"},
+			{"other backend stays silent", true, linuxBackend, "windows"},
+			{"unavailable backend stays silent", true, unavailable, "windows"},
+		} {
+			if got := sandboxSetupPendingWarning(tc.enabled, tc.backend, tc.goos); got != "" {
+				t.Fatalf("%s: got %q, want silence", tc.name, got)
+			}
+		}
+	})
+
+	t.Run("already sandboxed stays silent", func(t *testing.T) {
+		t.Setenv(sandbox.EnvSandboxed, "1")
+		t.Setenv(sandbox.EnvSandboxBackend, string(sandbox.BackendWindowsRestrictedToken))
+		if got := sandboxSetupPendingWarning(true, windowsBackend, "windows"); got != "" {
+			t.Fatalf("already isolated process must stay silent, got %q", got)
+		}
+	})
+
+	t.Run("initialized stays silent", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("QG_WINDOWS_SANDBOX_HOME", home)
+		workspace := t.TempDir()
+		if _, err := sandbox.WriteWindowsSandboxSetupMarker(sandbox.WindowsSandboxSetupConfig{
+			SandboxHome:    home,
+			CommandCWD:     workspace,
+			WorkspaceRoots: []string{workspace},
+			PermissionProfile: sandbox.PermissionProfile{
+				FileSystem: sandbox.FileSystemPolicy{Kind: sandbox.FileSystemRestricted},
+				Network:    sandbox.NetworkPolicy{Mode: sandbox.NetworkDeny},
+			},
+		}); err != nil {
+			t.Fatalf("WriteWindowsSandboxSetupMarker: %v", err)
+		}
+		if got := sandboxSetupPendingWarning(true, windowsBackend, "windows"); got != "" {
+			t.Fatalf("initialized host must stay silent, got %q", got)
+		}
+	})
+}

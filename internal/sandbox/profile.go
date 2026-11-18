@@ -152,7 +152,11 @@ func permissionProfileFromPolicy(workspaceRoot string, policy Policy, scope *Sco
 	userDenyRead := normalizeProfilePaths(policy.DenyRead)
 	commandAllowedRoots := append([]string{}, roots...)
 	for _, root := range readRoots {
-		if root != profileRootPath() {
+		// Filesystem roots ("/", "\", "C:\", ...) must never become
+		// command-allowed: the credential baseline drops denies overlapping
+		// an allowed root, so admitting one would silently drop every
+		// credential deny on that drive.
+		if root != profileRootPath() && !isFilesystemRootPath(root) {
 			commandAllowedRoots = append(commandAllowedRoots, root)
 		}
 	}
@@ -201,8 +205,9 @@ func permissionProfileReadRoots(workspaceRoot string, policy Policy, scope *Scop
 	// Workspace-write follows the upstream sandbox model: full disk is readable,
 	// while writes are narrowed to workspace/extra roots below. This is a
 	// deliberate read-all/write-jail posture; callers that must hide secrets use
-	// DenyRead to carve them out.
-	readRoots := []string{profileRootPath()}
+	// DenyRead to carve them out. On Windows the read-all half spans every
+	// mounted drive root (C:\, D:\, ...), not just the current drive ("\").
+	readRoots := policyFilesystemReadRoots()
 	readRoots = append(readRoots, writeRoots...)
 	if scope != nil {
 		readRoots = dedupeStrings(append(readRoots, scope.ReadRoots()...))
