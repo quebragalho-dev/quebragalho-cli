@@ -129,11 +129,11 @@ func TestReadFileWithRetryExhaustsBudgetWithGrowingBackoff(t *testing.T) {
 			t.Fatalf("sleeps = %v: delay %v exceeds the 100ms cap", sleeps, delay)
 		}
 	}
-	if total > windowsReadRetryBudget {
-		t.Fatalf("total slept = %v, exceeds the %v budget", total, windowsReadRetryBudget)
+	if total > windowsTransientLockRetryBudget {
+		t.Fatalf("total slept = %v, exceeds the %v budget", total, windowsTransientLockRetryBudget)
 	}
-	if total < windowsReadRetryBudget-100*time.Millisecond {
-		t.Fatalf("total slept = %v: gave up well before the %v budget", total, windowsReadRetryBudget)
+	if total < windowsTransientLockRetryBudget-100*time.Millisecond {
+		t.Fatalf("total slept = %v: gave up well before the %v budget", total, windowsTransientLockRetryBudget)
 	}
 }
 

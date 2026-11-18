@@ -143,7 +143,9 @@ func recordWindowsUnelevatedAppliedPlan(sandboxHome string, applied WindowsUnele
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("close windows unelevated setup marker temp file: %w", err)
 	}
-	if err := fsutil.RenameWithRetry(tmpPath, path, nil); err != nil {
+	// Readers may hold the file open mid-read; on Windows that rename then
+	// fails with access denied, so retry with the long budget.
+	if err := fsutil.RenameWithLongRetry(tmpPath, path, nil); err != nil {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("replace windows unelevated setup marker: %w", err)
 	}

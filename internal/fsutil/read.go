@@ -6,12 +6,12 @@ import (
 	"time"
 )
 
-// windowsReadRetryBudget bounds how long ReadFileWithRetry keeps retrying a
-// transiently locked file on Windows: long enough to outlast a concurrent
-// marker replacement (temp-file write plus RenameWithRetry, which itself
-// retries for ~100ms), short enough to keep a wedged helper from hanging
-// command startup.
-const windowsReadRetryBudget = 2 * time.Second
+// windowsTransientLockRetryBudget bounds how long the Windows transient-lock
+// retries keep going (~2s): long enough to outlast a concurrent marker
+// replacement (temp-file write plus rename, racing readers on both sides),
+// short enough to keep a wedged helper from hanging command startup. It
+// covers both the shared-access reads and the long rename retries.
+const windowsTransientLockRetryBudget = 2 * time.Second
 
 const (
 	readRetryInitialDelay = 5 * time.Millisecond
@@ -51,7 +51,7 @@ func readFileWithRetry(goos string, path string, read func(string) ([]byte, erro
 		if !isRetryableReadError(goos, err) {
 			return nil, err
 		}
-		if slept+delay > windowsReadRetryBudget {
+		if slept+delay > windowsTransientLockRetryBudget {
 			return nil, err
 		}
 		sleep(delay)

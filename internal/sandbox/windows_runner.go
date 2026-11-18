@@ -728,7 +728,10 @@ func saveWindowsCapabilitySIDs(path string, caps WindowsCapabilitySIDs) error {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("close windows capability SID temp file: %w", err)
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	// Lock holders serialize our own writers, but a concurrent reader (or
+	// scanner) can still deny the rename on Windows; retry with the long
+	// budget.
+	if err := fsutil.RenameWithLongRetry(tmpPath, path, nil); err != nil {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("replace windows capability SID file: %w", err)
 	}

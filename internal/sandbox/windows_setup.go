@@ -234,7 +234,9 @@ func WriteWindowsSandboxSetupMarker(config WindowsSandboxSetupConfig) (WindowsSa
 		_ = os.Remove(tmpPath)
 		return WindowsSandboxSetupMarker{}, fmt.Errorf("close windows sandbox setup marker temp file: %w", err)
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	// Concurrent runners may be validating mid-replace; on Windows that rename
+	// then fails with access denied, so retry with the long budget.
+	if err := fsutil.RenameWithLongRetry(tmpPath, path, nil); err != nil {
 		_ = os.Remove(tmpPath)
 		return WindowsSandboxSetupMarker{}, fmt.Errorf("replace windows sandbox setup marker: %w", err)
 	}
