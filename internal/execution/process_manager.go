@@ -280,14 +280,23 @@ func clampContinuationWait(wait time.Duration, emptyPoll bool) time.Duration {
 	return min(wait, maxInteractiveYield)
 }
 
-func (manager *ProcessManager) List() []ProcessSnapshot {
-	manager.mu.Lock()
+// activeProcessesLocked returns the processes that have not reached procDone
+// (!doneClosed). It is the single source of truth for List, Len, and StopAll so
+// active count and listing never diverge when completed processes remain
+// retained in manager.processes. Caller must hold manager.mu.
+func (manager *ProcessManager) activeProcessesLocked() []*managedProcess {
 	processes := make([]*managedProcess, 0, len(manager.processes))
 	for _, process := range manager.processes {
 		if !process.doneClosed() {
 			processes = append(processes, process)
 		}
 	}
+	return processes
+}
+
+func (manager *ProcessManager) List() []ProcessSnapshot {
+	manager.mu.Lock()
+	processes := manager.activeProcessesLocked()
 	manager.mu.Unlock()
 	snapshots := make([]ProcessSnapshot, 0, len(processes))
 	for _, process := range processes {
@@ -316,12 +325,7 @@ func (manager *ProcessManager) Stop(id int) bool {
 
 func (manager *ProcessManager) StopAll() []int {
 	manager.mu.Lock()
-	processes := make([]*managedProcess, 0, len(manager.processes))
-	for _, process := range manager.processes {
-		if !process.doneClosed() {
-			processes = append(processes, process)
-		}
-	}
+	processes := manager.activeProcessesLocked()
 	manager.mu.Unlock()
 	ids := make([]int, 0, len(processes))
 	for _, process := range processes {
@@ -342,7 +346,7 @@ func (manager *ProcessManager) Remove(id int) {
 func (manager *ProcessManager) Len() int {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	return len(manager.processes)
+	return len(manager.activeProcessesLocked())
 }
 
 func (manager *ProcessManager) allocateID() int {

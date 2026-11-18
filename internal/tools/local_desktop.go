@@ -113,6 +113,7 @@ func newDesktopActionTool(options localcontrol.DesktopOptions) Tool {
 				`Pass @<snapshot_id>:eN ref from desktop_snapshot (bare @e8 rejected). ` +
 				`Loop: snapshot -i -> act -> snapshot to verify; on STALE_REF/AMBIGUOUS_TARGET re-snapshot or pass --window-id. ` +
 				`Retry only if error.disposition.retry == "safe". ` +
+				`On Windows, Store/packaged apps (e.g. calc.exe, modern notepad.exe) open the window in another process, so the launched process exits at once; launch with args=["--no-attach"], then find the window by title with command="list-windows" instead of waiting for the launched process. ` +
 				`Set headed=true only when the user explicitly permits physical mouse/keyboard control, never as a fallback after a headless failure. ` +
 				`Guide: command="skills", args=["get","desktop"] (or "platform").`,
 			parameters: Schema{
@@ -121,7 +122,7 @@ func newDesktopActionTool(options localcontrol.DesktopOptions) Tool {
 					"command": {Type: "string", Description: "agent-desktop command to execute.", Enum: desktopActionCommandList},
 					"ref":     {Type: "string", Description: "Optional qualified @<snapshot_id>:eN element ref from desktop_snapshot/find."},
 					"text":    {Type: "string", Description: "Optional text: sent via --stdin for type/set-value/clipboard-set, or positional (e.g. press combo, select value, launch/close-app name)."},
-					"args":    {Type: "array", Items: &PropertySchema{Type: "string"}, Description: "Optional flags/positionals matching `agent-desktop <command> --help` (e.g. [\"--direction\",\"down\",\"--amount\",\"3\"])."},
+					"args":    {Type: "array", Items: &PropertySchema{Type: "string"}, Description: "Optional flags/positionals matching `agent-desktop <command> --help` (e.g. [\"--direction\",\"down\",\"--amount\",\"3\"], or [\"--no-attach\"] on Windows Store apps before list-windows)."},
 					"headed":  {Type: "boolean", Description: "Pass global --headed only when the user explicitly permits physical mouse/keyboard control; never use to recover from headless failure.", Default: false},
 				},
 				Required:             []string{"command"},

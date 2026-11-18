@@ -70,15 +70,15 @@ func TestDownloadedBatchModelAppliedToConfig(t *testing.T) {
 	m := model{dictation: dictationController{cfg: config.STTConfig{Provider: config.STTProviderLocal}}}
 	m.dictation.downloading = true
 	comp := dictation.EngineComponents{
-		BinaryPath: "/x/bin/sherpa-onnx-offline",
-		ServerPath: "/x/bin/sherpa-onnx-online-websocket-server",
-		ModelPath:  "/x/model",
+		BinaryPath:       "/x/bin/sherpa-onnx-offline",
+		OnlineBinaryPath: "/x/bin/sherpa-onnx",
+		ModelPath:        "/x/model",
 	}
 	got, _ := m.handleDictationDownloaded(dictationDownloadedMsg{components: comp})
 	if got.dictation.downloading {
 		t.Error("downloading flag should clear")
 	}
-	if got.dictation.cfg.LocalBinary != comp.BinaryPath || got.dictation.cfg.LocalModelPath != comp.ModelPath {
+	if got.dictation.cfg.LocalBinary != comp.BinaryPath || got.dictation.cfg.LocalOnlineBinary != comp.OnlineBinaryPath || got.dictation.cfg.LocalModelPath != comp.ModelPath {
 		t.Errorf("engine paths not applied: %+v", got.dictation.cfg)
 	}
 	// Every installed model gets live text (true streaming or rolling), so a
@@ -139,9 +139,9 @@ func TestInstallEnablesStreamingDownloadPath(t *testing.T) {
 			userConfigPath: cfgPath,
 		}}
 		comp := dictation.EngineComponents{
-			BinaryPath: "/x/bin/sherpa-onnx-offline",
-			ServerPath: "/x/bin/sherpa-onnx-online-websocket-server",
-			ModelPath:  "/x/" + variant.DirName,
+			BinaryPath:       "/x/bin/sherpa-onnx-offline",
+			OnlineBinaryPath: "/x/bin/sherpa-onnx",
+			ModelPath:        "/x/" + variant.DirName,
 		}
 		got, _ := m.handleDictationDownloaded(dictationDownloadedMsg{components: comp})
 		if !got.dictation.cfg.StreamingEnabled() {
@@ -161,14 +161,16 @@ func stageInstalledModel(t *testing.T, root string, v dictation.ModelVariant) {
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// The engine binary carries .exe on Windows, where EngineDownloaded looks
-	// for that name.
-	bin := "sherpa-onnx-offline"
+	// The engine binaries carry .exe on Windows, where EngineDownloaded looks
+	// for those names.
+	ext := ""
 	if runtime.GOOS == "windows" {
-		bin += ".exe"
+		ext = ".exe"
 	}
-	if err := os.WriteFile(filepath.Join(binDir, bin), []byte("x"), 0o755); err != nil {
-		t.Fatal(err)
+	for _, bin := range []string{"sherpa-onnx-offline" + ext, "sherpa-onnx" + ext} {
+		if err := os.WriteFile(filepath.Join(binDir, bin), []byte("x"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	modelDir := filepath.Join(root, v.DirName)
 	if err := os.MkdirAll(modelDir, 0o755); err != nil {
@@ -285,5 +287,63 @@ func TestDownloadFailureReported(t *testing.T) {
 	}
 	if !transcriptHasText(got, "network down") {
 		t.Error("expected the failure reported")
+	}
+}
+
+func TestSTTDownloadPickerSenseVoiceAttributionFitsLayout(t *testing.T) {
+	root := t.TempDir()
+	var sv dictation.ModelVariant
+	for _, v := range dictation.ModelVariants() {
+		if strings.HasPrefix(v.ID, "sense-voice-") {
+			sv = v
+			break
+		}
+	}
+	if sv.ID == "" {
+		t.Fatal("SenseVoice variant not found")
+	}
+
+	// Render both default (80 cols) and installed/current (92 cols) states.
+	for _, tc := range []struct {
+		name      string
+		width     int
+		installed bool
+		current   string
+	}{
+		{name: "width_80", width: 80},
+		{name: "width_92_installed", width: 92, installed: true},
+		{name: "width_92_current", width: 92, installed: true, current: filepath.Join(root, sv.DirName)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dlRoot := root
+			if tc.installed {
+				stageInstalledModel(t, dlRoot, sv)
+			} else {
+				dlRoot = t.TempDir()
+			}
+			m := newModel(t.Context(), Options{})
+			m.picker = newSTTDownloadPickerFrom(dictation.ModelVariants(), false, dlRoot, tc.installed, tc.current, "")
+			m.selectPickerValue(sv.ID)
+
+			rendered := stripANSI(m.pickerOverlay(tc.width))
+			var svLine string
+			for _, line := range strings.Split(rendered, "\n") {
+				if strings.Contains(line, "★ SenseVoice") {
+					svLine = line
+					break
+				}
+			}
+			if svLine == "" {
+				t.Fatalf("SenseVoice row not found in rendered picker:\n%s", rendered)
+			}
+			for _, want := range []string{"FunAudioLLM/SenseVoice", "MB"} {
+				if !strings.Contains(svLine, want) {
+					t.Fatalf("SenseVoice row %q missing %q (truncated or absent)", svLine, want)
+				}
+			}
+			if strings.Contains(svLine, "…") {
+				t.Fatalf("SenseVoice row truncated in %s layout: %q", tc.name, svLine)
+			}
+		})
 	}
 }

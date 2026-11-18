@@ -550,10 +550,10 @@ func stripCmdCaretEscapes(command string) string {
 // avoid, just after execution instead of before it.
 
 func detectShellOutputIssueForRuntime(output string, shell shellRuntime, exitCode int, wrapped bool) *shellIssue {
-	if shell.GOOS != "windows" {
-		return nil
-	}
 	lower := strings.ToLower(output)
+	if shell.GOOS != "windows" {
+		return detectSandboxCredentialIssue(lower, exitCode, wrapped)
+	}
 	if msysRuntimeFailedInOutput(lower) {
 		return windowsMsysSandboxIssue("An MSYS/Cygwin runtime failed under QG's Windows sandbox (ACCESS_DENIED during MSYS startup).")
 	}
@@ -576,56 +576,41 @@ func detectShellOutputIssueForRuntime(output string, shell shellRuntime, exitCod
 
 const windowsSandboxStartupKind = "windows_sandbox_startup"
 
-const windowsSandboxStartupSuggestion = "This is not a problem with your command; do not retry it unchanged. If the command is safe and necessary, rerun it with sandbox_permissions: \"require_escalated\" and a narrow justification."
-
-const windowsSandboxStartupShellSentence = " Other commands through this shell fail the same way inside the sandbox."
+const windowsSandboxStartupSuggestion = "This is not a problem with your command; do not retry it unchanged. Run `qg sandbox setup` from an elevated (Administrator) terminal to complete the sandbox, then retry. If the command is safe and still cannot start, rerun it with sandbox_permissions: \"require_escalated\" and a narrow justification."
 
 // detectWindowsSandboxStartupIssue matches programs that cannot start inside
-// QG's write-restricted Windows sandbox. The restricted token blocks CLR
-// initialization (powershell 5.1, 0xFFFF0000), .NET/BCrypt startup (pwsh,
-// 0xE0434352 with its DLL marker) and some system tools at DLL init
-// (0xC0000142). It requires the wrapped (sandboxed) run, a non-zero startup
-// exit code and, for the .NET crash that also happens outside the sandbox,
-// its startup marker. MSYS/WSL markers above keep precedence.
+// QG's write-restricted Windows sandbox. PowerShell and common tools start
+// normally since Everyone returned to the restricted-SID list, so only the
+// failures that remain get a hint: some system tools at DLL init (0xC0000142)
+// and generic access-denied failures carrying the CLR marker (80070005). It
+// requires the wrapped (sandboxed) run and a non-zero startup exit code.
+// MSYS/WSL markers above keep precedence, with their own escalation-only
+// suggestion: `qg sandbox setup` cannot fix a runtime the token cannot host.
 func detectWindowsSandboxStartupIssue(lower string, shell shellRuntime, exitCode int, wrapped bool) *shellIssue {
 	if shell.GOOS != "windows" || !wrapped || exitCode == 0 {
 		return nil
 	}
 	code := uint32(exitCode)
-	isPowerShellShell := shell.Kind == shellKindPowerShell
 	switch code {
-	case 0xFFFF0000:
-		return windowsSandboxStartupIssue(isPowerShellShell)
-	case 0xE0434352:
-		if strings.Contains(lower, "bcrypt.dll") ||
-			strings.Contains(lower, "dllnotfoundexception") ||
-			strings.Contains(lower, "8007045a") {
-			return windowsSandboxStartupIssue(isPowerShellShell)
-		}
-		return nil
 	case 0xC0000142:
 		// A generic tool failing at DLL init: never generalize to the shell.
-		return windowsSandboxStartupIssue(false)
+		return windowsSandboxStartupIssue()
 	default:
 		// 80070005 alone is generic E_ACCESSDENIED: a command that ran but
 		// had a write denied by the jail can print it, and "could not
 		// start" would then be false. Require the CLR marker with it.
 		if strings.Contains(lower, "80070005") && strings.Contains(lower, "clr") {
-			return windowsSandboxStartupIssue(false)
+			return windowsSandboxStartupIssue()
 		}
 		return nil
 	}
 }
 
-func windowsSandboxStartupIssue(powerShellShell bool) *shellIssue {
-	suggestion := windowsSandboxStartupSuggestion
-	if powerShellShell {
-		suggestion += windowsSandboxStartupShellSentence
-	}
+func windowsSandboxStartupIssue() *shellIssue {
 	return &shellIssue{
 		Kind:       windowsSandboxStartupKind,
-		Message:    "The program could not start inside QG's Windows sandbox (restricted-token limitation affecting PowerShell, .NET and some system tools).",
-		Suggestion: suggestion,
+		Message:    "The program could not start inside QG's Windows sandbox (a restricted-token limitation that still affects some system tools and .NET crypto providers on some hosts). PowerShell and common tools start normally; do not generalize one tool's failure to the shell.",
+		Suggestion: windowsSandboxStartupSuggestion,
 	}
 }
 
@@ -662,6 +647,67 @@ func msysRuntimeFailedInOutput(lower string) bool {
 func wslServiceDeniedInOutput(lower string) bool {
 	compact := strings.ReplaceAll(lower, "\x00", "")
 	return strings.Contains(compact, "bash/service/") && strings.Contains(compact, "e_accessdenied")
+}
+
+var sandboxCredentialStoreMarkers = []string{
+	".ssh",
+	".gnupg",
+	".aws",
+	".azure",
+	".config/gcloud",
+	".kube",
+	".docker/config.json",
+	".netrc",
+	".git-credentials",
+	"git/credentials",
+	".npmrc",
+	".pypirc",
+	".config/gh",
+	".config/qg",
+}
+
+func detectSandboxCredentialIssue(lower string, exitCode int, wrapped bool) *shellIssue {
+	if !wrapped || exitCode == 0 {
+		return nil
+	}
+	matched := false
+	for _, marker := range []string{
+		"permission denied (publickey",
+		"host key verification failed",
+		"eneedauth",
+		"not logged into any github hosts",
+		"gh auth login",
+		"unable to locate credentials",
+	} {
+		if strings.Contains(lower, marker) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		for _, line := range strings.Split(lower, "\n") {
+			if !strings.Contains(line, "permission denied") && !strings.Contains(line, "operation not permitted") {
+				continue
+			}
+			for _, store := range sandboxCredentialStoreMarkers {
+				if strings.Contains(line, store) {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+	}
+	if !matched {
+		return nil
+	}
+	return &shellIssue{
+		Kind:       "sandbox_credential_blocked",
+		Message:    "The sandbox blocks host credential files (~/.ssh, ~/.gnupg, ~/.aws, ~/.npmrc, ~/.netrc, ~/.config/gh, etc.) and strips auth tokens from the environment.",
+		Suggestion: `If this command needs host credentials or auth tokens (such as git push over SSH or npm publish), ask to rerun it outside the sandbox with sandbox_permissions: "require_escalated" and a short user-facing justification.`,
+	}
 }
 
 func appendShellIssueHint(output string, issue shellIssue) string {

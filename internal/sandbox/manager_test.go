@@ -53,8 +53,10 @@ func TestPermissionProfileFromPolicyBuildsWorkspaceWriteProfile(t *testing.T) {
 			t.Fatalf("write roots = %#v, want scope roots %#v", profile.FileSystem.WriteRoots, roots)
 		}
 	}
-	if !stringSliceContains(profile.FileSystem.ReadRoots, profileRootPath()) {
-		t.Fatalf("read roots = %#v, want full read root %q", profile.FileSystem.ReadRoots, profileRootPath())
+	for _, want := range policyFilesystemReadRootsForGOOS(runtime.GOOS) {
+		if !stringSliceContains(profile.FileSystem.ReadRoots, want) {
+			t.Fatalf("read roots = %#v, want policy filesystem root %q", profile.FileSystem.ReadRoots, want)
+		}
 	}
 	if !stringSliceContains(profile.FileSystem.WriteRoots[0].ProtectedMetadataNames, ".qg") || !stringSliceContains(profile.FileSystem.WriteRoots[0].ProtectedMetadataNames, ".agents") {
 		t.Fatalf("protected metadata names = %#v, want workspace metadata protected", profile.FileSystem.WriteRoots[0].ProtectedMetadataNames)
@@ -251,8 +253,6 @@ func TestSandboxManagerBuildsCommandPlanThroughWindowsRunner(t *testing.T) {
 	}
 }
 
-// TestSandboxManagerRejectsWindowsDenyReadOnBothRestrictedTokenTiers is the
-// regression for PR #640: DenyRead cannot be launched or provisioned through
 // either the elevated restricted-token path or the unelevated auto fallback.
 // Both build the same fully restricted narrow-SID token.
 func TestSandboxManagerRejectsWindowsDenyReadOnBothRestrictedTokenTiers(t *testing.T) {
@@ -484,25 +484,32 @@ func mkdirAll(paths ...string) error {
 func TestCredentialDenyReadPathsIn(t *testing.T) {
 	home := t.TempDir()
 	awsDir := filepath.Join(home, ".aws")
+	sshDir := filepath.Join(home, ".ssh")
+	gnupgDir := filepath.Join(home, ".gnupg")
 	gcloudDir := filepath.Join(home, ".config", "gcloud")
 	npmrc := filepath.Join(home, ".npmrc")
-	ghHosts := filepath.Join(home, ".config", "gh", "hosts.yml")
+	pypirc := filepath.Join(home, ".pypirc")
+	ghDir := filepath.Join(home, ".config", "gh")
+	ghHosts := filepath.Join(ghDir, "hosts.yml")
 	netrc := filepath.Join(home, ".netrc")
 	dockerConfig := filepath.Join(home, ".docker", "config.json")
-	kubeConfig := filepath.Join(home, ".kube", "config")
+	kubeDir := filepath.Join(home, ".kube")
+	kubeConfig := filepath.Join(kubeDir, "config")
 	configDir := filepath.Join(home, ".config")
 	zeroDir := filepath.Join(configDir, "qg")
 	if err := mkdirAll(
+		sshDir,
+		gnupgDir,
 		awsDir,
 		gcloudDir,
-		filepath.Dir(ghHosts),
+		ghDir,
 		filepath.Dir(dockerConfig),
-		filepath.Dir(kubeConfig),
+		kubeDir,
 		zeroDir,
 	); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{npmrc, ghHosts, netrc, dockerConfig, kubeConfig} {
+	for _, path := range []string{npmrc, pypirc, ghHosts, netrc, dockerConfig, kubeConfig} {
 		if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -554,24 +561,28 @@ func TestCredentialDenyReadPathsIn(t *testing.T) {
 		CloudSDKConfigDirs: []string{gcloudDir},
 		GoogleCredentials:  []string{keyFile},
 		NPMUserConfigs:     []string{npmrc},
-		GHConfigDirs:       []string{filepath.Dir(ghHosts)},
+		GHConfigDirs:       []string{ghDir},
 		Netrcs:             []string{netrc},
 		DockerConfigDirs:   []string{filepath.Dir(dockerConfig)},
 		KubeConfigs:        []string{kubeConfig},
+		GnuPGHomes:         []string{gnupgDir},
 		OAuthTokens:        []string{oauthOverride},
 		MCPOAuthTokens:     []string{mcpOverride},
 	}
 	credentials := credentialDenyReadPathsIn(options, nil)
 	paths := credentials.Paths
 	wantPaths := append([]string{
+		sshDir,
+		gnupgDir,
 		awsDir,
 		gcloudDir,
 		keyFile,
 		npmrc,
-		ghHosts,
+		pypirc,
+		ghDir,
 		netrc,
 		dockerConfig,
-		kubeConfig,
+		kubeDir,
 		zeroDir,
 	}, overrideFiles...)
 	for _, want := range normalizeProfilePaths(wantPaths) {
@@ -888,6 +899,7 @@ func TestPermissionProfileUnionsProcessAndCommandCredentialRootsWithoutCreatingC
 	t.Setenv("NETRC", "")
 	t.Setenv("DOCKER_CONFIG", "")
 	t.Setenv("KUBECONFIG", "")
+	t.Setenv("GNUPGHOME", "")
 
 	workspace := t.TempDir()
 	childHome := filepath.Join(workspace, "child-home")
@@ -914,11 +926,14 @@ func TestPermissionProfileUnionsProcessAndCommandCredentialRootsWithoutCreatingC
 	parentZero := filepath.Join(parentConfig, "qg")
 	childZero := filepath.Join(childConfig, "qg")
 	childCredentialPaths := []string{
+		filepath.Join(childHome, ".ssh"),
+		filepath.Join(childHome, ".gnupg"),
 		filepath.Join(childHome, ".npmrc"),
+		filepath.Join(childHome, ".pypirc"),
 		filepath.Join(childHome, ".netrc"),
 		filepath.Join(childHome, ".docker", "config.json"),
-		filepath.Join(childHome, ".kube", "config"),
-		filepath.Join(childConfig, "gh", "hosts.yml"),
+		filepath.Join(childHome, ".kube"),
+		filepath.Join(childConfig, "gh"),
 		filepath.Join(childConfig, "gcloud"),
 	}
 	for _, want := range []string{parentZero, parentToken} {
@@ -989,7 +1004,7 @@ func TestCommandSuppliedTokenOverrideFailsClosedOnBubblewrap(t *testing.T) {
 	t.Setenv("QG_MCP_OAUTH_TOKENS_PATH", "")
 	workspace := t.TempDir()
 
-	baseline := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, nil)
+	baseline := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, nil, runtime.GOOS)
 	if len(baseline.FileSystem.ProcessTrustedDenyReadFiles) != 0 || len(baseline.FileSystem.CommandDenyReadFinalFiles) != 0 {
 		t.Fatalf("baseline profile should have no replaceable final files: %#v", baseline.FileSystem)
 	}
@@ -1005,7 +1020,7 @@ func TestCommandSuppliedTokenOverrideFailsClosedOnBubblewrap(t *testing.T) {
 
 	commandToken := filepath.Join(testutil.TempDirOutsideDefaultTemp(t), "command-store", "tokens.json")
 	profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace,
-		[]string{"QG_OAUTH_TOKENS_PATH=" + commandToken})
+		[]string{"QG_OAUTH_TOKENS_PATH=" + commandToken}, runtime.GOOS)
 	fs := profile.FileSystem
 	if !stringSliceContains(fs.CommandDenyReadFinalFiles, normalizeProfilePath(commandToken)) {
 		t.Fatalf("CommandDenyReadFinalFiles = %#v, want command override %q", fs.CommandDenyReadFinalFiles, commandToken)
@@ -1051,7 +1066,7 @@ func TestKeyringOAuthOverrideDoesNotFailClosedOnBubblewrap(t *testing.T) {
 	t.Run("process environment", func(t *testing.T) {
 		t.Setenv("QG_OAUTH_TOKENS_PATH", tokenPath)
 		t.Setenv("QG_OAUTH_STORAGE", "keyring")
-		profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, nil)
+		profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, nil, runtime.GOOS)
 		fs := profile.FileSystem
 		if !stringSliceContains(fs.DenyReadIfExists, normalizeProfilePath(tokenPath)) {
 			t.Fatalf("DenyReadIfExists = %#v, want keyring override retained in ordinary deny baseline", fs.DenyReadIfExists)
@@ -1081,7 +1096,7 @@ func TestKeyringOAuthOverrideDoesNotFailClosedOnBubblewrap(t *testing.T) {
 		profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, []string{
 			"QG_OAUTH_TOKENS_PATH=" + tokenPath,
 			"QG_OAUTH_STORAGE=keyring",
-		})
+		}, runtime.GOOS)
 		fs := profile.FileSystem
 		if !stringSliceContains(fs.DenyReadIfExists, normalizeProfilePath(tokenPath)) {
 			t.Fatalf("DenyReadIfExists = %#v, want command keyring override retained in ordinary deny baseline", fs.DenyReadIfExists)
@@ -1116,7 +1131,7 @@ func TestCommandCredentialDirectoriesFailClosedWithoutHostMutation(t *testing.T)
 	profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, []string{
 		"HOME=" + filepath.Dir(commandConfig),
 		"XDG_CONFIG_HOME=" + commandConfig,
-	})
+	}, runtime.GOOS)
 	if !stringSliceContains(profile.FileSystem.CommandDenyReadDirs, normalizeProfilePath(commandZero)) {
 		t.Fatalf("CommandDenyReadDirs = %#v, want future command credential root %q", profile.FileSystem.CommandDenyReadDirs, commandZero)
 	}
@@ -1165,7 +1180,7 @@ func TestCommandCredentialSettingsDoNotMaskAllowedRoots(t *testing.T) {
 	profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, []string{
 		"CLOUDSDK_CONFIG=" + workspace,
 		"GOOGLE_APPLICATION_CREDENTIALS=" + filepath.Join(externalCloud, "service-account.json"),
-	})
+	}, runtime.GOOS)
 	fs := profile.FileSystem
 	if stringSliceContains(fs.DenyReadIfExists, normalizeProfilePath(workspace)) {
 		t.Fatalf("command CLOUDSDK_CONFIG masked workspace: %#v", fs.DenyReadIfExists)
@@ -1242,7 +1257,7 @@ func TestKeyringExceptionKeepsFileBackedTokenStoresFailClosed(t *testing.T) {
 			for key, value := range test.processEnv {
 				t.Setenv(key, value)
 			}
-			profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, test.commandEnv)
+			profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, test.commandEnv, runtime.GOOS)
 			markers := profile.FileSystem.ProcessTrustedDenyReadFiles
 			if test.commandMarker {
 				markers = profile.FileSystem.CommandDenyReadFinalFiles
@@ -1285,7 +1300,7 @@ func TestLegacyMCPOverrideDoesNotFailClosedOnBubblewrap(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("QG_MCP_OAUTH_TOKENS_PATH", test.processMCP)
-			profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, test.commandEnv)
+			profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, test.commandEnv, runtime.GOOS)
 			fs := profile.FileSystem
 			for _, want := range []string{legacy, legacy + ".migrated"} {
 				if !stringSliceContains(fs.DenyReadIfExists, normalizeProfilePath(want)) {
@@ -1344,7 +1359,7 @@ func TestOAuthOverridesInsideCredentialCarveoutsRemainFailClosedOnBubblewrap(t *
 		t.Run(name, func(t *testing.T) {
 			token := filepath.Join(configDir, "qg", name, "tokens.json")
 			t.Setenv("QG_OAUTH_TOKENS_PATH", token)
-			profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, nil)
+			profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, nil, runtime.GOOS)
 			for _, want := range []string{token, token + ".secret"} {
 				if !stringSliceContains(profile.FileSystem.ProcessTrustedDenyReadFiles, normalizeCredentialFinalPath(want)) {
 					t.Fatalf("ProcessTrustedDenyReadFiles = %#v, carveout must retain final-file marker %q", profile.FileSystem.ProcessTrustedDenyReadFiles, want)
@@ -1375,12 +1390,12 @@ func TestProcessCredentialBaseDirDoesNotFollowWorkingDirectoryChanges(t *testing
 	t.Setenv("QG_MCP_OAUTH_TOKENS_PATH", "")
 	workspace := t.TempDir()
 
-	before := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, "", nil).FileSystem.ProcessTrustedDenyReadFiles
+	before := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, "", nil, runtime.GOOS).FileSystem.ProcessTrustedDenyReadFiles
 	if len(before) == 0 {
 		t.Fatal("a relative token override must produce a process-trusted deny")
 	}
 	t.Chdir(t.TempDir())
-	after := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, "", nil).FileSystem.ProcessTrustedDenyReadFiles
+	after := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, "", nil, runtime.GOOS).FileSystem.ProcessTrustedDenyReadFiles
 	if !slices.Equal(before, after) {
 		t.Fatalf("process-trusted denies followed the working directory: before %#v, after %#v", before, after)
 	}
@@ -1399,7 +1414,7 @@ func TestCommandControlledConfigAncestorDoesNotSuppressProcessTrustedFile(t *tes
 	t.Setenv("QG_OAUTH_TOKENS_PATH", tokenPath)
 	t.Setenv("QG_MCP_OAUTH_TOKENS_PATH", "")
 
-	profile := permissionProfileFromPolicy(t.TempDir(), DefaultPolicy(), nil, t.TempDir(), []string{"XDG_CONFIG_HOME=" + commandConfig})
+	profile := permissionProfileFromPolicy(t.TempDir(), DefaultPolicy(), nil, t.TempDir(), []string{"XDG_CONFIG_HOME=" + commandConfig}, runtime.GOOS)
 	if !stringSliceContains(profile.FileSystem.ProcessTrustedDenyReadFiles, normalizeProfilePath(tokenPath)) {
 		t.Fatalf("ProcessTrustedDenyReadFiles = %#v, command-controlled config ancestor must not suppress %q", profile.FileSystem.ProcessTrustedDenyReadFiles, tokenPath)
 	}
@@ -1673,9 +1688,10 @@ func TestCredentialDenyReadPathsForEnvironmentHonorsConfigOverrides(t *testing.T
 	kubeConfigA := filepath.Join(root, "kube", "a")
 	kubeConfigB := filepath.Join(root, "kube", "b")
 	zeroConfig := filepath.Join(configHome, "qg")
+	t.Setenv("HOME", root)
+	gnupgHome := filepath.Join(root, "gnupg")
 	filePaths := []string{
 		npmrc,
-		filepath.Join(ghConfigDir, "hosts.yml"),
 		netrc,
 		filepath.Join(dockerConfigDir, "config.json"),
 		kubeConfigA,
@@ -1683,6 +1699,12 @@ func TestCredentialDenyReadPathsForEnvironmentHonorsConfigOverrides(t *testing.T
 		zeroConfig,
 	}
 	if err := os.MkdirAll(cloudSDKConfig, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(ghConfigDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(gnupgHome, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range filePaths {
@@ -1710,9 +1732,10 @@ func TestCredentialDenyReadPathsForEnvironmentHonorsConfigOverrides(t *testing.T
 		"NETRC=" + netrc,
 		"DOCKER_CONFIG=" + dockerConfigDir,
 		"KUBECONFIG=" + strings.Join([]string{kubeConfigA, kubeConfigB}, string(filepath.ListSeparator)),
+		"GNUPGHOME=" + gnupgHome,
 	})
 	got := credentialDenyReadPathsIn(options, nil).Paths
-	wantPaths := append(filePaths, cloudSDKConfig)
+	wantPaths := append(filePaths, cloudSDKConfig, ghConfigDir, gnupgHome)
 	for _, want := range normalizeProfilePaths(wantPaths) {
 		if !stringSliceContains(got, want) {
 			t.Errorf("credential deny paths = %#v, want override %q included", got, want)
@@ -1737,6 +1760,7 @@ func TestCredentialPathOptionsFromEnvironmentResolvesToolPathLists(t *testing.T)
 		"GH_CONFIG_DIR=relative-gh",
 		"NETRC=relative-netrc",
 		"DOCKER_CONFIG=relative-docker",
+		"GNUPGHOME=relative-gnupg",
 		"KUBECONFIG=" + strings.Join([]string{"", "relative-kubeconfig", absoluteKubeConfig, ""}, string(filepath.ListSeparator)),
 	})
 	credentials := credentialDenyReadPathsIn(options, nil)
@@ -1744,11 +1768,12 @@ func TestCredentialPathOptionsFromEnvironmentResolvesToolPathLists(t *testing.T)
 	for _, baseDir := range []string{processDir, commandDir} {
 		for _, want := range []string{
 			filepath.Join(baseDir, "upper-npmrc"),
-			filepath.Join(baseDir, "relative-gh", "hosts.yml"),
+			filepath.Join(baseDir, "relative-gh"),
 			filepath.Join(baseDir, "relative-netrc"),
 			filepath.Join(baseDir, "relative-docker", "config.json"),
 			filepath.Join(baseDir, "relative-kubeconfig"),
 			filepath.Join(baseDir, "relative-gcloud"),
+			filepath.Join(baseDir, "relative-gnupg"),
 		} {
 			if !stringSliceContains(credentials.Paths, normalizeProfilePath(want)) {
 				t.Errorf("credential deny paths = %#v, want resolved tool path %q", credentials.Paths, want)
@@ -1757,14 +1782,17 @@ func TestCredentialPathOptionsFromEnvironmentResolvesToolPathLists(t *testing.T)
 		if unwanted := filepath.Join(baseDir, "lower-npmrc"); stringSliceContains(credentials.Paths, normalizeProfilePath(unwanted)) {
 			t.Errorf("credential deny paths = %#v, lower-case npm override %q must lose to upper-case override", credentials.Paths, unwanted)
 		}
-		for _, unwantedDir := range []string{filepath.Join(baseDir, "relative-gh"), filepath.Join(baseDir, "relative-docker")} {
-			if stringSliceContains(credentials.Paths, normalizeProfilePath(unwantedDir)) || stringSliceContains(credentials.Dirs, normalizeProfilePath(unwantedDir)) {
-				t.Errorf("credential paths=%#v dirs=%#v, must protect a credential file without masking tool directory %q", credentials.Paths, credentials.Dirs, unwantedDir)
-			}
+		if unwantedDir := filepath.Join(baseDir, "relative-docker"); stringSliceContains(credentials.Paths, normalizeProfilePath(unwantedDir)) || stringSliceContains(credentials.Dirs, normalizeProfilePath(unwantedDir)) {
+			t.Errorf("credential paths=%#v dirs=%#v, must protect a credential file without masking tool directory %q", credentials.Paths, credentials.Dirs, unwantedDir)
 		}
-		cloudSDKDir := normalizeProfilePath(filepath.Join(baseDir, "relative-gcloud"))
-		if !stringSliceContains(credentials.Dirs, cloudSDKDir) || stringSliceContains(credentials.EnsureDirs, cloudSDKDir) {
-			t.Errorf("credential dirs=%#v ensure=%#v, want untrusted cloud config directory %q masked but never created", credentials.Dirs, credentials.EnsureDirs, cloudSDKDir)
+		for _, toolDir := range []string{
+			normalizeProfilePath(filepath.Join(baseDir, "relative-gcloud")),
+			normalizeProfilePath(filepath.Join(baseDir, "relative-gh")),
+			normalizeProfilePath(filepath.Join(baseDir, "relative-gnupg")),
+		} {
+			if !stringSliceContains(credentials.Dirs, toolDir) || stringSliceContains(credentials.EnsureDirs, toolDir) {
+				t.Errorf("credential dirs=%#v ensure=%#v, want untrusted tool config directory %q masked but never created", credentials.Dirs, credentials.EnsureDirs, toolDir)
+			}
 		}
 	}
 	if !stringSliceContains(credentials.Paths, normalizeProfilePath(absoluteKubeConfig)) {

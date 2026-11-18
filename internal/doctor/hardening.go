@@ -130,7 +130,7 @@ func windowsSandboxSetupCheck(goos string, backend sandbox.Backend, workspaceRoo
 		})
 		return &result
 	}
-	profile := sandbox.PermissionProfileFromPolicy(workspaceRoot, doctorSandboxPolicy(sandboxConfig), scope)
+	profile := sandbox.PermissionProfileFromPolicyForGOOS(workspaceRoot, doctorSandboxPolicy(sandboxConfig), scope, goos)
 	setupConfig := sandbox.WindowsSandboxSetupConfig{
 		SandboxHome:       sandboxHome,
 		CommandCWD:        workspaceRoot,
@@ -138,6 +138,13 @@ func windowsSandboxSetupCheck(goos string, backend sandbox.Backend, workspaceRoo
 		PermissionProfile: profile,
 	}
 	if err := sandbox.ValidateWindowsSandboxSetupMarker(setupConfig); err != nil {
+		// A bare plan-mismatch is not a warning: the runner applies the new
+		// workspace's plan on demand and records it, so the next command
+		// validates. Setup is genuinely needed only when the marker is
+		// missing, corrupt, or its network infrastructure no longer matches.
+		if sandbox.IsWindowsSandboxSetupPlanMismatch(err) {
+			return nil
+		}
 		result := check("sandbox.backend", "Sandbox backend", StatusWarn, fmt.Sprintf("Native sandbox backend %s is installed, but Windows sandbox setup is missing or out of date: %v.", backend.Name, err), map[string]any{
 			"backend":      string(backend.Name),
 			"platform":     goos,

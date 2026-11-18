@@ -408,3 +408,122 @@ func TestGoalStatusIsVisibleInNarrowFooter(t *testing.T) {
 		t.Fatalf("narrow status omitted active goal: %q", status)
 	}
 }
+
+func TestGoalBudgetCountsManualCompactionSummaryTokens(t *testing.T) {
+	t.Setenv("QG_CRED_STORAGE", "file")
+	store := testSessionStore(t)
+	provider := &fakeProvider{events: []qgruntime.StreamEvent{
+		{Type: qgruntime.StreamEventText, Content: "Resumo da meta."},
+		{Type: qgruntime.StreamEventUsage, Usage: qgruntime.Usage{InputTokens: 1200, OutputTokens: 80}},
+		{Type: qgruntime.StreamEventDone},
+	}}
+	m := newModel(context.Background(), Options{
+		ModelName:    "muse-spark-1.3-contributor",
+		Provider:     provider,
+		SessionStore: store,
+	})
+	var err error
+	m, err = m.ensureActiveSession("goal compact budget")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m = seedCompactableHistory(t, m, 12)
+	updatedMeta, _, err := store.CreateGoal(m.activeSession.SessionID, "Concluir migração", 1500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedMeta, _, err = store.AddGoalUsage(updatedMeta.SessionID, 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.activeSession = updatedMeta
+
+	m.input.SetValue("/compact")
+	compacted := runCompactCommand(t, m)
+	if compacted.lastCompactError != "" {
+		t.Fatalf("compact failed: %s", compacted.lastCompactError)
+	}
+	if compacted.activeSession.Goal == nil {
+		t.Fatal("expected goal to remain attached after /compact")
+	}
+	if got := compacted.activeSession.Goal.TokensUsed; got != 1580 {
+		t.Fatalf("goal TokensUsed after /compact = %d, want 1580 (300 + 1280 summary tokens)", got)
+	}
+	if got := compacted.activeSession.Goal.Status; got != sessions.GoalStatusBudgetLimited {
+		t.Fatalf("goal status after /compact reached budget = %q, want %q", got, sessions.GoalStatusBudgetLimited)
+	}
+
+	// Also verify when the goal was paused before /compact: summary tokens count
+	// and /goal resume refuses once the budget is exhausted.
+	pausedStore := testSessionStore(t)
+	paused := newModel(context.Background(), Options{
+		ModelName:    "muse-spark-1.3-contributor",
+		Provider:     provider,
+		SessionStore: pausedStore,
+	})
+	paused, err = paused.ensureActiveSession("goal paused compact budget")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused = seedCompactableHistory(t, paused, 12)
+	meta, _, err := pausedStore.CreateGoal(paused.activeSession.SessionID, "Concluir revisão", 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, _, err = pausedStore.UpdateGoal(meta.SessionID, sessions.GoalStatusPaused, "paused by user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paused.activeSession = meta
+	paused.input.SetValue("/compact")
+	paused = runCompactCommand(t, paused)
+	if got := paused.activeSession.Goal.TokensUsed; got != 1280 {
+		t.Fatalf("paused goal TokensUsed after /compact = %d, want 1280", got)
+	}
+	resumed, cmd := paused.handleGoalCommand("resume")
+	if cmd != nil || resumed.pending {
+		t.Fatal("/goal resume must refuse when compaction exhausted the token budget")
+	}
+	if !transcriptContains(resumed.transcript, "O orçamento de tokens esgotou") {
+		t.Fatalf("expected budget-exhausted error on /goal resume, got: %#v", resumed.transcript)
+	}
+}
+
+func TestGoalBudgetCountsCancelledAutoCompactionSummaryTokens(t *testing.T) {
+	store := testSessionStore(t)
+	session, err := store.Create(sessions.CreateInput{SessionID: "goal_cancel_compact"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, _, err = store.CreateGoal(session.SessionID, "Manter orçamento real", 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := newModel(context.Background(), Options{
+		ModelName:    "muse-spark-1.3-contributor",
+		SessionStore: store,
+	})
+	m.activeSession = session
+	m.pending = true
+	m.activeRunID = 7
+	m.cancelRun() // moves run 7 into flushRunIDs and pauses goal
+
+	updated, _ := m.Update(agentResponseMsg{
+		runID:     7,
+		goalAware: true,
+		usageEvents: []qgruntime.Usage{{
+			InputTokens:  520,
+			OutputTokens: 80,
+			Summarizer:   true,
+		}},
+		usageModelID: "muse-spark-1.3-contributor",
+	})
+	settled := updated.(model)
+	if got := settled.activeSession.Goal.TokensUsed; got != 600 {
+		t.Fatalf("cancelled turn compaction summary tokens = %d, want 600", got)
+	}
+	resumed, cmd := settled.handleGoalCommand("resume")
+	if cmd != nil || resumed.pending {
+		t.Fatal("/goal resume must refuse after cancelled compaction exhausted budget")
+	}
+}

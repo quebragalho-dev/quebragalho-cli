@@ -123,10 +123,18 @@ func gitMetadataWriteCarveoutsWithLstat(root string, lstat func(string) (os.File
 }
 
 func PermissionProfileFromPolicy(workspaceRoot string, policy Policy, scope *Scope) PermissionProfile {
-	return permissionProfileFromPolicy(workspaceRoot, policy, scope, "", nil)
+	return permissionProfileFromPolicy(workspaceRoot, policy, scope, "", nil, runtime.GOOS)
 }
 
-func permissionProfileFromPolicy(workspaceRoot string, policy Policy, scope *Scope, credentialCommandDir string, credentialEnv []string) PermissionProfile {
+// PermissionProfileFromPolicyForGOOS builds the profile for a target platform
+// rather than the host: read roots and the credential baseline are
+// platform-shaped, so a Windows host planning a Linux command (or vice versa)
+// must not plant host-shaped paths into the other platform's plan.
+func PermissionProfileFromPolicyForGOOS(workspaceRoot string, policy Policy, scope *Scope, targetGOOS string) PermissionProfile {
+	return permissionProfileFromPolicy(workspaceRoot, policy, scope, "", nil, targetGOOS)
+}
+
+func permissionProfileFromPolicy(workspaceRoot string, policy Policy, scope *Scope, credentialCommandDir string, credentialEnv []string, targetGOOS string) PermissionProfile {
 	if policy.Mode == "" {
 		policy = DefaultPolicy()
 	}
@@ -141,7 +149,10 @@ func permissionProfileFromPolicy(workspaceRoot string, policy Policy, scope *Sco
 	if extra := normalizeProfileDirs(policy.AllowWrite); len(extra) > 0 {
 		roots = dedupeStrings(append(roots, extra...))
 	}
-	readRoots := permissionProfileReadRoots(workspaceRoot, policy, scope, roots)
+	if targetGOOS == "" {
+		targetGOOS = runtime.GOOS
+	}
+	readRoots := permissionProfileReadRoots(workspaceRoot, policy, scope, roots, targetGOOS)
 	writeRoots := make([]WritableRoot, 0, len(roots))
 	for _, root := range roots {
 		writeRoots = append(writeRoots, WritableRoot{
@@ -153,11 +164,23 @@ func permissionProfileFromPolicy(workspaceRoot string, policy Policy, scope *Sco
 	userDenyRead := normalizeProfilePaths(policy.DenyRead)
 	commandAllowedRoots := append([]string{}, roots...)
 	for _, root := range readRoots {
-		if root != profileRootPath() {
+		// Filesystem roots ("/", "\", "C:\", ...) must never become
+		// command-allowed: the credential baseline drops denies overlapping
+		// an allowed root, so admitting one would silently drop every
+		// credential deny on that drive.
+		if root != profileRootPath() && !isFilesystemRootPath(root) {
 			commandAllowedRoots = append(commandAllowedRoots, root)
 		}
 	}
-	credentials := credentialDenyReadPaths(policy, credentialCommandDir, credentialEnv, dedupeStrings(commandAllowedRoots))
+	// The credential baseline resolves host paths (home dirs, env overrides).
+	// A Windows host planning a non-Windows command would plant C:\... paths
+	// into a Linux/macOS plan whose backend fails closed on them, so that
+	// combination stays empty, as before. Windows-target profiles always
+	// populate it: the Windows ACL plan stamps best-effort DACL denies from it.
+	var credentials credentialDenyPaths
+	if targetGOOS == "windows" || runtime.GOOS != "windows" {
+		credentials = credentialDenyReadPaths(policy, credentialCommandDir, credentialEnv, dedupeStrings(commandAllowedRoots))
+	}
 	credentials = finalizeCredentialDenyPaths(credentials, userDenyRead)
 	return PermissionProfile{
 		FileSystem: FileSystemPolicy{
@@ -198,12 +221,13 @@ func permissionProfileRoots(workspaceRoot string, scope *Scope) []string {
 	return dedupeStrings(roots)
 }
 
-func permissionProfileReadRoots(workspaceRoot string, policy Policy, scope *Scope, writeRoots []string) []string {
+func permissionProfileReadRoots(workspaceRoot string, policy Policy, scope *Scope, writeRoots []string, targetGOOS string) []string {
 	// Workspace-write follows the upstream sandbox model: full disk is readable,
 	// while writes are narrowed to workspace/extra roots below. This is a
 	// deliberate read-all/write-jail posture; callers that must hide secrets use
-	// DenyRead to carve them out.
-	readRoots := []string{profileRootPath()}
+	// DenyRead to carve them out. On Windows the read-all half spans every
+	// mounted drive root (C:\, D:\, ...), not just the current drive ("\").
+	readRoots := policyFilesystemReadRootsForGOOS(targetGOOS)
 	readRoots = append(readRoots, writeRoots...)
 	if scope != nil {
 		readRoots = dedupeStrings(append(readRoots, scope.ReadRoots()...))
@@ -239,11 +263,12 @@ type credentialDenyPaths struct {
 // the preserved caller environment and QG's own config/token stores. Four
 // deliberate limits:
 //
-//   - Windows is skipped: a non-empty profile DenyRead is unsupported on both
-//     restricted-token runner levels under the narrow SID set (PR #640). The
-//     fully restricted token cannot load ordinary system binaries without
-//     Users/AuthUsers, and adding those groups reopens write grants outside
-//     WriteRoots. Revisit once access-time confinement exists.
+//   - Windows denies are best-effort DACL entries, not mounts: the Windows ACL
+//     plan stamps deny-write (both token modes) and deny-read (fully
+//     restricted token only) ACEs on the stores that exist when it applies,
+//     and skips the ones that do not rather than planting host directories.
+//     Reads stay unrestricted under WRITE_RESTRICTED, where the kernel skips
+//     restricted-SID deny ACEs for reads (#612).
 //   - A candidate nested under a user-configured AllowRead entry is dropped,
 //     so `allowRead: ["~/.aws"]` remains an explicit opt-out.
 //   - Candidates are emitted whether or not they currently exist on disk.
@@ -263,10 +288,6 @@ type credentialDenyPaths struct {
 // Policy.DenyRead, whose emptiness gates escalated (unsandboxed) execution and
 // must keep reflecting user configuration alone.
 func credentialDenyReadPaths(policy Policy, commandDir string, commandEnv []string, commandAllowedRoots []string) credentialDenyPaths {
-	if runtime.GOOS == "windows" {
-		return credentialDenyPaths{}
-	}
-
 	// Only roots derived from QG's own process environment may produce
 	// carveouts or host directories. CommandSpec.Env can contain project-controlled
 	// MCP environment overrides, so it contributes deny-if-present paths only.
@@ -443,7 +464,7 @@ func credentialPathOptionsFromEnvironment(baseDirs []string, env []string) crede
 			dockerConfigDirs = append(dockerConfigDirs, filepath.Join(home, ".docker"))
 		}
 	}
-	var kubeConfigs []string
+	kubeConfigs := []string{}
 	if kubeConfig := strings.TrimSpace(credentialEnvValue(env, "KUBECONFIG")); kubeConfig != "" {
 		for _, entry := range filepath.SplitList(kubeConfig) {
 			kubeConfigs = append(kubeConfigs, resolveCredentialOverridePaths(entry, baseDirs)...)
@@ -451,6 +472,12 @@ func credentialPathOptionsFromEnvironment(baseDirs []string, env []string) crede
 	} else {
 		for _, home := range homes {
 			kubeConfigs = append(kubeConfigs, filepath.Join(home, ".kube", "config"))
+		}
+	}
+	gnupgHomes := resolveCredentialOverridePaths(credentialEnvValue(env, "GNUPGHOME"), baseDirs)
+	if len(gnupgHomes) == 0 {
+		for _, home := range homes {
+			gnupgHomes = append(gnupgHomes, filepath.Join(home, ".gnupg"))
 		}
 	}
 	return credentialPathOptions{
@@ -463,6 +490,7 @@ func credentialPathOptionsFromEnvironment(baseDirs []string, env []string) crede
 		Netrcs:             dedupeStrings(netrcs),
 		DockerConfigDirs:   dedupeStrings(dockerConfigDirs),
 		KubeConfigs:        dedupeStrings(kubeConfigs),
+		GnuPGHomes:         dedupeStrings(gnupgHomes),
 		OAuthTokens:        resolveCredentialOverridePaths(credentialEnvValue(env, "QG_OAUTH_TOKENS_PATH"), baseDirs),
 		OAuthStorage:       strings.TrimSpace(credentialEnvValue(env, "QG_OAUTH_STORAGE")),
 		MCPOAuthTokens:     resolveCredentialOverridePaths(credentialEnvValue(env, "QG_MCP_OAUTH_TOKENS_PATH"), baseDirs),
@@ -490,6 +518,7 @@ type credentialPathOptions struct {
 	Netrcs             []string
 	DockerConfigDirs   []string
 	KubeConfigs        []string
+	GnuPGHomes         []string
 	OAuthTokens        []string
 	OAuthStorage       string
 	MCPOAuthTokens     []string
@@ -521,34 +550,43 @@ func credentialDenyReadPathsIn(options credentialPathOptions, allowRead []string
 			continue
 		}
 		homeDirs := []string{
+			filepath.Join(home, ".ssh"),
 			filepath.Join(home, ".aws"),
 			filepath.Join(home, ".azure"),
+			filepath.Join(home, ".kube"),
 		}
 		candidates = append(candidates, homeDirs...)
 		dirs = append(dirs, homeDirs...)
-		// git's credential store backend, which holds host passwords and
-		// personal access tokens in cleartext. Denied rather than the whole
-		// of ~/.ssh, because these cost nothing functionally: git reads them
-		// through a credential helper for authentication, not for identity,
-		// so a sandboxed git still works and simply cannot authenticate as
-		// the user. SSH key material is a harder trade and is tracked
-		// separately (#815). A file, so it joins candidates only — dirs
+		// git's credential store backend and Python's .pypirc, which hold
+		// cleartext credentials. Files only, so they join candidates — dirs
 		// drives directory-shaped handling (bwrap binds, carveouts).
-		candidates = append(candidates, filepath.Join(home, ".git-credentials"))
+		candidates = append(candidates,
+			filepath.Join(home, ".git-credentials"),
+			filepath.Join(home, ".pypirc"),
+		)
 	}
 	candidates = append(candidates, options.GoogleCredentials...)
 	candidates = append(candidates, options.NPMUserConfigs...)
 	candidates = append(candidates, options.Netrcs...)
 	candidates = append(candidates, options.KubeConfigs...)
+	for _, gnupgHome := range options.GnuPGHomes {
+		if strings.TrimSpace(gnupgHome) == "" {
+			continue
+		}
+		candidates = append(candidates, gnupgHome)
+		dirs = append(dirs, gnupgHome)
+	}
 	for _, dockerConfigDir := range options.DockerConfigDirs {
 		if strings.TrimSpace(dockerConfigDir) != "" {
 			candidates = append(candidates, filepath.Join(dockerConfigDir, "config.json"))
 		}
 	}
 	for _, ghConfigDir := range options.GHConfigDirs {
-		if strings.TrimSpace(ghConfigDir) != "" {
-			candidates = append(candidates, filepath.Join(ghConfigDir, "hosts.yml"))
+		if strings.TrimSpace(ghConfigDir) == "" {
+			continue
 		}
+		candidates = append(candidates, ghConfigDir)
+		dirs = append(dirs, ghConfigDir)
 	}
 	for _, cloudSDKConfigDir := range options.CloudSDKConfigDirs {
 		if strings.TrimSpace(cloudSDKConfigDir) == "" {

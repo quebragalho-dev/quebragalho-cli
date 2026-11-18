@@ -41,6 +41,16 @@ const (
 	slProfileSentinel = "profile-key-SENTINEL-91bd"
 )
 
+// slSetupWait is the deadline for anything these tests wait on as a
+// condition: a preview appearing, a script installed, a config written, a
+// command run. It is generous on purpose. A turn, a process spawn or a file
+// write that takes milliseconds on a quiet machine can take seconds on a
+// loaded one, and a condition either happens or it does not: a tight deadline
+// only turns a slow machine into a false failure. Waits that measure that
+// nothing happened, or that bound a timeout the product promises, keep their
+// own tighter clocks.
+const slSetupWait = 15 * time.Second
+
 type slEnv struct {
 	root          string
 	configDir     string
@@ -743,7 +753,7 @@ func TestStatusLineAcceptance_UserCommandOutputRenders(t *testing.T) {
 	command := writeScript(t, env, "user.sh", `printf 'SL-USER-OK\n'`)
 	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"command"}}}, command: command, refreshMS: 1000})
 	p := startSLPump(t, newSLModel(t, env, nil), 100, 30)
-	if frame, ok := p.waitFor(4*time.Second, containsPlain("SL-USER-OK")); !ok {
+	if frame, ok := p.waitFor(slSetupWait, containsPlain("SL-USER-OK")); !ok {
 		t.Fatalf("user-config command output never reached the statusline:\n%s", plainFrame(frame))
 	}
 }
@@ -758,7 +768,7 @@ func TestStatusLineAcceptance_StdinJSONHasSchemaAndNoCredentials(t *testing.T) {
 	command := writeScript(t, env, "stdin.sh", `cat > '`+captured+`'; printf 'SL-STDIN-OK\n'`)
 	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"command"}}}, command: command, refreshMS: 1000})
 	p := startSLPump(t, newSLModel(t, env, nil), 100, 30)
-	if frame, ok := p.waitFor(4*time.Second, containsPlain("SL-STDIN-OK")); !ok {
+	if frame, ok := p.waitFor(slSetupWait, containsPlain("SL-STDIN-OK")); !ok {
 		t.Fatalf("statusline command never ran:\n%s", plainFrame(frame))
 	}
 	raw, err := os.ReadFile(captured)
@@ -836,7 +846,7 @@ func TestStatusLineAcceptance_StdinUnknownsAreNull(t *testing.T) {
 	command := writeScript(t, env, "stdin.sh", `cat > '`+captured+`'; printf 'SL-STDIN-OK\n'`)
 	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"mode"}}}, command: command, refreshMS: 1000})
 	p := startSLPump(t, newSLModel(t, env, nil), 100, 30)
-	if frame, ok := p.waitFor(4*time.Second, containsPlain("SL-STDIN-OK")); !ok {
+	if frame, ok := p.waitFor(slSetupWait, containsPlain("SL-STDIN-OK")); !ok {
 		t.Fatalf("statusline command never ran:\n%s", plainFrame(frame))
 	}
 	raw, err := os.ReadFile(captured)
@@ -877,7 +887,7 @@ func TestStatusLineAcceptance_ChildEnvHasNoCredentials(t *testing.T) {
 	command := writeScript(t, env, "env.sh", `env > '`+dump+`'; printf 'SL-ENV-OK\n'`)
 	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"command"}}}, command: command, refreshMS: 1000})
 	p := startSLPump(t, newSLModel(t, env, nil), 100, 30)
-	if frame, ok := p.waitFor(4*time.Second, containsPlain("SL-ENV-OK")); !ok {
+	if frame, ok := p.waitFor(slSetupWait, containsPlain("SL-ENV-OK")); !ok {
 		t.Fatalf("statusline command never ran:\n%s", plainFrame(frame))
 	}
 	data, err := os.ReadFile(dump)
@@ -1346,7 +1356,7 @@ func TestStatusLineAcceptance_ProposalPreviewThenEnterApplies(t *testing.T) {
 	provider := slProposer(t, env, slLayout{lines: []slLine{{left: []string{"command"}}}, script: script, refreshMS: 1000, timeoutMS: 8000}, &staged)
 	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
 	p.submit("/statusline quero uma linha minha")
-	frame, ok := p.waitFor(8*time.Second, containsPlain("SL-PREVIEW-OK"))
+	frame, ok := p.waitFor(slSetupWait, containsPlain("SL-PREVIEW-OK"))
 	if !ok {
 		t.Fatalf("after the turn QG must render a preview of the staged proposal (staging=%q):\n%s", staged, plainFrame(frame))
 	}
@@ -1360,7 +1370,7 @@ func TestStatusLineAcceptance_ProposalPreviewThenEnterApplies(t *testing.T) {
 		t.Fatalf("live user config changed before confirmation:\n%s", now)
 	}
 	p.key(tea.KeyEnter)
-	p.waitFor(3*time.Second, func(string) bool {
+	p.waitFor(slSetupWait, func(string) bool {
 		data, _ := os.ReadFile(env.userConfig)
 		_, ok := slStatusLineFrom(t, data)
 		return ok
@@ -1390,15 +1400,18 @@ func TestStatusLineAcceptance_ProposalEscDiscardsStaging(t *testing.T) {
 	provider := slProposer(t, env, slLayout{lines: []slLine{{left: []string{"command"}}}, script: script, refreshMS: 1000}, &staged)
 	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
 	p.submit("/statusline quero uma linha minha")
-	if frame, ok := p.waitFor(8*time.Second, containsPlain("SL-PREVIEW-OK")); !ok {
+	if frame, ok := p.waitFor(slSetupWait, containsPlain("SL-PREVIEW-OK")); !ok {
 		t.Fatalf("no preview to cancel (staging=%q):\n%s", staged, plainFrame(frame))
 	}
 	if _, err := os.Stat(staged); err != nil {
 		t.Fatalf("precondition: staging file %q should exist while the preview is open: %v", staged, err)
 	}
 	p.key(tea.KeyEscape)
-	frame := p.runFor(1500 * time.Millisecond)
-	if _, err := os.Stat(staged); err == nil {
+	frame, discarded := p.waitFor(slSetupWait, func(string) bool {
+		_, err := os.Stat(staged)
+		return os.IsNotExist(err)
+	})
+	if !discarded {
 		t.Errorf("Esc must discard the staging file %s", staged)
 	}
 	if now, _ := os.ReadFile(env.userConfig); string(now) != string(before) {
@@ -1418,7 +1431,7 @@ func TestStatusLineAcceptance_UnknownFieldNeverReachesConfig(t *testing.T) {
 	provider := slProposer(t, env, slLayout{lines: []slLine{{left: []string{"mode", "nao_existe"}}}}, &staged)
 	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
 	p.submit("/statusline algo impossível")
-	frame, ok := p.waitFor(8*time.Second, func(frame string) bool {
+	frame, ok := p.waitFor(slSetupWait, func(frame string) bool {
 		plain := plainFrame(frame)
 		return strings.Contains(plain, "Enter aplica") && strings.Contains(plain, "nao_existe")
 	})
@@ -1426,7 +1439,11 @@ func TestStatusLineAcceptance_UnknownFieldNeverReachesConfig(t *testing.T) {
 		t.Fatalf("the preview must name the unknown field id before asking (staging=%q):\n%s", staged, plainFrame(frame))
 	}
 	p.key(tea.KeyEnter)
-	p.runFor(time.Second)
+	p.waitFor(slSetupWait, func(string) bool {
+		data, _ := os.ReadFile(env.userConfig)
+		_, ok := slStatusLineFrom(t, data)
+		return ok
+	})
 	now, _ := os.ReadFile(env.userConfig)
 	if strings.Contains(string(now), "nao_existe") {
 		t.Errorf("an unknown field id reached the user config:\n%s", now)
@@ -1445,16 +1462,19 @@ func TestStatusLineAcceptance_SlowScriptProposalRejected(t *testing.T) {
 	provider := slProposer(t, env, slLayout{lines: []slLine{{left: []string{"command"}}}, script: script, timeoutMS: 300}, &staged)
 	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
 	p.submit("/statusline algo lento")
-	if _, ok := p.waitFor(5*time.Second, func(string) bool { return provider.requestCount() > 0 }); !ok {
+	if _, ok := p.waitFor(slSetupWait, func(string) bool { return provider.requestCount() > 0 }); !ok {
 		t.Fatal("/statusline <pedido> must start a model turn")
 	}
 	// Past the script's own 2s: a dry run that ignored the 300ms bound would
 	// have finished by now and be waiting for Enter, so Enter would apply it.
+	// The 2s is the script's own sleep, not a wait for something to happen.
 	frame := p.runFor(3 * time.Second)
 	if strings.Contains(plainFrame(frame), "SL-TOO-SLOW") {
 		t.Errorf("the slow script's output reached the preview:\n%s", plainFrame(frame))
 	}
 	p.key(tea.KeyEnter)
+	// A refused proposal writes nothing: this waits for the absence of a
+	// write, so it keeps a short window instead of a deadline.
 	p.runFor(time.Second)
 	if now, _ := os.ReadFile(env.userConfig); string(now) != string(before) {
 		t.Errorf("a proposal whose script exceeds its timeout reached the user config:\n%s", now)
@@ -1469,12 +1489,18 @@ func TestStatusLineAcceptance_ResetRestoresDefault(t *testing.T) {
 	command := writeScript(t, env, "custom.sh", `printf 'SL-CUSTOM-LIVE\n'`)
 	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"command"}}}, command: command, refreshMS: 1000})
 	p := startSLPump(t, newSLModel(t, env, nil), 100, 30)
-	p.runFor(1500 * time.Millisecond)
+	if frame, ok := p.waitFor(slSetupWait, containsPlain("SL-CUSTOM-LIVE")); !ok {
+		t.Fatalf("precondition: the current command never rendered:\n%s", plainFrame(frame))
+	}
 	p.submit("/statusline reset")
 	// The spec does not say whether reset asks first; a second Enter on an
 	// empty composer is inert when it does not.
 	p.key(tea.KeyEnter)
-	frame := p.runFor(1500 * time.Millisecond)
+	frame, _ := p.waitFor(slSetupWait, func(frame string) bool {
+		data, _ := os.ReadFile(env.userConfig)
+		_, custom := slStatusLineFrom(t, data)
+		return !custom && !strings.Contains(plainFrame(frame), "SL-CUSTOM-LIVE")
+	})
 	data, _ := os.ReadFile(env.userConfig)
 	if block, ok := slStatusLineFrom(t, data); ok {
 		t.Errorf("/statusline reset must drop the custom statusline from the user config; still %s", block)
@@ -1600,24 +1626,35 @@ func TestStatusLineAcceptance_AppliedCommandRunsOnItsCadence(t *testing.T) {
 	provider := slProposer(t, env, slLayout{lines: []slLine{{left: []string{"mode"}}}, script: script, refreshMS: 1000}, &staged)
 	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
 	p.submit("/statusline quero uma linha que se atualiza")
-	if frame, ok := p.waitFor(8*time.Second, containsPlain("Enter aplica")); !ok {
+	// The preview only exists once the turn lands and the staged script has
+	// been dry-run: a condition, not a deadline.
+	if frame, ok := p.waitFor(slSetupWait, containsPlain("Enter aplica")); !ok {
 		t.Fatalf("no preview to apply (staging=%q):\n%s", staged, plainFrame(frame))
 	}
 	turns := provider.requestCount()
 	afterPreview := len(fileLines(runs))
 	p.key(tea.KeyEnter)
-	frame, ok := p.waitFor(2*time.Second, func(frame string) bool {
+	// The applied command must show up by itself; the cadence check below
+	// measures how often it runs.
+	frame, ok := p.waitFor(slSetupWait, func(frame string) bool {
 		return strings.Contains(slFooter(plainFrame(frame)), "SL-CADENCE")
 	})
 	if !ok {
 		t.Errorf("the applied command must render right away, not at the next turn:\n%s", slFooter(plainFrame(frame)))
 	}
-	p.runFor(3500 * time.Millisecond)
+	// Three more runs at refreshMs=1000 is the cadence actually starting
+	// without a restart: wait for them (a loaded machine delays each run, it
+	// does not drop it) and only then stop the clock.
+	window := time.Now()
+	got, _ := p.waitFor(slSetupWait, func(string) bool {
+		return len(fileLines(runs))-afterPreview >= 3
+	})
+	elapsed := time.Since(window)
+	if n := len(fileLines(runs)) - afterPreview; n < 3 {
+		t.Fatalf("refreshMs=1000 after apply: %d run(s) in %s with no turn; the cadence must start without a restart:\n%s", n, elapsed.Round(time.Millisecond), slFooter(plainFrame(got)))
+	}
 	if provider.requestCount() != turns {
 		t.Fatalf("precondition: no model turn may run in the idle window")
-	}
-	if n := len(fileLines(runs)) - afterPreview; n < 3 {
-		t.Errorf("refreshMs=1000 after apply: %d run(s) in ~5s with no turn; the cadence must start without a restart", n)
 	}
 }
 
@@ -1668,11 +1705,15 @@ func TestStatusLineAcceptance_FieldsOnlyProposalKeepsCommand(t *testing.T) {
 	provider := slProposer(t, env, slLayout{lines: []slLine{{left: []string{"mode", "branch"}}}}, &staged)
 	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
 	p.submit("/statusline põe o branch do lado do modo")
-	if frame, ok := p.waitFor(8*time.Second, containsPlain("Enter aplica")); !ok {
+	if frame, ok := p.waitFor(slSetupWait, containsPlain("Enter aplica")); !ok {
 		t.Fatalf("no preview to apply (staging=%q):\n%s", staged, plainFrame(frame))
 	}
 	p.key(tea.KeyEnter)
-	p.runFor(time.Second)
+	p.waitFor(slSetupWait, func(string) bool {
+		data, _ := os.ReadFile(env.userConfig)
+		_, ok := slStatusLineFrom(t, data)
+		return ok
+	})
 	data, _ := os.ReadFile(env.userConfig)
 	block, ok := slStatusLineFrom(t, data)
 	if !ok {
@@ -1786,11 +1827,17 @@ func TestStatusLineAcceptance_SymlinkedStagedScriptRefused(t *testing.T) {
 	}}
 	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
 	p.submit("/statusline quero uma linha minha")
-	if _, ok := p.waitFor(5*time.Second, func(string) bool { return provider.requestCount() > 0 }); !ok {
+	if _, ok := p.waitFor(slSetupWait, func(string) bool { return provider.requestCount() > 0 }); !ok {
 		t.Fatal("/statusline <pedido> must start a model turn")
 	}
-	p.runFor(3 * time.Second)
+	// The refusal must land before Enter can apply anything: wait for the
+	// turn to settle, then give the setup its window to report.
+	p.waitFor(slSetupWait, func(string) bool {
+		current, isModel := p.m.(model)
+		return isModel && !current.pending
+	})
 	p.key(tea.KeyEnter)
+	// Nothing may happen after Enter: a short window, not a deadline.
 	frame := p.runFor(time.Second)
 	mu.Lock()
 	staged := done
@@ -1872,13 +1919,13 @@ func TestStatusLineAcceptance_NullCommandProposalRemovesCommand(t *testing.T) {
 	var staged string
 	provider := slProposer(t, env, slLayout{lines: []slLine{{left: []string{"mode", "branch"}}}, dropCommand: true}, &staged)
 	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
-	if frame, ok := p.waitFor(4*time.Second, func(frame string) bool {
+	if frame, ok := p.waitFor(slSetupWait, func(frame string) bool {
 		return strings.Contains(slFooter(plainFrame(frame)), "SL-OLD")
 	}); !ok {
 		t.Fatalf("precondition: the current command output never rendered:\n%s", plainFrame(frame))
 	}
 	p.submit("/statusline tira o comando e põe o branch")
-	frame, ok := p.waitFor(8*time.Second, containsPlain("Enter aplica"))
+	frame, ok := p.waitFor(slSetupWait, containsPlain("Enter aplica"))
 	if !ok {
 		t.Fatalf("no preview to apply (staging=%q):\n%s", staged, plainFrame(frame))
 	}
@@ -1894,7 +1941,7 @@ func TestStatusLineAcceptance_NullCommandProposalRemovesCommand(t *testing.T) {
 		t.Errorf("the preview of a proposal that removes the command must not show the old output:\n%s", above)
 	}
 	p.key(tea.KeyEnter)
-	p.waitFor(3*time.Second, func(string) bool {
+	p.waitFor(slSetupWait, func(string) bool {
 		data, _ := os.ReadFile(env.userConfig)
 		block, ok := slStatusLineFrom(t, data)
 		return ok && strings.Contains(string(block), "branch")
@@ -1920,6 +1967,8 @@ func TestStatusLineAcceptance_NullCommandProposalRemovesCommand(t *testing.T) {
 		t.Errorf("\"command\": null must remove the command from the config; got %s", block)
 	}
 	slAssertUserConfigPreserved(t, data)
+	// The removed command must stop: both waits below measure that nothing
+	// happened, so they keep their short windows.
 	p.runFor(500 * time.Millisecond)
 	before := len(fileLines(runs))
 	frame = p.runFor(2500 * time.Millisecond)
@@ -2033,7 +2082,11 @@ func TestStatusLineAcceptance_SwappedStagingDirRefused(t *testing.T) {
 	}}
 	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
 	p.submit("/statusline quero uma linha minha")
-	frame := p.runFor(4 * time.Second)
+	frame, _ := p.waitFor(slSetupWait, func(frame string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return swapped || strings.Contains(plainFrame(frame), "Enter aplica")
+	})
 	mu.Lock()
 	ok := swapped
 	mu.Unlock()
@@ -2042,6 +2095,8 @@ func TestStatusLineAcceptance_SwappedStagingDirRefused(t *testing.T) {
 	}
 	if strings.Contains(plainFrame(frame), "Enter aplica") {
 		p.key(tea.KeyEscape)
+		// Esc must leave the swapped-in dir alone: a short window, not a
+		// deadline.
 		p.runFor(time.Second)
 	}
 	if _, err := os.Stat(marker); err == nil {

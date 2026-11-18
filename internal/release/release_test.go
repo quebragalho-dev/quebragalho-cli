@@ -62,6 +62,11 @@ func TestWriteAndVerifyReleaseChecksums(t *testing.T) {
 		t.Fatalf("verified checksum = %#v", verifiedFile)
 	}
 
+	bundlePath := filepath.Join(dir, SignatureBundleName(archiveName))
+	if err := os.WriteFile(bundlePath, []byte(`{"mediaType":"application/vnd.dev.sigstore.bundle+json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile bundle: %v", err)
+	}
+
 	verifiedRelease, err := VerifyReleaseChecksums(VerifyOptions{ReleaseDir: dir})
 	if err != nil {
 		t.Fatalf("VerifyReleaseChecksums returned error: %v", err)
@@ -129,6 +134,56 @@ func TestVerifyReleaseChecksumsRequiresMatchingFiles(t *testing.T) {
 	_, err = VerifyReleaseChecksums(VerifyOptions{ReleaseDir: dir})
 	if err == nil || !strings.Contains(err.Error(), "unexpected checksum file") {
 		t.Fatalf("VerifyReleaseChecksums error = %v, want unexpected checksum", err)
+	}
+}
+
+func TestVerifyReleaseChecksumsRequiresSignatureBundle(t *testing.T) {
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, "qg-v0.1.0-linux-x64.tar.gz")
+	if err := os.WriteFile(archivePath, []byte("archive bytes"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if _, err := WriteSHA256Checksum(archivePath); err != nil {
+		t.Fatalf("WriteSHA256Checksum: %v", err)
+	}
+
+	_, err := VerifyReleaseChecksums(VerifyOptions{ReleaseDir: dir})
+	if err == nil || !strings.Contains(err.Error(), "missing signature bundle") {
+		t.Fatalf("VerifyReleaseChecksums error = %v, want missing signature bundle", err)
+	}
+
+	bundlePath := filepath.Join(dir, SignatureBundleName("qg-v0.1.0-linux-x64.tar.gz"))
+	if err := os.WriteFile(bundlePath, []byte(`{"mediaType":"application/vnd.dev.sigstore.bundle+json"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile bundle: %v", err)
+	}
+	verified, err := VerifyReleaseChecksums(VerifyOptions{ReleaseDir: dir})
+	if err != nil {
+		t.Fatalf("VerifyReleaseChecksums with bundle returned error: %v", err)
+	}
+	if len(verified) != 1 || verified[0].ArchiveName != "qg-v0.1.0-linux-x64.tar.gz" {
+		t.Fatalf("verified release = %#v, want the archive", verified)
+	}
+}
+
+func TestVerifyReleaseChecksumsRejectsStraySignatureBundle(t *testing.T) {
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, "qg-v0.1.0-linux-x64.tar.gz")
+	if err := os.WriteFile(archivePath, []byte("archive bytes"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if _, err := WriteSHA256Checksum(archivePath); err != nil {
+		t.Fatalf("WriteSHA256Checksum: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, SignatureBundleName("qg-v0.1.0-linux-x64.tar.gz")), []byte("{}"), 0o644); err != nil {
+		t.Fatalf("WriteFile bundle: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "qg-v9.9.9-linux-x64.tar.gz.sigstore.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatalf("WriteFile stray bundle: %v", err)
+	}
+
+	_, err := VerifyReleaseChecksums(VerifyOptions{ReleaseDir: dir})
+	if err == nil || !strings.Contains(err.Error(), "unexpected signature bundle") {
+		t.Fatalf("VerifyReleaseChecksums error = %v, want unexpected signature bundle", err)
 	}
 }
 

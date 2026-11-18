@@ -67,8 +67,8 @@ const pinnedModelDigest = "d5fe6ec4334fef36255b2a4010412cad4c007e33103fec62fb5d1
 
 // ModelVariant is a downloadable model the /stt-model picker offers, with a
 // pinned SHA256 (the model release predates GitHub's per-asset digests, so these
-// must be pinned). Batch variants use the offline binary; the streaming variant
-// (a transducer) drives the websocket server for a live transcript.
+// must be pinned). Batch variants use sherpa-onnx-offline; streaming variants
+// use the sherpa-onnx online file decoder wrapped in rollingTranscriber.
 type ModelVariant struct {
 	ID          string
 	Label       string
@@ -171,9 +171,10 @@ func ModelVariants() []ModelVariant {
 			Recommended: true,
 			Language:    "en",
 		},
+		// FunAudioLLM/SenseVoice, FunASR Model License v1.1 (attribution: FunAudioLLM/SenseVoice).
 		{
 			ID: "sense-voice-zh-en-ja-ko-yue-int8-2025-09-09", Label: "SenseVoice",
-			Description: "multilingual, accurate", Bytes: 158 << 20,
+			Description: "multilíngue, FunAudioLLM/SenseVoice", Bytes: 158 << 20,
 			AssetName:   "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2",
 			Digest:      "7305f7905bfcf77fa0b39388a313f3da35c68d971661a65475b56fb2162c8e63",
 			DirName:     "model-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09",
@@ -497,9 +498,9 @@ var curatedModelLanguages = func() map[string][]string {
 
 // EngineComponents identifies the resolved local-engine paths.
 type EngineComponents struct {
-	BinaryPath string // extracted sherpa-onnx-offline
-	ServerPath string // extracted sherpa-onnx-online-websocket-server
-	ModelPath  string // extracted model directory
+	BinaryPath       string // extracted sherpa-onnx-offline
+	OnlineBinaryPath string // extracted sherpa-onnx (streaming/online file decoder)
+	ModelPath        string // extracted model directory
 }
 
 // DownloadOptions configures EnsureLocalEngine.
@@ -584,8 +585,8 @@ func EnsureLocalEngine(ctx context.Context, opts DownloadOptions) (EngineCompone
 	targetWindows := strings.HasPrefix(key, "windows-")
 	// Resolve through the tarball's flattened subdir so an ALREADY-extracted
 	// engine is found and not needlessly re-downloaded (the idempotency check).
-	binPath, serverPath := resolveEnginePaths(engineDir, targetWindows)
-	if !fileExists(binPath) {
+	binPath, onlineBinPath := resolveEnginePaths(engineDir, targetWindows)
+	if !fileExists(binPath) || !fileExists(onlineBinPath) {
 		pinned := ""
 		if version == DefaultSherpaVersion && !opts.skipPinned {
 			pinned = pinnedEngineDigest[key]
@@ -597,10 +598,10 @@ func EnsureLocalEngine(ctx context.Context, opts DownloadOptions) (EngineCompone
 		if err := downloadVerifyExtract(ctx, client, asset, pinned, false, "Engine", engineDir, progress, opts.ProgressBytes); err != nil {
 			return EngineComponents{}, err
 		}
-		binPath, serverPath = resolveEnginePaths(engineDir, targetWindows)
+		binPath, onlineBinPath = resolveEnginePaths(engineDir, targetWindows)
 	}
-	if !fileExists(binPath) {
-		return EngineComponents{}, fmt.Errorf("dictation download: engine binary not found after extraction in %s", engineDir)
+	if !fileExists(binPath) || !fileExists(onlineBinPath) {
+		return EngineComponents{}, fmt.Errorf("dictation download: engine binaries not found after extraction in %s", engineDir)
 	}
 
 	modelName := opts.ModelAssetName
@@ -648,7 +649,7 @@ func EnsureLocalEngine(ctx context.Context, opts DownloadOptions) (EngineCompone
 	if !hasTokensFile(resolvedModel) {
 		return EngineComponents{}, fmt.Errorf("dictation download: model files not found after extraction in %s", modelDir)
 	}
-	return EngineComponents{BinaryPath: binPath, ServerPath: serverPath, ModelPath: resolvedModel}, nil
+	return EngineComponents{BinaryPath: binPath, OnlineBinaryPath: onlineBinPath, ModelPath: resolvedModel}, nil
 }
 
 type resolvedAsset struct {
@@ -841,26 +842,26 @@ func (p *progressReader) Read(b []byte) (int, error) {
 // TARGET platform (the one the engine was downloaded for), not the host — they
 // match in production (you download your own platform), but keying off the target
 // keeps resolution correct when the two differ (e.g. a cross-platform test).
-func enginePaths(engineDir string, targetWindows bool) (bin, server string) {
+func enginePaths(engineDir string, targetWindows bool) (offlineBin, onlineBin string) {
 	ext := ""
 	if targetWindows {
 		ext = ".exe"
 	}
 	return filepath.Join(engineDir, "bin", "sherpa-onnx-offline"+ext),
-		filepath.Join(engineDir, "bin", "sherpa-onnx-online-websocket-server"+ext)
+		filepath.Join(engineDir, "bin", "sherpa-onnx"+ext)
 }
 
 // resolveEnginePaths finds the executables, flattening the tarball's single
 // top-level directory when present.
-func resolveEnginePaths(engineDir string, targetWindows bool) (bin, server string) {
-	bin, server = enginePaths(engineDir, targetWindows)
-	if fileExists(bin) {
-		return bin, server
+func resolveEnginePaths(engineDir string, targetWindows bool) (offlineBin, onlineBin string) {
+	offlineBin, onlineBin = enginePaths(engineDir, targetWindows)
+	if fileExists(offlineBin) || fileExists(onlineBin) {
+		return offlineBin, onlineBin
 	}
 	if child, err := flattenSingleChild(engineDir); err == nil && child != engineDir {
 		return enginePaths(child, targetWindows)
 	}
-	return bin, server
+	return offlineBin, onlineBin
 }
 
 // extractTarBz2 unpacks a bzip2-compressed tar into destDir, guarding against
@@ -964,8 +965,8 @@ func EngineDownloaded(destRoot, version string) bool {
 		version = DefaultSherpaVersion
 	}
 	engineDir := filepath.Join(destRoot, "engine-"+version+"-"+platformKey())
-	bin, _ := resolveEnginePaths(engineDir, runtime.GOOS == "windows")
-	return fileExists(bin)
+	bin, onlineBin := resolveEnginePaths(engineDir, runtime.GOOS == "windows")
+	return fileExists(bin) && fileExists(onlineBin)
 }
 
 func dirHasModel(dir string) bool {

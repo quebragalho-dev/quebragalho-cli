@@ -24,23 +24,13 @@ const (
 // resolves provider API keys (credstore + env + configured providers) — logic
 // that belongs with the rest of the CLI's credential handling.
 //
-// serverMgr is the shared, session-long sherpa-onnx streaming server; it is
-// spawned lazily on the first local-streaming recording and torn down on exit.
-//
 // preferStreaming asks for the streaming backend; the returned bool reports
 // whether streaming was actually built (false → the caller uses the batch
 // pipeline). A misconfigured streaming backend surfaces its own SetupError.
-func newDictationTranscriberFactory(resolved config.ResolvedConfig, userConfigPath string, serverMgr *dictation.ServerManager) func(config.STTConfig, bool) (tui.Transcriber, bool, error) {
+func newDictationTranscriberFactory(resolved config.ResolvedConfig, userConfigPath string) func(config.STTConfig, bool) (tui.Transcriber, bool, error) {
 	return func(stt config.STTConfig, preferStreaming bool) (tui.Transcriber, bool, error) {
-		// stt is passed in (not captured) so a mid-session change — e.g. the F9
-		// auto-download writing localModelPath and localServerBinary — takes
-		// effect on the next call.
-		if serverMgr != nil {
-			serverMgr.SetModelPath(stt.LocalModelPath)
-			serverMgr.SetBinary(stt.LocalServerBinary)
-		}
 		if preferStreaming {
-			t, err := buildStreamingTranscriber(stt, resolved, userConfigPath, serverMgr)
+			t, err := buildStreamingTranscriber(stt, resolved, userConfigPath)
 			switch {
 			case err == nil && t != nil:
 				return t, true, nil
@@ -52,7 +42,7 @@ func newDictationTranscriberFactory(resolved config.ResolvedConfig, userConfigPa
 			}
 			// The default local streaming backend isn't set up: fall through to the
 			// batch pipeline so a cloud-batch provider (or a batch-only setup) still
-			// works instead of erroring on a streaming server the user never asked for.
+			// works instead of erroring on a local setup the user never asked for.
 		}
 		t, err := buildBatchTranscriber(stt, resolved, userConfigPath)
 		return t, false, err
@@ -62,7 +52,7 @@ func newDictationTranscriberFactory(resolved config.ResolvedConfig, userConfigPa
 // buildStreamingTranscriber constructs the configured streaming backend, or
 // returns (nil, nil) when streaming is not applicable so the caller falls back
 // to batch.
-func buildStreamingTranscriber(stt config.STTConfig, resolved config.ResolvedConfig, userConfigPath string, serverMgr *dictation.ServerManager) (dictation.Transcriber, error) {
+func buildStreamingTranscriber(stt config.STTConfig, resolved config.ResolvedConfig, userConfigPath string) (dictation.Transcriber, error) {
 	switch stt.STTStreamProvider() {
 	case config.STTProviderDeepgram:
 		key := resolveSTTKey(resolved, userConfigPath, dictation.StreamProviderDeepgram, "DEEPGRAM_API_KEY")
@@ -77,53 +67,38 @@ func buildStreamingTranscriber(stt config.STTConfig, resolved config.ResolvedCon
 			APIKey: key,
 			Model:  stt.StreamModel,
 		})
-	default: // local streaming via the warm sherpa-onnx server
+	default: // local live transcription via rolling file execution (no network server)
 		// STTStreamProvider() defaults to "local" whenever streamProvider is unset —
 		// including when the user picked a CLOUD batch provider (Groq/OpenAI) and
-		// never touched streaming. Don't silently stream through the local sherpa
-		// server in that case: local streaming is only appropriate when it was
-		// explicitly requested (streamProvider: "local") OR the batch provider is
-		// itself local. Otherwise report "not applicable" so the factory falls back
-		// to the cloud batch pipeline the user actually chose.
+		// never touched streaming. Don't silently hijack that with local rolling:
+		// local live transcription is only appropriate when it was explicitly
+		// requested (streamProvider: "local") OR the batch provider is itself local.
+		// Otherwise report "not applicable" so the factory falls back to the cloud
+		// batch pipeline the user actually chose.
 		localWanted := stt.StreamProvider == config.STTProviderLocal || stt.STTProvider() == config.STTProviderLocal
 		if !localWanted {
 			return nil, nil
 		}
-		// The local streaming transcriber validates the model only lazily (at
-		// connect time), so gate on the model path here — with none set, report
-		// "not applicable" (nil, nil) so the factory falls back to the batch
-		// pipeline instead of committing to a server that can't start.
 		if strings.TrimSpace(stt.LocalModelPath) == "" {
 			return nil, nil
 		}
-		// A batch (non-streaming) model directory gets live text through the
-		// rolling transcriber, which re-transcribes the whole clip on top of
-		// the offline binary. It needs no server, so the serverMgr == nil gate
-		// below must not block this path.
-		if !dictation.StreamingModelDir(stt.LocalModelPath) {
-			inner, err := newLocalBatchTranscriber(stt)
-			if err != nil {
-				return nil, err
-			}
-			return dictation.NewRollingTranscriber(inner, dictation.RollingOptions{}), nil
+		// Streaming models run in-process through sherpa-onnx's shared C API
+		// when available (no network server, no per-partial subprocess). Batch
+		// models and CLI-only setups keep rollingTranscriber.
+		if libPath := dictation.CanUseSherpaCAPI(stt.LocalModelPath, resolveLocalOnlineBinary(stt)); libPath != "" {
+			return dictation.NewLocalStreamingTranscriber(dictation.LocalConfig{
+				Binary:     resolveLocalOnlineBinary(stt),
+				ModelPath:  stt.LocalModelPath,
+				NumThreads: stt.NumThreads,
+				Online:     true,
+			}, libPath)
 		}
-		if serverMgr == nil {
-			return nil, nil
+		inner, err := newLocalFileTranscriber(stt)
+		if err != nil {
+			return nil, err
 		}
-		return dictation.NewLocalStreamingTranscriber(serverMgr), nil
+		return dictation.NewRollingTranscriber(inner, dictation.RollingOptions{}), nil
 	}
-}
-
-// newDictationServerManager builds the warm sherpa-onnx streaming server manager
-// from config. Construction is side-effect free — the server spawns lazily on
-// the first local-streaming recording — so it is always safe to create.
-func newDictationServerManager(stt config.STTConfig) *dictation.ServerManager {
-	return dictation.NewServerManager(dictation.ServerConfig{
-		Binary:     stt.LocalServerBinary,
-		ModelPath:  stt.LocalModelPath,
-		Port:       stt.LocalServerPort,
-		NumThreads: stt.NumThreads,
-	})
 }
 
 // buildBatchTranscriber constructs the configured batch transcriber, resolving
@@ -157,19 +132,48 @@ func buildBatchTranscriber(stt config.STTConfig, resolved config.ResolvedConfig,
 			Language: stt.Language,
 		})
 	default: // local
-		return newLocalBatchTranscriber(stt)
+		return newLocalFileTranscriber(stt)
 	}
 }
 
-// newLocalBatchTranscriber builds the offline batch transcriber for a local
-// model directory. It is shared by the batch pipeline and the rolling live
-// path so both configure the same binary, model and thread count.
-func newLocalBatchTranscriber(stt config.STTConfig) (dictation.Transcriber, error) {
+// newLocalFileTranscriber builds the file-based transcriber for a local model
+// directory. Streaming models run sherpa-onnx (online file decoder); batch
+// models run sherpa-onnx-offline. Shared by the batch pipeline and the rolling
+// live path.
+func newLocalFileTranscriber(stt config.STTConfig) (dictation.Transcriber, error) {
+	online := dictation.StreamingModelDir(stt.LocalModelPath)
+	binary := stt.LocalBinary
+	if online {
+		binary = resolveLocalOnlineBinary(stt)
+	}
 	return dictation.NewLocalTranscriber(dictation.LocalConfig{
-		Binary:     stt.LocalBinary,
+		Binary:     binary,
 		ModelPath:  stt.LocalModelPath,
 		NumThreads: stt.NumThreads,
+		Online:     online,
 	})
+}
+
+// resolveLocalOnlineBinary picks the executable for streaming/online models
+// (sherpa-onnx). An explicit stt.localOnlineBinary wins; otherwise, if
+// stt.localBinary is a path (e.g. from an earlier engine download before
+// localOnlineBinary existed) and a sibling sherpa-onnx binary lives next to it,
+// use that sibling. Empty falls back to "sherpa-onnx" on PATH.
+func resolveLocalOnlineBinary(stt config.STTConfig) string {
+	if b := strings.TrimSpace(stt.LocalOnlineBinary); b != "" {
+		return b
+	}
+	if bin := strings.TrimSpace(stt.LocalBinary); bin != "" && strings.ContainsAny(bin, `/\`) {
+		name := "sherpa-onnx"
+		if strings.EqualFold(filepath.Ext(bin), ".exe") {
+			name += ".exe"
+		}
+		candidate := filepath.Join(filepath.Dir(bin), name)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
 }
 
 // sttEnvVar returns the conventional environment variable a cloud STT provider's

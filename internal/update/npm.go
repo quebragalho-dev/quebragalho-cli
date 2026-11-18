@@ -34,11 +34,18 @@ func CheckNpm(ctx context.Context, options Options) (Result, error) {
 		currentVersion = "0.0.0"
 	}
 	base := strings.TrimSpace(envstr.FirstNonEmpty(options.Endpoint, DefaultNpmRegistry))
-	parsed, err := url.ParseRequestURI(strings.TrimSuffix(base, "/"))
-	if err != nil || parsed.Scheme == "" {
+	trimmedBase := strings.TrimRight(base, "/")
+	parsed, err := url.ParseRequestURI(trimmedBase)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return Result{}, fmt.Errorf("invalid npm registry endpoint %q: use a base URL like %s", base, DefaultNpmRegistry)
 	}
-	endpoint := strings.TrimSuffix(base, "/") + "/" + url.PathEscape(npmPackageName) + "/latest"
+	if err := requireSecureURL(trimmedBase); err != nil {
+		return Result{}, err
+	}
+	endpoint := trimmedBase + "/" + url.PathEscape(npmPackageName) + "/latest"
+	if err := requireSecureURL(endpoint); err != nil {
+		return Result{}, err
+	}
 	timeout := options.Timeout
 	if timeout < 0 {
 		return Result{}, fmt.Errorf("timeout must be non-negative")
@@ -57,7 +64,7 @@ func CheckNpm(ctx context.Context, options Options) (Result, error) {
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("User-Agent", "qg/update")
-	response, err := http.DefaultClient.Do(request)
+	response, err := updateHTTPClient.Do(request)
 	if err != nil {
 		return Result{}, err
 	}

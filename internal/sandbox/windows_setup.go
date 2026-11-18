@@ -11,11 +11,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/filelock"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 const WindowsSandboxSetupName = "qg-windows-sandbox-setup.exe"
 
-const windowsSandboxSetupMarkerSchemaVersion = 5
+const windowsSandboxSetupMarkerSchemaVersion = 6
 
 type WindowsSandboxSetupArgsOptions struct {
 	SandboxHome       string
@@ -32,9 +36,13 @@ type WindowsSandboxSetupConfig struct {
 }
 
 type WindowsSandboxSetupMarker struct {
-	SchemaVersion  int    `json:"schemaVersion"`
-	ACLPlanHash    string `json:"aclPlanHash"`
-	ACLPlanEntries int    `json:"aclPlanEntries"`
+	SchemaVersion int `json:"schemaVersion"`
+	// AppliedPlans is the set of workspace ACL plans this sandbox home has
+	// provisioned (by `qg sandbox setup` or by the runner's on-demand apply),
+	// so one setup serves every folder instead of bricking all but one with
+	// "out of date". The WFP network half below stays machine-global: one
+	// elevated setup provisions it, every workspace reuses it.
+	AppliedPlans []WindowsSandboxSetupAppliedPlan `json:"appliedPlans,omitempty"`
 	// NetworkInfraHash fingerprints the mode-INDEPENDENT network infrastructure
 	// setup provisioned (block filters scoped to the offline-marker SID), so one
 	// marker validly serves both an allow command and a deny command. It replaces
@@ -43,6 +51,46 @@ type WindowsSandboxSetupMarker struct {
 	NetworkInfraHash string `json:"networkInfraHash"`
 	OfflineFilterSID string `json:"offlineFilterSid"`
 	NetworkFilters   int    `json:"networkFilters"`
+}
+
+// WindowsSandboxSetupAppliedPlan fingerprints one workspace ACL plan the setup
+// has provisioned. It carries no network hash: the unelevated on-demand apply
+// provisions no WFP filters, so there is nothing network-side to fingerprint
+// per plan.
+type WindowsSandboxSetupAppliedPlan struct {
+	ACLPlanHash    string `json:"aclPlanHash"`
+	ACLPlanEntries int    `json:"aclPlanEntries"`
+}
+
+// windowsSandboxSetupMarkerV5 is the previous single-plan shape. A host set up
+// before the upgrade migrates it into a one-element AppliedPlans set instead
+// of being told to re-run setup.
+type windowsSandboxSetupMarkerV5 struct {
+	SchemaVersion    int    `json:"schemaVersion"`
+	ACLPlanHash      string `json:"aclPlanHash"`
+	ACLPlanEntries   int    `json:"aclPlanEntries"`
+	NetworkInfraHash string `json:"networkInfraHash"`
+	OfflineFilterSID string `json:"offlineFilterSid"`
+	NetworkFilters   int    `json:"networkFilters"`
+}
+
+// windowsSandboxSetupPlanMismatchError reports a marker that is valid
+// (schema and network infrastructure match) but has no record of the current
+// workspace plan. The runner heals this by applying the plan on demand and
+// recording it, instead of failing with "out of date".
+type windowsSandboxSetupPlanMismatchError struct {
+	plan WindowsSandboxSetupAppliedPlan
+}
+
+func (err *windowsSandboxSetupPlanMismatchError) Error() string {
+	return "windows sandbox setup is out of date: this workspace was never provisioned — run `qg sandbox setup` from an elevated (Administrator) terminal"
+}
+
+// IsWindowsSandboxSetupPlanMismatch reports whether err is a plan-membership
+// miss (healable by an on-demand apply) rather than a stale setup.
+func IsWindowsSandboxSetupPlanMismatch(err error) bool {
+	var mismatch *windowsSandboxSetupPlanMismatchError
+	return errors.As(err, &mismatch)
 }
 
 func WindowsSandboxSetupMarkerPath(sandboxHome string) string {
@@ -172,11 +220,7 @@ func WindowsSandboxSetupConfigFromCommand(config WindowsSandboxCommandConfig) Wi
 }
 
 func BuildWindowsSandboxSetupMarker(config WindowsSandboxSetupConfig) (WindowsSandboxSetupMarker, error) {
-	plan, err := BuildWindowsACLPlan(config.commandConfig())
-	if err != nil {
-		return WindowsSandboxSetupMarker{}, err
-	}
-	hash, err := WindowsACLPlanHash(plan)
+	applied, _, err := buildWindowsSandboxSetupAppliedPlan(config.commandConfig())
 	if err != nil {
 		return WindowsSandboxSetupMarker{}, err
 	}
@@ -197,12 +241,184 @@ func BuildWindowsSandboxSetupMarker(config WindowsSandboxSetupConfig) (WindowsSa
 	}
 	return WindowsSandboxSetupMarker{
 		SchemaVersion:    windowsSandboxSetupMarkerSchemaVersion,
-		ACLPlanHash:      hash,
-		ACLPlanEntries:   len(plan.Entries),
+		AppliedPlans:     []WindowsSandboxSetupAppliedPlan{applied},
 		NetworkInfraHash: infraHash,
 		OfflineFilterSID: offlineSID,
 		NetworkFilters:   len(infraPlan.Filters),
 	}, nil
+}
+
+// buildWindowsSandboxSetupAppliedPlan derives the ACL plan for the setup's
+// permission profile plus its marker fingerprint. The same BuildWindowsACLPlan
+// output later feeds the apply step, so the fingerprint and the applied grants
+// can never drift apart.
+func buildWindowsSandboxSetupAppliedPlan(config WindowsSandboxCommandConfig) (WindowsSandboxSetupAppliedPlan, WindowsACLPlan, error) {
+	plan, err := BuildWindowsACLPlan(config)
+	if err != nil {
+		return WindowsSandboxSetupAppliedPlan{}, WindowsACLPlan{}, err
+	}
+	hash, err := WindowsACLPlanHash(plan)
+	if err != nil {
+		return WindowsSandboxSetupAppliedPlan{}, WindowsACLPlan{}, err
+	}
+	return WindowsSandboxSetupAppliedPlan{
+		ACLPlanHash:    hash,
+		ACLPlanEntries: len(plan.Entries),
+	}, plan, nil
+}
+
+// lockWindowsSandboxSetupMarkerFile serializes the marker read-modify-write
+// sequence across processes with the stable "<file>.lockfile" sibling,
+// mirroring lockWindowsUnelevatedSetupMarkerFile: without it two runners
+// recording at once both load the same snapshot and the last save silently
+// drops the other's plan. The lock never covers the ACL apply itself, only
+// the marker bookkeeping. Timeouts fail closed and name the lock path.
+func lockWindowsSandboxSetupMarkerFile(path string) (func(), error) {
+	lockPath := path + ".lockfile"
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	deadline := time.Now().Add(grantLockTimeout)
+	for {
+		locked, err := filelock.TryLockExclusive(file)
+		if err != nil {
+			_ = file.Close()
+			return nil, err
+		}
+		if locked {
+			return func() {
+				_ = filelock.Unlock(file)
+				_ = file.Close()
+			}, nil
+		}
+		if time.Now().After(deadline) {
+			_ = file.Close()
+			return nil, fmt.Errorf("timed out waiting for windows sandbox setup marker lock at %s", lockPath)
+		}
+		time.Sleep(grantLockRetry)
+	}
+}
+
+// recordWindowsSandboxSetupAppliedPlan appends the plan to the marker,
+// dropping nothing: one marker serves every workspace the sandbox home has
+// provisioned. It writes atomically (temp file + rename) so a concurrent
+// command never reads a torn marker, and serializes the read-modify-write
+// across processes so two workspaces recording at once cannot lose each
+// other's plan.
+func recordWindowsSandboxSetupAppliedPlan(sandboxHome string, applied WindowsSandboxSetupAppliedPlan) error {
+	sandboxHome = strings.TrimSpace(sandboxHome)
+	if sandboxHome == "" {
+		return errors.New("windows sandbox home is required")
+	}
+	unlock, err := lockWindowsSandboxSetupMarkerFile(WindowsSandboxSetupMarkerPath(sandboxHome))
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	marker, err := loadWindowsSandboxSetupMarker(sandboxHome)
+	if err != nil {
+		return err
+	}
+	if marker.containsAppliedPlan(applied) {
+		return nil
+	}
+	marker.SchemaVersion = windowsSandboxSetupMarkerSchemaVersion
+	marker.AppliedPlans = append(marker.AppliedPlans, applied)
+	path := WindowsSandboxSetupMarkerPath(sandboxHome)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create windows sandbox setup marker dir: %w", err)
+	}
+	bytes, err := json.MarshalIndent(marker, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal windows sandbox setup marker: %w", err)
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".windows-setup-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create windows sandbox setup marker temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(bytes); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("write windows sandbox setup marker temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("close windows sandbox setup marker temp file: %w", err)
+	}
+	// Concurrent runners may be validating mid-replace; on Windows that rename
+	// then fails with access denied, so retry with the long budget.
+	if err := fsutil.RenameWithLongRetry(tmpPath, path, nil); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("replace windows sandbox setup marker: %w", err)
+	}
+	return nil
+}
+
+func (marker WindowsSandboxSetupMarker) containsAppliedPlan(applied WindowsSandboxSetupAppliedPlan) bool {
+	if strings.TrimSpace(applied.ACLPlanHash) == "" {
+		return false
+	}
+	for _, plan := range marker.AppliedPlans {
+		if plan.ACLPlanHash == applied.ACLPlanHash && plan.ACLPlanEntries == applied.ACLPlanEntries {
+			return true
+		}
+	}
+	return false
+}
+
+// loadWindowsSandboxSetupMarker reads the marker; a missing file is the common
+// first-run state and yields an empty marker (not an error) so the caller can
+// distinguish "never set up" from "set up for another workspace". A v5
+// single-plan marker migrates into a one-element plan set; anything older or
+// corrupt fails validation instead of bricking the command.
+func loadWindowsSandboxSetupMarker(sandboxHome string) (WindowsSandboxSetupMarker, error) {
+	sandboxHome = strings.TrimSpace(sandboxHome)
+	if sandboxHome == "" {
+		return WindowsSandboxSetupMarker{}, errors.New("windows sandbox home is required")
+	}
+	path := WindowsSandboxSetupMarkerPath(sandboxHome)
+	// The setup helper replaces this file via rename; a concurrent runner
+	// reading mid-replace hits a Windows sharing violation without a brief
+	// retry (same race as the unelevated marker).
+	bytes, err := fsutil.ReadFileWithRetry(path, nil)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return WindowsSandboxSetupMarker{SchemaVersion: windowsSandboxSetupMarkerSchemaVersion}, nil
+		}
+		return WindowsSandboxSetupMarker{}, fmt.Errorf("read windows sandbox setup marker: %w", err)
+	}
+	var version struct {
+		SchemaVersion int `json:"schemaVersion"`
+	}
+	if err := json.Unmarshal(bytes, &version); err != nil {
+		return WindowsSandboxSetupMarker{}, fmt.Errorf("parse windows sandbox setup marker: %w", err)
+	}
+	if version.SchemaVersion == 5 {
+		var legacy windowsSandboxSetupMarkerV5
+		if err := json.Unmarshal(bytes, &legacy); err != nil {
+			return WindowsSandboxSetupMarker{}, fmt.Errorf("parse windows sandbox setup marker: %w", err)
+		}
+		return WindowsSandboxSetupMarker{
+			SchemaVersion: windowsSandboxSetupMarkerSchemaVersion,
+			AppliedPlans: []WindowsSandboxSetupAppliedPlan{{
+				ACLPlanHash:    legacy.ACLPlanHash,
+				ACLPlanEntries: legacy.ACLPlanEntries,
+			}},
+			NetworkInfraHash: legacy.NetworkInfraHash,
+			OfflineFilterSID: legacy.OfflineFilterSID,
+			NetworkFilters:   legacy.NetworkFilters,
+		}, nil
+	}
+	var marker WindowsSandboxSetupMarker
+	if err := json.Unmarshal(bytes, &marker); err != nil {
+		return WindowsSandboxSetupMarker{}, fmt.Errorf("parse windows sandbox setup marker: %w", err)
+	}
+	return marker, nil
 }
 
 func WriteWindowsSandboxSetupMarker(config WindowsSandboxSetupConfig) (WindowsSandboxSetupMarker, error) {
@@ -232,7 +448,9 @@ func WriteWindowsSandboxSetupMarker(config WindowsSandboxSetupConfig) (WindowsSa
 		_ = os.Remove(tmpPath)
 		return WindowsSandboxSetupMarker{}, fmt.Errorf("close windows sandbox setup marker temp file: %w", err)
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	// Concurrent runners may be validating mid-replace; on Windows that rename
+	// then fails with access denied, so retry with the long budget.
+	if err := fsutil.RenameWithLongRetry(tmpPath, path, nil); err != nil {
 		_ = os.Remove(tmpPath)
 		return WindowsSandboxSetupMarker{}, fmt.Errorf("replace windows sandbox setup marker: %w", err)
 	}
@@ -244,23 +462,21 @@ func ValidateWindowsSandboxSetupMarker(config WindowsSandboxSetupConfig) error {
 	if err != nil {
 		return err
 	}
-	path := WindowsSandboxSetupMarkerPath(config.SandboxHome)
-	bytes, err := os.ReadFile(path)
+	actual, err := loadWindowsSandboxSetupMarker(config.SandboxHome)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("windows sandbox is not initialized for this workspace — run `qg sandbox setup` from an elevated (Administrator) terminal (missing %s)", filepath.Base(path))
-		}
-		return fmt.Errorf("read windows sandbox setup marker: %w", err)
+		return err
 	}
-	var actual WindowsSandboxSetupMarker
-	if err := json.Unmarshal(bytes, &actual); err != nil {
-		return fmt.Errorf("parse windows sandbox setup marker: %w", err)
+	if len(actual.AppliedPlans) == 0 && actual.NetworkInfraHash == "" {
+		return fmt.Errorf("windows sandbox is not initialized for this workspace — run `qg sandbox setup` from an elevated (Administrator) terminal (missing %s)", filepath.Base(WindowsSandboxSetupMarkerPath(config.SandboxHome)))
 	}
 	if actual.SchemaVersion != expected.SchemaVersion {
 		return fmt.Errorf("windows sandbox setup is out of date: schema %d, want %d", actual.SchemaVersion, expected.SchemaVersion)
 	}
-	if actual.ACLPlanHash != expected.ACLPlanHash || actual.ACLPlanEntries != expected.ACLPlanEntries {
-		return errors.New("windows sandbox setup is out of date: permission roots or deny lists changed")
+	if len(expected.AppliedPlans) != 1 {
+		return fmt.Errorf("windows sandbox setup is out of date: cannot fingerprint the current workspace plan")
+	}
+	if !actual.containsAppliedPlan(expected.AppliedPlans[0]) {
+		return &windowsSandboxSetupPlanMismatchError{plan: expected.AppliedPlans[0]}
 	}
 	// Mode-agnostic: validate the provisioned infrastructure, never the
 	// per-command network mode — so an approved (allow) network command and an

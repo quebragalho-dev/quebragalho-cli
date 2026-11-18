@@ -129,18 +129,11 @@ func TestRestoreReportsInvalidCheckpointFile(t *testing.T) {
 	}
 }
 
-// KNOWN UNDESIRED behavior, pending product decision (NOT a regression
-// test for a fix): the rewind marker can receive the ID/Sequence of a
-// truncated event. IDs are deterministic sess:seq (store.go
-// appendPreparedEventsLocked), so after ApplyRewind to N the next append
-// reuses sess:N+1. When the new event shares the old one's Type, the
-// production matching rule (ID + Sequence + Type, cf. tui
-// sessionEventsForRefs) resolves the STALE ref to the NEW event: same keys,
-// different payload. Do NOT "fix" by changing the numbering or adding a
-// field without a product decision; the options are described in the
-// sm3-trilho report. This test pins the collision so any future change to
-// the numbering is a deliberate, reviewed diff.
-func TestRewindKnownSequenceIDReuse(t *testing.T) {
+// Regression: ApplyRewind must keep Sequence and deterministic event IDs
+// (sess:seq) strictly monotonic above any truncated event, without changing
+// the on-disk JSON schema. Stale pre-rewind EventRefs (ID + Sequence + Type)
+// must never resolve to post-rewind events.
+func TestRewindDoesNotReuseSequenceOrID(t *testing.T) {
 	store, _ := newCkStore(t)
 	if _, err := store.AppendEvent("s", AppendEventInput{Type: EventMessage, Payload: map[string]any{"v": "one"}}); err != nil {
 		t.Fatal(err)
@@ -148,7 +141,8 @@ func TestRewindKnownSequenceIDReuse(t *testing.T) {
 	if _, err := store.AppendEvent("s", AppendEventInput{Type: EventMessage, Payload: map[string]any{"v": "two"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AppendEvent("s", AppendEventInput{Type: EventMessage, Payload: map[string]any{"v": "three"}}); err != nil {
+	oldThird, err := store.AppendEvent("s", AppendEventInput{Type: EventMessage, Payload: map[string]any{"v": "old-three"}})
+	if err != nil {
 		t.Fatal(err)
 	}
 	oldFourth, err := store.AppendEvent("s", AppendEventInput{Type: EventMessage, Payload: map[string]any{"v": "old-four"}})
@@ -165,17 +159,15 @@ func TestRewindKnownSequenceIDReuse(t *testing.T) {
 	if _, err := store.ApplyRewind("s", ws, 2); err != nil {
 		t.Fatal(err)
 	}
-	// The rewind marker itself occupies Sequence 3 (ID s:3) with a different
-	// Type, so the first post-rewind message lands on Sequence 4 (ID s:4) —
-	// the exact ID/Sequence of the truncated fourth event.
-	newFourth, err := store.AppendEvent("s", AppendEventInput{Type: EventMessage, Payload: map[string]any{"v": "new-four"}})
+	nextMsg, err := store.AppendEvent("s", AppendEventInput{Type: EventMessage, Payload: map[string]any{"v": "new-after-rewind"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if newFourth.ID != oldRef.ID || newFourth.Sequence != oldRef.Sequence || newFourth.Type != oldRef.Type {
-		t.Fatalf("precondition: expected ID/Sequence/Type reuse, old=%+v new=%+v", oldRef, newFourth)
+	if nextMsg.Sequence <= oldFourth.Sequence || nextMsg.ID == oldThird.ID || nextMsg.ID == oldRef.ID {
+		t.Fatalf("post-rewind event reused truncated ID/Sequence: old3=%s/%d old4=%s/%d got=%s/%d",
+			oldThird.ID, oldThird.Sequence, oldRef.ID, oldRef.Sequence, nextMsg.ID, nextMsg.Sequence)
 	}
-	// Production matching rule: resolve by ID, then require Sequence+Type.
+
 	events, err := store.ReadEvents("s")
 	if err != nil {
 		t.Fatal(err)
@@ -184,18 +176,41 @@ func TestRewindKnownSequenceIDReuse(t *testing.T) {
 	for _, ev := range events {
 		byID[ev.ID] = ev
 	}
-	matched, ok := byID[oldRef.ID]
-	if !ok || matched.Sequence != oldRef.Sequence || matched.Type != oldRef.Type {
-		t.Fatalf("production rule does not resolve the stale ref, matched=%+v ok=%v", matched, ok)
+	if matched, ok := byID[oldThird.ID]; ok {
+		t.Fatalf("truncated event ID %q reappeared after rewind: %+v", oldThird.ID, matched)
 	}
-	var payload map[string]any
-	if err := json.Unmarshal(matched.Payload, &payload); err != nil {
+	if matched, ok := byID[oldRef.ID]; ok {
+		t.Fatalf("stale pre-rewind ref %q resolved after rewind: %+v", oldRef.ID, matched)
+	}
+	if len(events) != 4 || events[2].Type != EventSessionRewind || events[2].Sequence != 5 || nextMsg.Sequence != 6 {
+		t.Fatalf("unexpected post-rewind sequence layout: events=%+v nextMsg=%+v", events, nextMsg)
+	}
+
+	// Second rewind across an already-gapped log must stay monotonic too.
+	if _, err := store.ApplyRewind("s", ws, 1); err != nil {
 		t.Fatal(err)
 	}
-	if payload["v"] != "new-four" {
-		t.Fatalf("stale ref resolved to payload %v, want the NEW event (collision proven)", payload)
+	events2, err := store.ReadEvents("s")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(oldRef.ID, ":") == false {
+	if len(events2) != 2 || events2[1].Type != EventSessionRewind || events2[1].Sequence != 7 || events2[1].ID != "s:7" {
+		t.Fatalf("second rewind did not advance monotonically past %d: %+v", nextMsg.Sequence, events2)
+	}
+	rawEvents, err := os.ReadFile(store.eventsPath("s"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(rawEvents)), "\n") {
+		var raw map[string]any
+		if err := json.Unmarshal([]byte(line), &raw); err != nil {
+			t.Fatal(err)
+		}
+		if len(raw) != 6 {
+			t.Fatalf("on-disk event JSON schema changed: keys=%v", raw)
+		}
+	}
+	if !strings.Contains(oldRef.ID, ":") {
 		t.Fatalf("unexpected ID shape %q", oldRef.ID)
 	}
 }

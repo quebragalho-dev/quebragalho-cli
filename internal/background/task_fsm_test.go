@@ -11,40 +11,49 @@ import (
 
 var errTestKillDenied = errors.New("test kill denied")
 
-// Commit B (M1): the state x event table, fixed literally. The implementation
-// consults legalTaskTransition; this test pins every combination so a
-// stray row (e.g. allowing completed -> running) fails loudly.
+// The phase x event x status table, fixed literally. The implementation
+// consults legalTaskTransition; terminal phases have no outgoing edges to
+// any other state.
 func TestLegalTaskTransitionCoversAllStateEventPairs(t *testing.T) {
-	states := []Status{StatusRunning, StatusCompleted, StatusError, StatusKilled}
-	events := []taskEvent{taskEventUpdate, taskEventExit, taskEventKill, taskEventRestore, taskEventSetPID}
+	phases := []taskPhase{phaseRunning, phaseKilling, phaseCompleted, phaseError, phaseKilled}
+	events := []taskEvent{taskEventUpdate, taskEventExit, taskEventBeginKill, taskEventCommitKill, taskEventAbortKill, taskEventSetPID}
+	statuses := []Status{StatusRunning, StatusCompleted, StatusError, StatusKilled}
 	type triple struct {
-		from  Status
+		from  taskPhase
 		event taskEvent
 		to    Status
 	}
 	allowed := map[triple]bool{
-		{StatusRunning, taskEventUpdate, StatusCompleted}: true,
-		{StatusRunning, taskEventUpdate, StatusError}:     true,
-		{StatusRunning, taskEventUpdate, StatusRunning}:   true,
-		{StatusRunning, taskEventExit, StatusCompleted}:   true,
-		{StatusRunning, taskEventExit, StatusError}:       true,
-		{StatusRunning, taskEventKill, StatusKilled}:      true,
-		{StatusRunning, taskEventSetPID, StatusRunning}:   true,
+		{phaseRunning, taskEventUpdate, StatusCompleted}:    true,
+		{phaseRunning, taskEventUpdate, StatusError}:        true,
+		{phaseRunning, taskEventUpdate, StatusRunning}:      true,
+		{phaseRunning, taskEventExit, StatusCompleted}:      true,
+		{phaseRunning, taskEventExit, StatusError}:          true,
+		{phaseRunning, taskEventBeginKill, StatusRunning}:   true,
+		{phaseRunning, taskEventSetPID, StatusRunning}:      true,
+		{phaseKilling, taskEventUpdate, StatusCompleted}:    true,
+		{phaseKilling, taskEventUpdate, StatusError}:        true,
+		{phaseKilling, taskEventUpdate, StatusRunning}:      true,
+		{phaseKilling, taskEventExit, StatusCompleted}:      true,
+		{phaseKilling, taskEventExit, StatusError}:          true,
+		{phaseKilling, taskEventCommitKill, StatusKilled}:   true,
+		{phaseKilling, taskEventAbortKill, StatusRunning}:   true,
+		{phaseKilling, taskEventAbortKill, StatusCompleted}: true,
+		{phaseKilling, taskEventAbortKill, StatusError}:     true,
 
-		{StatusCompleted, taskEventUpdate, StatusCompleted}: true,
-		{StatusCompleted, taskEventExit, StatusCompleted}:   true,
-		{StatusCompleted, taskEventExit, StatusError}:       true,
-		{StatusError, taskEventUpdate, StatusError}:         true,
-		{StatusError, taskEventExit, StatusCompleted}:       true,
-		{StatusError, taskEventExit, StatusError}:           true,
-		{StatusKilled, taskEventUpdate, StatusKilled}:       true,
-		{StatusKilled, taskEventExit, StatusCompleted}:      true,
-		{StatusKilled, taskEventExit, StatusError}:          true,
-		{StatusKilled, taskEventRestore, StatusRunning}:     true,
+		{phaseCompleted, taskEventUpdate, StatusCompleted}: true,
+		{phaseCompleted, taskEventExit, StatusCompleted}:   true,
+		{phaseCompleted, taskEventExit, StatusError}:       true,
+		{phaseError, taskEventUpdate, StatusError}:         true,
+		{phaseError, taskEventExit, StatusCompleted}:       true,
+		{phaseError, taskEventExit, StatusError}:           true,
+		{phaseKilled, taskEventUpdate, StatusKilled}:       true,
+		{phaseKilled, taskEventExit, StatusCompleted}:      true,
+		{phaseKilled, taskEventExit, StatusError}:          true,
 	}
-	for _, from := range states {
+	for _, from := range phases {
 		for _, event := range events {
-			for _, to := range states {
+			for _, to := range statuses {
 				want := allowed[triple{from, event, to}]
 				if got := legalTaskTransition(from, event, to); got != want {
 					t.Errorf("legalTaskTransition(%s, %s, %s) = %v, want %v",
@@ -53,7 +62,12 @@ func TestLegalTaskTransitionCoversAllStateEventPairs(t *testing.T) {
 			}
 		}
 	}
-	for _, state := range states {
+	for _, phase := range phases {
+		if strings.TrimSpace(phase.String()) == "" || phase.String() == "unknown" {
+			t.Errorf("taskPhase.String() is invalid for %d", int(phase))
+		}
+	}
+	for _, state := range statuses {
 		if strings.TrimSpace(state.String()) == "" {
 			t.Errorf("Status.String() is empty for %q", string(state))
 		}
@@ -102,8 +116,9 @@ func TestTaskTransitionKeepsTwinsCoherent(t *testing.T) {
 	}
 }
 
-// The transition fixes the twins even when the event carries junk: kill
-// forces exit -1, restore zeroes the exit, update keeps the given exit.
+// The transition fixes the twins even when the event carries junk: commitKill
+// forces exit -1, abortKill without a pending exit zeroes the exit, and
+// terminal states cannot be reverted back to running.
 func TestTaskTransitionFixesTwinsAgainstCallerJunk(t *testing.T) {
 	manager, err := NewManagerWithOptions(ManagerOptions{RootDir: t.TempDir()})
 	if err != nil {
@@ -113,23 +128,33 @@ func TestTaskTransitionFixesTwinsAgainstCallerJunk(t *testing.T) {
 		t.Fatalf("Register error = %v", err)
 	}
 	manager.mu.Lock()
-	applied, err := manager.transitionLocked("t", taskEventKill, StatusKilled, 99, 7)
+	applied, err := manager.transitionLocked("t", taskEventBeginKill, StatusRunning, 99, 7)
 	manager.mu.Unlock()
 	if err != nil || !applied {
-		t.Fatalf("kill transition: applied=%v err=%v", applied, err)
-	}
-	if task, _ := manager.Get("t"); task.ExitCode != -1 {
-		t.Fatalf("kill kept caller exit %d, want -1: %#v", task.ExitCode, task)
+		t.Fatalf("beginKill transition: applied=%v err=%v", applied, err)
 	}
 	manager.mu.Lock()
-	applied, err = manager.transitionLocked("t", taskEventRestore, StatusRunning, 77, 7)
+	applied, err = manager.transitionLocked("t", taskEventAbortKill, StatusRunning, 77, 0)
 	manager.mu.Unlock()
 	if err != nil || !applied {
-		t.Fatalf("restore transition: applied=%v err=%v", applied, err)
+		t.Fatalf("abortKill transition: applied=%v err=%v", applied, err)
 	}
 	if task, _ := manager.Get("t"); task.Status != StatusRunning || task.ExitCode != 0 ||
 		!task.CompletedAt.IsZero() || task.PID != 7 {
-		t.Fatalf("restore twins incoherent: %#v", task)
+		t.Fatalf("abortKill twins incoherent: %#v", task)
+	}
+
+	manager.mu.Lock()
+	_, err = manager.transitionLocked("t", taskEventBeginKill, StatusRunning, 0, 7)
+	if err == nil {
+		applied, err = manager.transitionLocked("t", taskEventCommitKill, StatusKilled, 99, 0)
+	}
+	manager.mu.Unlock()
+	if err != nil || !applied {
+		t.Fatalf("commitKill transition: applied=%v err=%v", applied, err)
+	}
+	if task, _ := manager.Get("t"); task.Status != StatusKilled || task.ExitCode != -1 {
+		t.Fatalf("commitKill kept caller exit %d, want -1: %#v", task.ExitCode, task)
 	}
 }
 
@@ -155,10 +180,13 @@ func TestTaskFailedKillRestoresRunningTwins(t *testing.T) {
 	}
 }
 
-// Restoring from any state other than killed-with-the-same-pid is a silent
-// no-op (nil): the historical contract, kept after the state machine landed.
-func TestTaskRestoreOffKilledIsSilentNoOp(t *testing.T) {
-	manager, err := NewManagerWithOptions(ManagerOptions{RootDir: t.TempDir()})
+// abortKill on any terminal task is a silent no-op that leaves the terminal
+// state untouched.
+func TestTaskAbortKillOffKillingIsSilentNoOp(t *testing.T) {
+	manager, err := NewManagerWithOptions(ManagerOptions{
+		RootDir:     t.TempDir(),
+		KillProcess: func(int) error { return nil },
+	})
 	if err != nil {
 		t.Fatalf("NewManagerWithOptions error = %v", err)
 	}
@@ -177,28 +205,24 @@ func TestTaskRestoreOffKilledIsSilentNoOp(t *testing.T) {
 				t.Fatalf("UpdateStatus error = %v", err)
 			}
 		case StatusKilled:
-			manager.mu.Lock()
-			_, err := manager.transitionLocked(id, taskEventKill, StatusKilled, -1, 7)
-			manager.mu.Unlock()
-			if err != nil {
-				t.Fatalf("kill transition error = %v", err)
+			if err := manager.Kill(id); err != nil {
+				t.Fatalf("Kill error = %v", err)
 			}
 		}
 		before, _ := manager.Get(id)
-		err := manager.restoreRunningAfterFailedKill(id, 8)
-		if err != nil {
-			t.Fatalf("restore from %s: got error %v, want silent nil", terminal, err)
+		settled, err := manager.abortKill(id)
+		if err != nil || settled != terminal {
+			t.Fatalf("abortKill on %s: settled=%q err=%v, want %q/nil", terminal, settled, err, terminal)
 		}
 		after, _ := manager.Get(id)
 		if after != before {
-			t.Fatalf("restore from %s mutated state: before=%#v after=%#v", terminal, before, after)
+			t.Fatalf("abortKill on %s mutated state: before=%#v after=%#v", terminal, before, after)
 		}
 	}
 }
 
-// Kill with a failing terminate while the task is still killed restores
-// running and reports only the denial; if the pid moved meanwhile the task
-// is left untouched and the restore stays silent.
+// Kill with a failing terminate keeps running when the process is still alive,
+// and settles on the recorded exit when the process exited naturally meanwhile.
 func TestTaskKillFailedRestoreParity(t *testing.T) {
 	newDeniedManager := func(t *testing.T, mutate func(*Manager)) *Manager {
 		t.Helper()
@@ -222,37 +246,27 @@ func TestTaskKillFailedRestoreParity(t *testing.T) {
 		return manager
 	}
 
-	t.Run("still-killed-restores-running", func(t *testing.T) {
+	t.Run("still-alive-stays-running", func(t *testing.T) {
 		manager := newDeniedManager(t, nil)
 		err := manager.Kill("t")
 		if err == nil || !strings.Contains(err.Error(), "test kill denied") {
 			t.Fatalf("Kill error = %v, want the denial", err)
 		}
-		if strings.Contains(err.Error(), "restore running state") {
-			t.Fatalf("Kill joined a spurious restore error: %v", err)
-		}
 		if task, _ := manager.Get("t"); task.Status != StatusRunning {
-			t.Fatalf("failed kill did not restore running: %#v", task)
+			t.Fatalf("failed kill did not keep running: %#v", task)
 		}
 	})
 
-	t.Run("moved-pid-left-untouched", func(t *testing.T) {
+	t.Run("exited-meanwhile-settles-on-exit", func(t *testing.T) {
 		manager := newDeniedManager(t, func(manager *Manager) {
-			manager.mu.Lock()
-			task := manager.tasks["t"]
-			task.PID = 999
-			manager.tasks["t"] = task
-			manager.mu.Unlock()
+			_ = manager.MarkExited("t", StatusCompleted, 0)
 		})
 		err := manager.Kill("t")
-		if err == nil || !strings.Contains(err.Error(), "test kill denied") {
-			t.Fatalf("Kill error = %v, want only the denial", err)
+		if err == nil || !strings.Contains(err.Error(), "is completed") {
+			t.Fatalf("Kill error = %v, want already-completed error", err)
 		}
-		if strings.Contains(err.Error(), "restore running state") {
-			t.Fatalf("Kill joined a spurious restore error: %v", err)
-		}
-		if task, _ := manager.Get("t"); task.Status != StatusKilled || task.PID != 999 {
-			t.Fatalf("moved pid was not left untouched: %#v", task)
+		if task, _ := manager.Get("t"); task.Status != StatusCompleted || task.ExitCode != 0 {
+			t.Fatalf("exited task did not settle on completed: %#v", task)
 		}
 	})
 }
@@ -272,7 +286,11 @@ func TestTaskSetPIDOnTerminalIsSilentNoOp(t *testing.T) {
 	}
 	for _, terminal := range []Status{StatusCompleted, StatusError, StatusKilled} {
 		id := "t-" + string(terminal)
-		if _, err := manager.Register(RegisterInput{TaskID: id, Type: "specialist"}); err != nil {
+		pid := 0
+		if terminal == StatusKilled {
+			pid = 7
+		}
+		if _, err := manager.Register(RegisterInput{TaskID: id, Type: "specialist", PID: pid}); err != nil {
 			t.Fatalf("Register error = %v", err)
 		}
 		switch terminal {
@@ -285,11 +303,8 @@ func TestTaskSetPIDOnTerminalIsSilentNoOp(t *testing.T) {
 				t.Fatalf("UpdateStatus error = %v", err)
 			}
 		case StatusKilled:
-			manager.mu.Lock()
-			_, err := manager.transitionLocked(id, taskEventKill, StatusKilled, -1, 0)
-			manager.mu.Unlock()
-			if err != nil {
-				t.Fatalf("kill transition error = %v", err)
+			if err := manager.Kill(id); err != nil {
+				t.Fatalf("Kill error = %v", err)
 			}
 		}
 		rawBefore, err := os.ReadFile(filepath.Join(root, id+".json"))
@@ -299,7 +314,7 @@ func TestTaskSetPIDOnTerminalIsSilentNoOp(t *testing.T) {
 		if err := manager.SetPID(id, 4321); err != nil {
 			t.Fatalf("SetPID on %s: got error %v, want silent nil", terminal, err)
 		}
-		if task, _ := manager.Get(id); task.PID != 0 {
+		if task, _ := manager.Get(id); task.PID != pid {
 			t.Fatalf("SetPID on %s stored pid %d, want record untouched: %#v", terminal, task.PID, task)
 		}
 		rawAfter, err := os.ReadFile(filepath.Join(root, id+".json"))

@@ -323,3 +323,55 @@ func TestAutoCompactPanelCapsInputLength(t *testing.T) {
 		t.Fatalf("pasted input = %q, want the cap to hold", got)
 	}
 }
+
+func TestAutoCompactPanelWarnsBelow50kAndKeeps20kMinimum(t *testing.T) {
+	m, path := autoCompactPanelModel(t, 0, true)
+	for _, key := range []string{"2", "0", "k"} {
+		m = updateAutoCompactPrompt(t, m, testKeyText(key))
+	}
+	for _, width := range []int{100, pickerOverlayMinWidth} {
+		plain := plainRender(t, m.autoCompactPromptOverlay(width))
+		for _, want := range []string{
+			"Abaixo de 50k, o QG vai compactar quase todo",
+			"turno e gastar mais chamadas.",
+		} {
+			if !strings.Contains(plain, want) {
+				t.Fatalf("overlay at width %d with 20k should warn %q:\n%s", width, want, plain)
+			}
+		}
+		if strings.Contains(plain, "…") {
+			t.Fatalf("overlay at width %d cuts a line:\n%s", width, plain)
+		}
+	}
+
+	// Prefilled session limit below 50k also warns on open, and stepping up to 50k clears it.
+	prefilled, _ := autoCompactPanelModel(t, 35_000, false)
+	if !strings.Contains(plainRender(t, prefilled.autoCompactPromptOverlay(100)), "gastar mais chamadas") {
+		t.Fatalf("prefilled 35k should warn on open:\n%s", plainRender(t, prefilled.autoCompactPromptOverlay(100)))
+	}
+	at50k := updateAutoCompactPrompt(t, prefilled, testKey(tea.KeyUp))
+	if strings.Contains(plainRender(t, at50k.autoCompactPromptOverlay(100)), "quase todo") {
+		t.Fatalf("50k must not show the below-50k warning:\n%s", plainRender(t, at50k.autoCompactPromptOverlay(100)))
+	}
+
+	m = updateAutoCompactPrompt(t, m, testKey(tea.KeyEnter))
+	if m.autoCompactPrompt != nil {
+		t.Fatal("Enter on 20k must still apply and close the panel")
+	}
+	if m.autoCompactLimit != 20_000 {
+		t.Fatalf("autoCompactLimit = %d, want 20000", m.autoCompactLimit)
+	}
+	if prefs := readAutoCompactFile(t, path); prefs["autoCompactLimit"] != 20000.0 {
+		t.Fatalf("persisted autoCompactLimit = %v, want 20000", prefs["autoCompactLimit"])
+	}
+
+	// Below 20k is still rejected.
+	belowMin, _ := autoCompactPanelModel(t, 0, false)
+	for _, key := range []string{"1", "9", "k"} {
+		belowMin = updateAutoCompactPrompt(t, belowMin, testKeyText(key))
+	}
+	belowMin = updateAutoCompactPrompt(t, belowMin, testKey(tea.KeyEnter))
+	if belowMin.autoCompactPrompt == nil || belowMin.autoCompactPrompt.err == "" {
+		t.Fatalf("19k must still be rejected below the 20k minimum: %+v", belowMin.autoCompactPrompt)
+	}
+}

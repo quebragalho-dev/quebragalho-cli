@@ -421,7 +421,7 @@ func (m model) suggestionOverlay(width int) string {
 		query = fileSuggestionQuery(m.input.Value())
 		footer = "↑/↓ mover   Enter inserir   Esc fechar"
 	}
-	return centerRenderedBlock(renderSuggestionPalette(selectableItems(m.suggestions, m.suggestionsAreFiles), m.suggestionIdx, width, title, query, footer, m.suggestionsAreFiles), width)
+	return centerRenderedBlock(renderSuggestionPalette(selectableItems(m.suggestions, m.suggestionsAreFiles), m.suggestionIdx, m.suggestionScroll, width, title, query, footer, m.suggestionsAreFiles), width)
 }
 
 func commandSuggestionQuery(value string) string {
@@ -438,7 +438,7 @@ func fileSuggestionQuery(value string) string {
 	return ""
 }
 
-func renderSuggestionPalette(items []selectableListItem, selected, width int, title, query, footer string, isFiles bool) string {
+func renderSuggestionPalette(items []selectableListItem, selected int, scroll listScroll, width int, title, query, footer string, isFiles bool) string {
 	if width <= 0 {
 		width = defaultStartupWidth
 	}
@@ -452,7 +452,7 @@ func renderSuggestionPalette(items []selectableListItem, selected, width int, ti
 	start := 0
 	if len(items) > 0 {
 		selected = clampInt(selected, 0, len(items)-1)
-		start = selectableListStart(len(items), maxVisible, selected)
+		start = scroll.resolve(len(items), maxVisible, selected)
 		visible = items[start : start+maxVisible]
 	}
 
@@ -660,7 +660,7 @@ func (m model) pickerOverlay(width int) string {
 			compact, start, visible, upMore, downMore, details = m.configPickerPlan(width, showDetails)
 		} else {
 			maxVisible := pickerMaxVisible(m.picker, width)
-			start = selectableListStart(len(m.picker.items), maxVisible, m.picker.selected)
+			start = m.picker.scroll.resolve(len(m.picker.items), maxVisible, m.picker.selected)
 			visible = m.picker.items[start : start+maxVisible]
 		}
 	}
@@ -778,20 +778,32 @@ func configPickerNeed(start, end, total int) int {
 	return 0
 }
 
-func configPickerWindow(items []pickerItem, selected, maxRows int, showDetails bool) (int, []pickerItem, int, int) {
+func configPickerWindow(items []pickerItem, selected, maxRows int, showDetails bool, scroll listScroll) (int, []pickerItem, int, int) {
 	total := len(items)
 	if total == 0 || maxRows <= 0 {
 		return 0, nil, 0, 0
 	}
 	selected = clampInt(selected, 0, total-1)
 	count := minInt(total, maxInt(1, maxRows))
-	// The shared anchor assumes room for three rows above the selection; with
-	// tiny windows that pushes the start past the selection itself, so clamp
-	// the anchor to the window. Trims below only drop rows away from the
-	// selection, so it stays inside [start, end) throughout.
-	anchor := minInt(selectableListAnchorRow, maxInt(0, count-1))
-	start := clampInt(selected-anchor, 0, total-count)
-	end := start + count
+	var start, end int
+	if scroll.pinned {
+		start = clampInt(scroll.start, 0, total-1)
+		if selected < start {
+			start = selected
+		}
+		end = minInt(total, start+count)
+		if end <= selected {
+			end = selected + 1
+		}
+	} else {
+		// The shared anchor assumes room for three rows above the selection; with
+		// tiny windows that pushes the start past the selection itself, so clamp
+		// the anchor to the window. Trims below only drop rows away from the
+		// selection, so it stays inside [start, end) throughout.
+		anchor := minInt(selectableListAnchorRow, maxInt(0, count-1))
+		start = clampInt(selected-anchor, 0, total-count)
+		end = start + count
+	}
 	for end-start > 1 && configPickerRows(items, start, end, showDetails)+configPickerNeed(start, end, total) > maxRows {
 		if end-1 > selected {
 			end--
@@ -886,7 +898,7 @@ func (m model) configPickerPlan(width int, showDetails bool) (bool, int, []picke
 		showDetails = false
 	}
 	budget := maxInt(1, body-configPickerChromeRows)
-	start, visible, upMore, downMore := configPickerWindow(m.picker.items, selected, budget, showDetails)
+	start, visible, upMore, downMore := configPickerWindow(m.picker.items, selected, budget, showDetails, m.picker.scroll)
 	if configPickerRows(m.picker.items, start, start+len(visible), showDetails)+configPickerNeed(start, start+len(visible), len(m.picker.items))+configPickerChromeRows > body {
 		return true, selected, m.picker.items[selected : selected+1], selected, len(m.picker.items) - 1 - selected, false
 	}
@@ -981,7 +993,7 @@ func (m model) themePickerListLines(width int) []string {
 	visible := []pickerItem{}
 	if len(m.picker.items) > 0 {
 		m.picker.selected = clampInt(m.picker.selected, 0, len(m.picker.items)-1)
-		start = selectableListStart(len(m.picker.items), maxVisible, m.picker.selected)
+		start = m.picker.scroll.resolve(len(m.picker.items), maxVisible, m.picker.selected)
 		visible = m.picker.items[start : start+maxVisible]
 	}
 	lines := make([]string, 0, len(visible)+2)
@@ -1076,7 +1088,7 @@ func (m model) modelPickerOverlay(width int) string {
 	visible := []pickerItem{}
 	if len(m.picker.items) > 0 {
 		m.picker.selected = clampInt(m.picker.selected, 0, len(m.picker.items)-1)
-		start = selectableListStart(len(m.picker.items), maxVisible, m.picker.selected)
+		start = m.picker.scroll.resolve(len(m.picker.items), maxVisible, m.picker.selected)
 		visible = m.picker.items[start : start+maxVisible]
 	}
 

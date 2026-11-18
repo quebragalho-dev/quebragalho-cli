@@ -70,7 +70,7 @@ func (store *Store) CreateGoal(sessionID, objective string, tokenBudget int) (Me
 	if err != nil {
 		return Metadata{}, Event{}, err
 	}
-	loaded, err := store.readMetadata(sessionID)
+	loaded, err := store.loadSession(sessionID)
 	if err != nil {
 		return Metadata{}, Event{}, err
 	}
@@ -119,7 +119,7 @@ func (store *Store) UpdateGoal(sessionID string, status GoalStatus, reason strin
 	if err != nil {
 		return Metadata{}, Event{}, err
 	}
-	loaded, err := store.readMetadata(sessionID)
+	loaded, err := store.loadSession(sessionID)
 	if err != nil {
 		return Metadata{}, Event{}, err
 	}
@@ -176,7 +176,7 @@ func (store *Store) EditGoal(sessionID, objective string, tokenBudget int) (Meta
 	if err != nil {
 		return Metadata{}, Event{}, err
 	}
-	loaded, err := store.readMetadata(sessionID)
+	loaded, err := store.loadSession(sessionID)
 	if err != nil {
 		return Metadata{}, Event{}, err
 	}
@@ -200,7 +200,7 @@ func (store *Store) ResetGoalContinuations(sessionID string) (Metadata, error) {
 		return Metadata{}, err
 	}
 	if session.Goal == nil || session.Goal.Status != GoalStatusActive {
-		return session, nil
+		return store.reconcileMetadata(sessionID, session), nil
 	}
 	changed := false
 	if session.Goal.ContinuationCount != 0 {
@@ -212,13 +212,13 @@ func (store *Store) ResetGoalContinuations(sessionID string) (Metadata, error) {
 		changed = true
 	}
 	if !changed {
-		return session, nil
+		return store.reconcileMetadata(sessionID, session), nil
 	}
 	session.Goal.UpdatedAt = store.timestamp()
 	if err := store.writeMetadata(session); err != nil {
 		return Metadata{}, err
 	}
-	return session, nil
+	return store.reconcileMetadata(sessionID, session), nil
 }
 
 // ReserveGoalContinuation atomically reserves one automatic continuation. Once
@@ -239,7 +239,7 @@ func (store *Store) ReserveGoalContinuation(sessionID string) (Metadata, *Event,
 		return Metadata{}, nil, false, err
 	}
 	if session.Goal == nil || session.Goal.Status != GoalStatusActive {
-		return session, nil, false, nil
+		return store.reconcileMetadata(sessionID, session), nil, false, nil
 	}
 	limit := session.Goal.ContinuationLimit
 	if limit <= 0 {
@@ -252,7 +252,7 @@ func (store *Store) ReserveGoalContinuation(sessionID string) (Metadata, *Event,
 		if err := store.writeMetadata(session); err != nil {
 			return Metadata{}, nil, false, err
 		}
-		return session, nil, true, nil
+		return store.reconcileMetadata(sessionID, session), nil, true, nil
 	}
 
 	session.Goal.Status = GoalStatusPaused
@@ -268,7 +268,7 @@ func (store *Store) ReserveGoalContinuation(sessionID string) (Metadata, *Event,
 	if err != nil {
 		return Metadata{}, nil, false, err
 	}
-	loaded, err := store.readMetadata(sessionID)
+	loaded, err := store.loadSession(sessionID)
 	if err != nil {
 		return Metadata{}, nil, false, err
 	}
@@ -295,7 +295,7 @@ func (store *Store) AddGoalUsage(sessionID string, tokens int) (Metadata, *Event
 		return Metadata{}, nil, err
 	}
 	if session.Goal == nil || tokens == 0 {
-		return session, nil, nil
+		return store.reconcileMetadata(sessionID, session), nil, nil
 	}
 	session.Goal.TokensUsed += tokens
 	session.Goal.UpdatedAt = store.timestamp()
@@ -311,7 +311,7 @@ func (store *Store) AddGoalUsage(sessionID string, tokens int) (Metadata, *Event
 		return Metadata{}, nil, err
 	}
 	if !budgetReached {
-		return session, nil, nil
+		return store.reconcileMetadata(sessionID, session), nil, nil
 	}
 	event, err := store.appendEventLocked(sessionID, AppendEventInput{
 		Type:    EventGoalUpdated,
@@ -320,7 +320,7 @@ func (store *Store) AddGoalUsage(sessionID string, tokens int) (Metadata, *Event
 	if err != nil {
 		return Metadata{}, nil, err
 	}
-	loaded, err := store.readMetadata(sessionID)
+	loaded, err := store.loadSession(sessionID)
 	if err != nil {
 		return Metadata{}, nil, err
 	}
@@ -345,7 +345,7 @@ func (store *Store) PauseGoalIfActive(sessionID, reason string) (Metadata, *Even
 		return Metadata{}, nil, err
 	}
 	if session.Goal == nil || session.Goal.Status != GoalStatusActive {
-		return session, nil, nil
+		return store.reconcileMetadata(sessionID, session), nil, nil
 	}
 	session.Goal.Status = GoalStatusPaused
 	session.Goal.StatusReason = strings.TrimSpace(reason)
@@ -360,7 +360,7 @@ func (store *Store) PauseGoalIfActive(sessionID, reason string) (Metadata, *Even
 	if err != nil {
 		return Metadata{}, nil, err
 	}
-	loaded, err := store.readMetadata(sessionID)
+	loaded, err := store.loadSession(sessionID)
 	if err != nil {
 		return Metadata{}, nil, err
 	}
@@ -397,7 +397,7 @@ func (store *Store) ClearGoal(sessionID string) (Metadata, Event, error) {
 	if err != nil {
 		return Metadata{}, Event{}, err
 	}
-	loaded, err := store.readMetadata(sessionID)
+	loaded, err := store.loadSession(sessionID)
 	if err != nil {
 		return Metadata{}, Event{}, err
 	}

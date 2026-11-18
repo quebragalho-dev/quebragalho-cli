@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -173,8 +174,10 @@ func (err execUsageError) Error() string {
 // the log and checkpoints into a new session), so it never mutates the held
 // session. The lease is returned for release with defer by the caller, after
 // the run's writes have finished.
-func acquireExecPresenceLock(options execOptions) (*sessions.SessionLock, string, error) {
-	store := sessions.NewStore(sessions.StoreOptions{})
+func acquireExecPresenceLock(options execOptions, store *sessions.Store) (*sessions.SessionLock, string, error) {
+	if store == nil {
+		store = sessions.NewStore(sessions.StoreOptions{})
+	}
 	var sessionID string
 	switch {
 	case options.resume != "":
@@ -335,10 +338,11 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	if options.maxTurns > 0 {
 		overrides.MaxTurns = options.maxTurns
 	}
+	sessionStore := execSessionStore(deps)
 	resolved, err := deps.resolveConfig(workspaceRoot, overrides)
 	if err != nil {
 		if !options.listTools {
-			if preflightErr := preflightExecSession(options); preflightErr != nil {
+			if preflightErr := preflightExecSessionWithStore(options, sessionStore); preflightErr != nil {
 				return writeExecFormatUsageError(stdout, stderr, options.outputFormat, preflightErr.Error())
 			}
 			if _, _, promptErr := resolveExecPrompt(options, workspaceRoot, deps.stdin); promptErr != nil {
@@ -371,6 +375,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	// but the native backend is unavailable: commands run without native
 	// isolation and the operator must hear it once, not discover it in `qg doctor`.
 	emitSandboxUnavailableWarning(stderr, resolved.Sandbox.Enabled == nil || *resolved.Sandbox.Enabled, sandboxEngine.Backend())
+	emitSandboxSetupPendingWarning(stderr, resolved.Sandbox.Enabled == nil || *resolved.Sandbox.Enabled, sandboxEngine.Backend(), runtime.GOOS)
 	if notice, err := sandboxEngine.ConsumeGrantMigrationNotice(); err != nil {
 		return writeExecProviderError(stdout, stderr, options.outputFormat, "sandbox_error", "migrate sandbox grants: "+err.Error())
 	} else if notice != "" {
@@ -404,10 +409,10 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		}
 		return exitSuccess
 	}
-	if err := preflightExecSession(options); err != nil {
+	if err := preflightExecSessionWithStore(options, sessionStore); err != nil {
 		return writeExecFormatUsageError(stdout, stderr, options.outputFormat, err.Error())
 	}
-	presenceLock, lockedSessionID, presenceErr := acquireExecPresenceLock(options)
+	presenceLock, lockedSessionID, presenceErr := acquireExecPresenceLock(options, sessionStore)
 	if presenceErr != nil {
 		return writeExecFormatUsageError(stdout, stderr, options.outputFormat, presenceErr.Error())
 	}
@@ -563,9 +568,11 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	}
 
 	preparedSession := sessions.PreparedExec{}
-	agentPrompt := prompt
+	var resumeMessages []qgruntime.Message
+	var resumeLoadedTools []string
 	if shouldUseExecSession(options) {
 		preparedSession, err = sessions.PrepareExec(sessions.PrepareExecOptions{
+			Store:            sessionStore,
 			SessionID:        options.initSessionID,
 			Title:            sessionTitle,
 			Cwd:              workspaceRoot,
@@ -584,7 +591,29 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		if err != nil {
 			return writeExecFormatUsageError(stdout, stderr, options.outputFormat, err.Error())
 		}
-		agentPrompt = sessions.FormatExecPrompt(prompt, preparedSession)
+		if preparedSession.Mode == sessions.ModeResume {
+			var exactResume bool
+			resumeMessages, resumeLoadedTools, exactResume = sessions.LoadResumeContinuation(
+				preparedSession,
+				resolved.Provider.Model,
+				resolved.Provider.Name,
+				"",
+			)
+			if exactResume && len(resumeMessages) > 0 && preparedSession.Store != nil {
+				if added, backfillErr := preparedSession.Store.BackfillOrphanResults(preparedSession.Session.SessionID, &sessions.ContinuationSnapshot{
+					SessionID: preparedSession.Session.SessionID,
+					ModelID:   resolved.Provider.Model,
+					Messages:  resumeMessages,
+				}); backfillErr == nil && added > 0 {
+					if refreshed, getErr := preparedSession.Store.Get(preparedSession.Session.SessionID); getErr == nil && refreshed != nil {
+						preparedSession.Session = *refreshed
+					}
+					if rehydrated, readErr := preparedSession.Store.ReadRehydratedEvents(preparedSession.Session.SessionID); readErr == nil {
+						preparedSession.ContextEvents = rehydrated
+					}
+				}
+			}
+		}
 	}
 	runID, err := streamjson.CreateRunID(time.Now())
 	if err != nil {
@@ -643,7 +672,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		}
 	}
 
-	sessionRecorder := execSessionRecorder{prepared: preparedSession}
+	sessionRecorder := newExecSessionRecorder(preparedSession)
 	// Surface a best-effort session-recording failure once, on every exit path.
 	defer sessionRecorder.warnIfRecordingFailed(stderr, options.outputFormat)
 	sessionRecorder.append(sessions.EventMessage, map[string]any{
@@ -682,7 +711,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 	// project hooks/plugins were dropped for an untrusted workspace.
 	hookDispatcher, hookSkip := newHookDispatcherWithExtra(workspaceRoot, pluginActivation.hooks, trustRoot, executionRunner)
 	emitTrustNotice(stderr, hookSkip, pluginActivation.trustSkip, mcpSkip)
-	result, err := agent.Run(runCtx, agentPrompt, provider, agent.Options{
+	agentOptions := agent.Options{
 		MaxTurns:             resolved.MaxTurns,
 		BetweenTurns:         mcpBetweenTurns(mcpRuntime),
 		ContextWindow:        resolveAgentContextWindow(runCtx, modelRegistry, resolved.Provider),
@@ -779,7 +808,45 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 			}
 			sessionRecorder.append(sessions.EventUsage, payload)
 		},
-	})
+	}
+	agentPrompt := prompt
+	persistContinuation := preparedSession.Store != nil &&
+		preparedSession.Session.SessionID != "" &&
+		sessions.IsResumableKind(preparedSession.Session.SessionKind)
+	switch preparedSession.Mode {
+	case sessions.ModeFork:
+		agentPrompt = sessions.FormatExecPrompt(prompt, preparedSession)
+		persistContinuation = false
+	case sessions.ModeResume:
+		if len(resumeMessages) > 0 {
+			candidate := agentOptions
+			candidate.Continuation = resumeMessages
+			candidate.LoadedDeferredTools = resumeLoadedTools
+			if agent.ContinuationFitsContext(prompt, candidate) {
+				agentOptions.Continuation = resumeMessages
+				agentOptions.LoadedDeferredTools = resumeLoadedTools
+			} else {
+				agentPrompt = sessions.FormatExecPrompt(prompt, preparedSession)
+				persistContinuation = false
+			}
+		} else {
+			agentPrompt = sessions.FormatExecPrompt(prompt, preparedSession)
+			persistContinuation = agentPrompt == prompt && persistContinuation
+		}
+	}
+	if persistContinuation {
+		agentOptions.OnStepMessages = func(messages []qgruntime.Message, loaded []string) {
+			sessionRecorder.saveContinuation(currentModel, resolved.Provider.Name, forwardEffort, messages, loaded)
+		}
+	}
+	result, err := agent.Run(runCtx, agentPrompt, provider, agentOptions)
+	finalizeContinuation := func() {
+		if persistContinuation {
+			sessionRecorder.saveContinuation(currentModel, resolved.Provider.Name, forwardEffort, result.Messages, result.LoadedDeferredTools)
+		} else {
+			sessionRecorder.invalidateContinuation()
+		}
+	}
 	// Finish the trace now that the turn is done, so the snapshot captures exactly
 	// agent.Run's work and nothing the post-run cleanup stamps. The deferred
 	// writer serializes the snapshot on every exit path.
@@ -795,6 +862,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		// A Ctrl+C / SIGTERM cancellation is a clean shutdown, not a provider error.
 		if errors.Is(err, context.Canceled) || runCtx.Err() != nil {
 			sessionRecorder.append(sessions.EventError, map[string]any{"message": "interrupted"})
+			finalizeContinuation()
 			switch options.outputFormat {
 			case execOutputStreamJSON:
 				writer.errorEvent("interrupted", "run cancelled by signal", false)
@@ -824,6 +892,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 			return exitInterrupted
 		}
 		sessionRecorder.append(sessions.EventError, map[string]any{"message": err.Error()})
+		finalizeContinuation()
 		if options.outputFormat == execOutputStreamJSON {
 			writer.errorEvent("provider_error", err.Error(), false)
 			writer.runEnd("error", exitProvider)
@@ -859,6 +928,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 			reason = "run stopped with work unfinished"
 		}
 		sessionRecorder.append(sessions.EventError, map[string]any{"message": "incomplete: " + reason})
+		finalizeContinuation()
 		switch options.outputFormat {
 		case execOutputStreamJSON:
 			writer.final(result.FinalAnswer)
@@ -883,6 +953,7 @@ func runExec(args []string, stdout io.Writer, stderr io.Writer, deps appDeps) in
 		}
 		return exitIncomplete
 	}
+	finalizeContinuation()
 	writer.final(result.FinalAnswer)
 	writer.runEnd("success", exitSuccess)
 	if writer.err != nil {

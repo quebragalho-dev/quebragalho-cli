@@ -974,7 +974,7 @@ func (m model) setCompactStatusRow(text string) model {
 // receipt row goes to the live transcript too, so the live view matches
 // the resumed one. Must run on the Update loop, never in runCompact's
 // goroutine.
-func (m model) recordCompactionUsage(modelID string, event qgruntime.Usage) model {
+func (m model) recordCompactionUsage(modelID string, event qgruntime.Usage) (model, bool) {
 	callModelID := strings.TrimSpace(event.ModelID)
 	if callModelID == "" {
 		callModelID = strings.TrimSpace(modelID)
@@ -983,7 +983,7 @@ func (m model) recordCompactionUsage(modelID string, event qgruntime.Usage) mode
 		callModelID = strings.TrimSpace(m.modelName)
 	}
 	if callModelID == "" {
-		return m
+		return m, false
 	}
 	event.Summarizer = true
 	var info qgaccount.ModelInfo
@@ -1010,7 +1010,11 @@ func (m model) recordCompactionUsage(modelID string, event qgruntime.Usage) mode
 	if err != nil {
 		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowError, text: "erro ao gravar a sessão: " + err.Error()})
 	}
-	return m
+	var goalChanged bool
+	if normalized, _, normErr := usage.Normalize(event); normErr == nil && normalized.TotalTokens > 0 {
+		m, goalChanged = m.accountGoalTokens(normalized.TotalTokens)
+	}
+	return m, goalChanged
 }
 
 func (m model) recordUsageEvent(modelID string, event qgruntime.Usage, receipt transcriptRow) (model, []transcriptRow) {
@@ -1024,16 +1028,21 @@ func (m model) recordUsageEvent(modelID string, event qgruntime.Usage, receipt t
 	if event.ModelID != "" {
 		modelID = event.ModelID
 	}
-	m.lastUsage = normalized
-	if receipt.meta == nil {
-		receipt.meta = map[string]string{"model": modelID}
+	m.summarizerRecordedLast = event.Summarizer
+	if !event.Summarizer {
+		m.lastUsage = normalized
+		if receipt.meta == nil {
+			receipt.meta = map[string]string{"model": modelID}
+		}
+		if _, ok := receipt.meta["model"]; !ok {
+			receipt.meta["model"] = modelID
+		}
+		m.lastUsageReceipt = receipt
+		m.lastUsageSeen = true
+		m.meterLive = true
+		m.postCompactTokens = 0
+		m.hasPostCompactTokens = false
 	}
-	if _, ok := receipt.meta["model"]; !ok {
-		receipt.meta["model"] = modelID
-	}
-	m.lastUsageReceipt = receipt
-	m.lastUsageSeen = true
-	m.meterLive = true
 	callsBefore := len(m.cacheCalls)
 	boundary := m.cacheClearBoundary
 	m.cacheClearBoundary = false
@@ -1065,14 +1074,48 @@ func (m model) recordUsageEvent(modelID string, event qgruntime.Usage, receipt t
 	return m, nil
 }
 
-func (m model) latestUsageTokens(summary usage.Summary) int {
+func compactedContextTokens(messages []qgruntime.Message, events []sessions.Event, fallback int) int {
+	if len(messages) > 0 {
+		if n := agent.MeasureContext(messages, nil, 0).MessageTokens; n > 0 {
+			return n
+		}
+	}
+	if len(events) > 0 {
+		rebuilt := sessions.RepairOrphanToolCalls(sessions.ReconstructContinuationMessages(events))
+		if n := agent.MeasureContext(rebuilt, nil, 0).MessageTokens; n > 0 {
+			return n
+		}
+	}
+	if fallback > 0 {
+		return fallback
+	}
+	return 0
+}
+
+func (m model) contextFootprintTokens() int {
+	if m.hasPostCompactTokens {
+		return m.postCompactTokens
+	}
 	if m.lastUsageSeen && m.lastUsage.TotalTokens > 0 {
 		return m.lastUsage.TotalTokens
 	}
-	if summary.LastRecord != nil && summary.LastRecord.Usage.TotalTokens > 0 {
+	return 0
+}
+
+func (m model) latestUsageTokens(summary usage.Summary) int {
+	if m.hasPostCompactTokens && m.postCompactTokens > 0 {
+		return m.postCompactTokens
+	}
+	if m.lastUsageSeen && m.lastUsage.TotalTokens > 0 {
+		return m.lastUsage.TotalTokens
+	}
+	if !m.summarizerRecordedLast && summary.LastRecord != nil && summary.LastRecord.Usage.TotalTokens > 0 {
 		return summary.LastRecord.Usage.TotalTokens
 	}
-	return m.unpricedTokens
+	if !m.hasPostCompactTokens && !m.summarizerRecordedLast {
+		return m.unpricedTokens
+	}
+	return 0
 }
 
 func isUnpricedUsageError(err error) bool {

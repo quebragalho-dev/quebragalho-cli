@@ -632,3 +632,132 @@ func TestSessionLockRefusalFailsClosedWithoutSidecar(t *testing.T) {
 		t.Fatalf("refusal must stay in pt-BR, got %q", locked.Error())
 	}
 }
+
+func TestReconstructContinuationMessagesSkipsDanglingToolResultAfterCompaction(t *testing.T) {
+	store := NewStore(StoreOptions{RootDir: t.TempDir()})
+	session, err := store.Create(CreateInput{SessionID: "recon_dangling_tool"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, input := range []AppendEventInput{
+		{Type: EventMessage, Payload: map[string]any{"role": "user", "content": "start"}},
+		{Type: EventToolCall, Payload: map[string]any{"id": "c_cut", "name": "read_file", "arguments": `{"path":"a.txt"}`}},
+		{Type: EventToolResult, Payload: map[string]any{"toolCallId": "c_cut", "name": "read_file", "status": "ok", "output": "orphan-after-cut"}},
+		{Type: EventMessage, Payload: map[string]any{"role": "assistant", "content": "done"}},
+	} {
+		if _, err := store.AppendEvent(session.SessionID, input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// PreserveLast: 2 splits right between EventToolCall (#2) and EventToolResult (#3).
+	plan, err := store.PlanCompaction(session.SessionID, CompactionOptions{PreserveLast: 2, SkipPrompt: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RecordCompaction(session.SessionID, RecordCompactionInput{Plan: plan, Summary: "cut summary"}); err != nil {
+		t.Fatal(err)
+	}
+	rehydrated, err := store.ReadRehydratedEvents(session.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs := ReconstructContinuationMessages(rehydrated)
+	for _, msg := range msgs {
+		if msg.Role == qgruntime.MessageRoleTool {
+			t.Fatalf("dangling tool_result without preceding tool_call must be skipped: %#v", msgs)
+		}
+	}
+	if len(msgs) != 2 || !strings.Contains(msgs[0].Content, "cut summary") || msgs[1].Content != "done" {
+		t.Fatalf("unexpected reconstructed messages after mid-pair compaction cut: %#v", msgs)
+	}
+}
+
+func TestLoadResumeContinuationExactAndReconstructed(t *testing.T) {
+	store := NewStore(StoreOptions{RootDir: t.TempDir()})
+	session, err := store.Create(CreateInput{SessionID: "load_resume_1", ModelID: "m1", Provider: "p1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, input := range []AppendEventInput{
+		{Type: EventMessage, Payload: map[string]any{"role": "user", "content": "q1"}},
+		{Type: EventMessage, Payload: map[string]any{"role": "assistant", "content": "a1"}},
+	} {
+		if _, err := store.AppendEvent(session.SessionID, input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	meta, _ := store.Get(session.SessionID)
+	exactMsgs := []qgruntime.Message{
+		{Role: qgruntime.MessageRoleSystem, Content: "frozen-sys"},
+		{Role: qgruntime.MessageRoleUser, Content: "q1"},
+		{
+			Role:      qgruntime.MessageRoleAssistant,
+			Content:   "",
+			Reasoning: []qgruntime.ReasoningBlock{{Provider: "p1", Type: "thinking", Text: "r", Signature: "sig-r"}},
+			ToolCalls: []qgruntime.ToolCall{{ID: "c1", Name: "read_file", Arguments: "{}", ProviderCallID: "fc_1", Signature: "sig-c"}},
+		},
+		{Role: qgruntime.MessageRoleTool, Content: "ok", ToolCallID: "c1", ToolCallProviderID: "fc_1"},
+		{Role: qgruntime.MessageRoleAssistant, Content: "a1"},
+	}
+	if err := store.WriteContinuation(ContinuationSnapshot{
+		SessionID:   session.SessionID,
+		ModelID:     "m1",
+		Provider:    "p1",
+		EventSeq:    meta.EventCount,
+		Messages:    exactMsgs,
+		LoadedTools: []string{"mcp_tool"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	prepared, err := PrepareExec(PrepareExecOptions{Store: store, Resume: session.SessionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Exact same model + provider (including case-insensitive provider match)
+	// preserves frozen system, reasoning, provider call IDs, and loaded tools.
+	msgs, loaded, exact := LoadResumeContinuation(prepared, "m1", "P1", "")
+	if !exact || len(msgs) != 5 || msgs[0].Content != "frozen-sys" || len(msgs[2].Reasoning) != 1 || msgs[2].ToolCalls[0].ProviderCallID != "fc_1" || msgs[3].ToolCallProviderID != "fc_1" {
+		t.Fatalf("same-model exact continuation = (%v, %#v)", exact, msgs)
+	}
+	if len(loaded) != 1 || loaded[0] != "mcp_tool" {
+		t.Fatalf("loaded tools = %#v, want [mcp_tool]", loaded)
+	}
+
+	// Missing provider on one side compares only the model ID.
+	noProvMsgs, _, exactNoProv := LoadResumeContinuation(prepared, "m1", "", "")
+	if !exactNoProv || len(noProvMsgs) != 5 || noProvMsgs[0].Content != "frozen-sys" || len(noProvMsgs[2].Reasoning) != 1 {
+		t.Fatalf("missing-provider same-model continuation must keep wire: (%v, %#v)", exactNoProv, noProvMsgs)
+	}
+	noProvModelSwitch, _, exactNoProvSwitch := LoadResumeContinuation(prepared, "m2", "", "")
+	if !exactNoProvSwitch || len(noProvModelSwitch) != 4 || noProvModelSwitch[0].Role == qgruntime.MessageRoleSystem {
+		t.Fatalf("missing-provider model switch must strip frozen system: (%v, %#v)", exactNoProvSwitch, noProvModelSwitch)
+	}
+
+	// Cross-provider switch with the exact same model ID ("p1/m1" vs "p2/m1")
+	// strips frozen system, foreign reasoning, signatures, and provider-native call IDs.
+	switched, _, exactSwitch := LoadResumeContinuation(prepared, "m1", "p2", "")
+	if !exactSwitch || len(switched) != 4 || switched[0].Role == qgruntime.MessageRoleSystem {
+		t.Fatalf("cross-provider same-model continuation must drop frozen system: %#v", switched)
+	}
+	if len(switched[1].Reasoning) != 0 || switched[1].ToolCalls[0].ProviderCallID != "" || switched[1].ToolCalls[0].Signature != "" || switched[2].ToolCallProviderID != "" {
+		t.Fatalf("cross-provider same-model continuation must strip foreign reasoning/native IDs: %#v", switched)
+	}
+
+	// Appending a new event invalidates the snapshot and reconstructs from ContextEvents.
+	if _, err := store.AppendEvent(session.SessionID, AppendEventInput{
+		Type:    EventMessage,
+		Payload: map[string]any{"role": "user", "content": "q2"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	preparedStale, err := PrepareExec(PrepareExecOptions{Store: store, Resume: session.SessionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebuilt, rebuiltLoaded, exactStale := LoadResumeContinuation(preparedStale, "m1", "p1", "")
+	if exactStale || rebuiltLoaded != nil || len(rebuilt) != 3 || rebuilt[2].Content != "q2" {
+		t.Fatalf("stale snapshot must reconstruct from events: exact=%v msgs=%#v", exactStale, rebuilt)
+	}
+}

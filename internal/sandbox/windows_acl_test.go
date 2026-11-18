@@ -48,7 +48,10 @@ func TestBuildWindowsACLPlanForWorkspaceWriteProfile(t *testing.T) {
 	assertWindowsACLEntry(t, plan, WindowsACLAllowWrite, `D:\cache`, cacheSID, false)
 	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\vendor`, workspaceSID, false)
 	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\.git`, workspaceSID, false)
-	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\.qg`, workspaceSID, false)
+	// .qg is sandbox-owned metadata: its deny materializes so the directory
+	// cannot be created-and-owned by an isolated command first. .git above
+	// only guards (it is not sandbox-owned), so it keeps the old behaviour.
+	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\.qg`, workspaceSID, true)
 	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\secret-write`, workspaceSID, false)
 	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\secret-write`, cacheSID, false)
 	assertWindowsACLEntry(t, plan, WindowsACLDenyRead, `C:\workspace\secret-read`, workspaceSID, true)
@@ -353,4 +356,221 @@ func TestBuildWindowsACLPlanLeavesAnOutOfRootSubpathUnanchored(t *testing.T) {
 	if outsideAnchor != "" {
 		t.Errorf("out-of-root subpath carries anchor %q, want none: the apply would refuse a config that works today", outsideAnchor)
 	}
+}
+
+// A DENY ACE ON A PATH THAT DOES NOT EXIST YET DENIES NOTHING.
+//
+// The apply skips a missing target whose group carries no Materialize flag, so
+// a deny-write entry for <root>/.qg or <root>/.agents protects only a directory
+// somebody else created first. An isolated command can then create the directory
+// itself (creating a child of a granted write root is allowed) and write inside
+// it, inheriting the parent's capability allow ACE. The metadata-derived denies
+// must therefore materialize their targets: create the directory when it is
+// missing and stamp the inheritable deny on it, so the metadata stays
+// unwritable whether it existed before setup or not. Operator-named
+// ReadOnlySubpaths keep the old behaviour: creating arbitrary operator paths as
+// elevated setup would be host mutation, not confinement.
+func TestBuildWindowsACLPlanMaterializesProtectedMetadataWriteDenies(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	qgDir := filepath.Join(workspace, ".qg")
+	agentsDir := filepath.Join(workspace, ".agents")
+	vendorDir := filepath.Join(workspace, "vendor")
+	plan, err := BuildWindowsACLPlan(WindowsSandboxCommandConfig{
+		SandboxHome:    home,
+		WorkspaceRoots: []string{workspace},
+		PermissionProfile: PermissionProfile{
+			FileSystem: FileSystemPolicy{
+				Kind: FileSystemRestricted,
+				WriteRoots: []WritableRoot{{
+					Root:                   workspace,
+					ReadOnlySubpaths:       []string{vendorDir},
+					ProtectedMetadataNames: []string{".qg", ".agents"},
+				}},
+			},
+			Network: NetworkPolicy{Mode: NetworkDeny},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildWindowsACLPlan: %v", err)
+	}
+
+	byPath := map[string]WindowsACLEntry{}
+	for _, entry := range plan.Entries {
+		if entry.Action != WindowsACLDenyWrite {
+			continue
+		}
+		byPath[strings.ToLower(entry.Path)] = entry
+	}
+	for _, metadata := range []string{qgDir, agentsDir} {
+		entry, present := byPath[strings.ToLower(metadata)]
+		if !present {
+			t.Fatalf("SETUP INVALID: the plan has no deny-write entry for %s", metadata)
+		}
+		if !entry.Materialize {
+			t.Errorf("deny-write for protected metadata %s must materialize its target, or an isolated command creates and owns it first", metadata)
+		}
+		if entry.Anchor != workspace {
+			t.Errorf("deny-write for protected metadata %s carries anchor %q, want the write root it came from", metadata, entry.Anchor)
+		}
+	}
+	vendor, present := byPath[strings.ToLower(vendorDir)]
+	if !present {
+		t.Fatal("SETUP INVALID: the plan has no deny-write entry for the operator-named subpath")
+	}
+	if vendor.Materialize {
+		t.Errorf("operator-named subpath %s must not materialize: creating arbitrary operator paths during setup is host mutation", vendorDir)
+	}
+}
+
+// A DEDUPED DENY MUST NOT LOSE ITS MATERIALIZE FLAG.
+//
+// The same path can reach the plan twice: once operator-named (no materialize)
+// and once metadata-derived (materialize). Collapsing the pair must keep the
+// stronger shape, or whichever entry the dedupe sees first silently decides
+// whether the deny survives a missing target.
+func TestDedupeWindowsACLEntriesMergesMaterializeOnDuplicateDenyPaths(t *testing.T) {
+	entries := []WindowsACLEntry{
+		{Action: WindowsACLDenyWrite, Path: `C:\workspace\.qg`, Capability: "S-1-5-21-1"},
+		{Action: WindowsACLDenyWrite, Path: `C:\workspace\.qg`, Capability: "S-1-5-21-1", Materialize: true},
+	}
+	out := dedupeWindowsACLEntries(entries)
+	if len(out) != 1 {
+		t.Fatalf("dedupe = %#v, want a single merged entry", out)
+	}
+	if !out[0].Materialize {
+		t.Fatalf("deduped entry = %#v, want Materialize kept: the operator-named duplicate must not disarm the metadata deny", out[0])
+	}
+}
+
+// THE FULL RESTRICTED TOKEN CHECKS READS TOO, SO IT NEEDS READ GRANTS.
+//
+// A profile with DenyRead runs without WRITE_RESTRICTED: the restricted-SID
+// check then applies to reads, and the workspace is unreadable unless the plan
+// grants the capability SIDs read access on it. These allow-read entries are
+// inert under WRITE_RESTRICTED (reads there already pass via the user identity)
+// and load-bearing without it.
+func TestBuildWindowsACLPlanGrantsCapabilityReadOnWriteRoots(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	plan, err := BuildWindowsACLPlan(WindowsSandboxCommandConfig{
+		SandboxHome:    home,
+		WorkspaceRoots: []string{workspace},
+		PermissionProfile: PermissionProfile{
+			FileSystem: FileSystemPolicy{
+				Kind:       FileSystemRestricted,
+				WriteRoots: []WritableRoot{{Root: workspace}},
+			},
+			Network: NetworkPolicy{Mode: NetworkDeny},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildWindowsACLPlan: %v", err)
+	}
+	sid, err := WindowsWorkspaceCapabilitySID(home, workspace)
+	if err != nil {
+		t.Fatalf("WindowsWorkspaceCapabilitySID: %v", err)
+	}
+	assertWindowsACLEntry(t, plan, WindowsACLAllowRead, workspace, sid, false)
+}
+
+// mustResolveWindowsCredentialPath returns the spelling the Windows ACL plan
+// uses for an existing path: fully symlink-resolved. t.TempDir() sits under a
+// symlink on macOS (/var -> /private/var), so asserting the raw spelling
+// fails there while the plan is correct.
+func mustResolveWindowsCredentialPath(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("EvalSymlinks %s: %v", path, err)
+	}
+	return resolved
+}
+
+// CREDENTIAL PATHS GET DENY ENTRIES WITHOUT MATERIALIZING.
+//
+// Credential stores (~/.ssh, tokens, ...) must be denied to the sandbox, but
+// the plan must never create them: materializing an absent ~/.ssh as elevated
+// setup would plant an admin-owned directory the user can no longer write,
+// breaking their own ssh. Best-effort like the Linux mount backend for absent
+// paths: deny what exists, skip what does not (a path created later is picked
+// up by the next on-demand apply, and creation races towards denial because the
+// apply denies whatever exists when it runs).
+func TestBuildWindowsACLPlanDeniesCredentialPathsWithoutMaterializing(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	present := t.TempDir()
+	absent := filepath.Join(t.TempDir(), "not-created-yet")
+	plan, err := BuildWindowsACLPlan(WindowsSandboxCommandConfig{
+		SandboxHome:    home,
+		WorkspaceRoots: []string{workspace},
+		PermissionProfile: PermissionProfile{
+			FileSystem: FileSystemPolicy{
+				Kind:             FileSystemRestricted,
+				WriteRoots:       []WritableRoot{{Root: workspace}},
+				DenyReadIfExists: []string{present, absent},
+			},
+			Network: NetworkPolicy{Mode: NetworkDeny},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildWindowsACLPlan: %v", err)
+	}
+	sid, err := WindowsWorkspaceCapabilitySID(home, workspace)
+	if err != nil {
+		t.Fatalf("WindowsWorkspaceCapabilitySID: %v", err)
+	}
+	// The plan stamps the resolved object, never the possibly-symlinked
+	// spelling the profile carried.
+	resolvedPresent := mustResolveWindowsCredentialPath(t, present)
+	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, resolvedPresent, sid, false)
+	assertWindowsACLEntry(t, plan, WindowsACLDenyRead, resolvedPresent, sid, false)
+	for _, entry := range plan.Entries {
+		if windowsCapabilityPathKey(entry.Path) == windowsCapabilityPathKey(absent) {
+			t.Fatalf("plan entry for absent credential path %s: the plan must not plant host directories", absent)
+		}
+	}
+}
+
+// CARVEOUTS STAY READABLE INSIDE A DENIED CREDENTIAL ROOT.
+//
+// A directory-level credential deny (QG's own config dir) would otherwise hide
+// the supported non-secret subtrees (plugins, specialists, commands) whose
+// contents run through the sandbox. The carveout allow-read ACEs sit on the
+// child objects themselves, so they win over the inherited parent deny.
+func TestBuildWindowsACLPlanKeepsCredentialCarveoutsReadable(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	parent := t.TempDir()
+	carveout := filepath.Join(parent, "plugins")
+	// The allow entry names an existing object: a carveout created later is
+	// picked up by the next plan build (and its hash change re-triggers the
+	// on-demand apply) instead of being spelled raw.
+	if err := os.Mkdir(carveout, 0o700); err != nil {
+		t.Fatalf("mkdir carveout: %v", err)
+	}
+	plan, err := BuildWindowsACLPlan(WindowsSandboxCommandConfig{
+		SandboxHome:    home,
+		WorkspaceRoots: []string{workspace},
+		PermissionProfile: PermissionProfile{
+			FileSystem: FileSystemPolicy{
+				Kind:              FileSystemRestricted,
+				WriteRoots:        []WritableRoot{{Root: workspace}},
+				DenyReadIfExists:  []string{parent},
+				DenyReadCarveouts: []string{carveout},
+			},
+			Network: NetworkPolicy{Mode: NetworkDeny},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildWindowsACLPlan: %v", err)
+	}
+	sid, err := WindowsWorkspaceCapabilitySID(home, workspace)
+	if err != nil {
+		t.Fatalf("WindowsWorkspaceCapabilitySID: %v", err)
+	}
+	resolvedParent := mustResolveWindowsCredentialPath(t, parent)
+	resolvedCarveout := mustResolveWindowsCredentialPath(t, carveout)
+	assertWindowsACLEntry(t, plan, WindowsACLDenyRead, resolvedParent, sid, false)
+	assertWindowsACLEntry(t, plan, WindowsACLAllowRead, resolvedCarveout, sid, false)
 }

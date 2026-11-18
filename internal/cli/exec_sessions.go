@@ -7,13 +7,31 @@ import (
 	"strings"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/agent"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 )
 
 type execSessionRecorder struct {
 	prepared sessions.PreparedExec
+	lastSeq  int
 	err      error
+}
+
+func newExecSessionRecorder(prepared sessions.PreparedExec) execSessionRecorder {
+	return execSessionRecorder{
+		prepared: prepared,
+		lastSeq:  prepared.Session.EventCount,
+	}
+}
+
+func execSessionStore(deps appDeps) *sessions.Store {
+	if deps.newSessionStore != nil {
+		if store := deps.newSessionStore(); store != nil {
+			return store
+		}
+	}
+	return sessions.NewStore(sessions.StoreOptions{})
 }
 
 // captureCheckpoint snapshots the before-state of files a tool call will mutate.
@@ -35,6 +53,9 @@ func (recorder *execSessionRecorder) captureCheckpoint(workspaceRoot string, cal
 	if err != nil || event.Type == "" {
 		return sessions.Event{}, false
 	}
+	if event.Sequence > recorder.lastSeq {
+		recorder.lastSeq = event.Sequence
+	}
 	return event, true
 }
 
@@ -47,6 +68,10 @@ func shouldUseExecSession(options execOptions) bool {
 }
 
 func preflightExecSession(options execOptions) error {
+	return preflightExecSessionWithStore(options, nil)
+}
+
+func preflightExecSessionWithStore(options execOptions, store *sessions.Store) error {
 	if options.resume == "" && !options.resumeLatest && options.fork == "" {
 		return nil
 	}
@@ -54,7 +79,9 @@ func preflightExecSession(options execOptions) error {
 		return execUsageError{"Use either --resume or --fork, not both."}
 	}
 
-	store := sessions.NewStore(sessions.StoreOptions{})
+	if store == nil {
+		store = sessions.NewStore(sessions.StoreOptions{})
+	}
 	switch {
 	case options.fork != "":
 		session, err := store.Get(options.fork)
@@ -122,10 +149,43 @@ func (recorder *execSessionRecorder) append(eventType sessions.EventType, payloa
 	if recorder.err != nil || recorder.prepared.Store == nil || recorder.prepared.Session.SessionID == "" {
 		return
 	}
-	_, recorder.err = recorder.prepared.Store.AppendEvent(recorder.prepared.Session.SessionID, sessions.AppendEventInput{
+	event, err := recorder.prepared.Store.AppendEvent(recorder.prepared.Session.SessionID, sessions.AppendEventInput{
 		Type:    eventType,
 		Payload: payload,
 	})
+	if err != nil {
+		recorder.err = err
+		return
+	}
+	if event.Sequence > recorder.lastSeq {
+		recorder.lastSeq = event.Sequence
+	}
+}
+
+func (recorder *execSessionRecorder) saveContinuation(modelID, provider, effort string, messages []qgruntime.Message, loadedTools []string) {
+	if recorder.err != nil || recorder.prepared.Store == nil || recorder.prepared.Session.SessionID == "" {
+		return
+	}
+	if !sessions.IsResumableKind(recorder.prepared.Session.SessionKind) || len(messages) == 0 {
+		return
+	}
+	repaired := sessions.RepairOrphanToolCalls(messages)
+	_ = recorder.prepared.Store.WriteContinuation(sessions.ContinuationSnapshot{
+		SessionID:       recorder.prepared.Session.SessionID,
+		ModelID:         modelID,
+		Provider:        provider,
+		ReasoningEffort: effort,
+		EventSeq:        recorder.lastSeq,
+		Messages:        append([]qgruntime.Message(nil), repaired...),
+		LoadedTools:     append([]string(nil), loadedTools...),
+	})
+}
+
+func (recorder *execSessionRecorder) invalidateContinuation() {
+	if recorder.prepared.Store == nil || recorder.prepared.Session.SessionID == "" {
+		return
+	}
+	_ = recorder.prepared.Store.InvalidateContinuation(recorder.prepared.Session.SessionID)
 }
 
 // warnIfRecordingFailed surfaces a latched session-append failure to stderr.

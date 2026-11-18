@@ -200,3 +200,55 @@ func TestWindowsShellCommandLineFromArgsRejectsOtherShapes(t *testing.T) {
 		}
 	}
 }
+
+// O servidor MCP de um projeto confiável recebe credenciais configuradas de
+// forma explícita na config (por ex. "ACCEPT_TOKEN": "${QG_ACCEPT_PROJECT_TOKEN}",
+// já expandido), e o plano do isolamento do Windows precisa preservá-las como
+// o Linux e o macOS já fazem. Regressão do bloqueio de credenciais (9bce876):
+// windowsRestrictedTokenCommandPlan ignorava skipHeuristicEnvScrub e aplicava
+// a heurística de redaction também para servidores MCP, então no Windows o
+// servidor recebia token vazio (internal/cli
+// TestAcceptanceMCPApprovedProjectServerRunsWithExpandedVars/interactive_start).
+// Roda no Linux exercitando a mesma montagem de ambiente do Windows.
+func TestWindowsRestrictedTokenPlanKeepsExplicitMCPServerCredentialEnv(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	newRequest := func(skipHeuristic bool) SandboxExecutionRequest {
+		return SandboxExecutionRequest{
+			WorkspaceRoot: workspaceRoot,
+			Command: CommandSpec{
+				Name: "node",
+				Args: []string{"server.js"},
+				Dir:  workspaceRoot,
+				Env: []string{
+					"QG_WINDOWS_SANDBOX_HOME=" + t.TempDir(),
+					"ACCEPT_TOKEN=configured-project-token",
+					"QG_ACCEPT_PROJECT_TOKEN=configured-project-token",
+				},
+				skipHeuristicEnvScrub: skipHeuristic,
+			},
+			PermissionProfile: PermissionProfile{},
+			Backend:           Backend{Name: BackendWindowsRestrictedToken, Executable: "qg"},
+		}
+	}
+
+	mcpPlan, err := windowsRestrictedTokenCommandPlan(newRequest(true), Policy{})
+	if err != nil {
+		t.Fatalf("windowsRestrictedTokenCommandPlan (servidor MCP): %v", err)
+	}
+	if got := envListValue(mcpPlan.Env, "ACCEPT_TOKEN", ""); got != "configured-project-token" {
+		t.Fatalf("plano MCP no Windows removeu ACCEPT_TOKEN explícito, servidor veria %q", got)
+	}
+	if got := envListValue(mcpPlan.Env, "QG_ACCEPT_PROJECT_TOKEN", ""); got != "configured-project-token" {
+		t.Fatalf("plano MCP no Windows removeu QG_ACCEPT_PROJECT_TOKEN explícito, servidor veria %q", got)
+	}
+
+	// Comandos do modelo continuam com o bloqueio de credenciais ligado: a
+	// mesma variável fora de um servidor MCP deve sair do ambiente.
+	modelPlan, err := windowsRestrictedTokenCommandPlan(newRequest(false), Policy{})
+	if err != nil {
+		t.Fatalf("windowsRestrictedTokenCommandPlan (comando do modelo): %v", err)
+	}
+	if got := envListValue(modelPlan.Env, "ACCEPT_TOKEN", ""); got != "" {
+		t.Fatalf("plano de comando do modelo no Windows manteve ACCEPT_TOKEN=%q, queria bloqueio", got)
+	}
+}

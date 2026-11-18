@@ -199,11 +199,11 @@ func wavFromPCM16(pcm []byte, sampleRate int) []byte {
 	return encodeWAV(pcm, sampleRate)
 }
 
-// StreamingModelDir reports whether a local model directory holds a true
-// streaming model. QG installs a model as "model-<id>/sherpa-onnx-<id>" and
+// StreamingModelDir reports whether a local model directory holds an online
+// (streaming) model. QG installs a model as "model-<id>/sherpa-onnx-<id>" and
 // stt.localModelPath points at the inner directory; a streaming model's id
 // contains "streaming". A directory with neither prefix is a manual setup and
-// keeps the streaming-server path (true).
+// selects the online file decoder (true).
 func StreamingModelDir(path string) bool {
 	trimmed := strings.TrimRight(strings.TrimSpace(path), `/\`)
 	base := trimmed

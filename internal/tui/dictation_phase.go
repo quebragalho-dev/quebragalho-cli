@@ -99,15 +99,16 @@ func dictEventLegal(phase dictationPhase, ev DictEvent) bool {
 
 // dictArgs carries the optional payload for a dictation transition.
 type dictArgs struct {
-	recorder    Recorder
-	transcriber Transcriber
-	ctx         context.Context
-	cancel      context.CancelFunc
-	streaming   bool
-	streamStop  func() error
-	spaceHeld   bool
-	voiceStop   bool
-	sessionID   int64
+	recorder      Recorder
+	transcriber   Transcriber
+	ctx           context.Context
+	cancel        context.CancelFunc
+	streaming     bool
+	streamStop    func() error
+	spaceHeld     bool
+	voiceStop     bool
+	savedComposer dictComposerSnapshot
+	sessionID     int64
 }
 
 // dictFullReset drops the whole session by construction: the phase returns to
@@ -129,6 +130,7 @@ func (d *dictationController) dictFullReset() {
 	d.regionEnd = 0
 	d.regionPrefix = ""
 	d.regionAnchor = ""
+	d.savedComposer = dictComposerSnapshot{}
 	d.waveBars = nil
 	d.waveTick = 0
 	d.spaceHeld = false
@@ -151,6 +153,7 @@ func (d *dictationController) transition(ev DictEvent, a dictArgs) error {
 		d.streaming = a.streaming
 		d.spaceHeld = a.spaceHeld
 		d.voiceStopPending = a.voiceStop
+		d.savedComposer = a.savedComposer
 		d.phase = dictStarting
 	case DictEvStartedOK:
 		if a.sessionID != d.sessionID {

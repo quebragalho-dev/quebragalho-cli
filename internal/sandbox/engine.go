@@ -87,6 +87,14 @@ func (engine *Engine) Scope() *Scope {
 	return engine.scope
 }
 
+// WorkspaceRoot returns the engine's configured workspace root.
+func (engine *Engine) WorkspaceRoot() string {
+	if engine == nil {
+		return ""
+	}
+	return engine.workspaceRoot
+}
+
 func (engine *Engine) CanPersistGrants() bool {
 	return engine != nil && engine.store != nil
 }

@@ -880,16 +880,17 @@ func TestScrubSensitiveEnv(t *testing.T) {
 		"COMPANY_LLM_SECRET=custom-secret",
 		"QG_OAUTH_MY_SVC_CLIENT_SECRET=oauth-secret",
 		"qg_oauth_second_client_secret=case-insensitive-secret",
-		"QG_OAUTH_CLIENT_SECRET=not-a-provider-secret",
+		"QG_OAUTH_CLIENT_SECRET=redacted-by-heuristic",
+		"QG_OAUTH_STORAGE=file",
 		"AWS_PROFILE=staging",
 		"SAFE_VAR=hello",
 	}
 	scrubbed := scrubSensitiveEnv(inputEnv, " COMPANY_LLM_SECRET ", "company_llm_secret", "GITHUB_TOKEN=ghp_pasted-assignment", "=", "")
 	expected := map[string]string{
-		"PATH":                   "/usr/bin",
-		"SAFE_VAR":               "hello",
-		"AWS_PROFILE":            "staging",
-		"QG_OAUTH_CLIENT_SECRET": "not-a-provider-secret",
+		"PATH":             "/usr/bin",
+		"SAFE_VAR":         "hello",
+		"AWS_PROFILE":      "staging",
+		"QG_OAUTH_STORAGE": "file",
 	}
 	actual := make(map[string]string, len(scrubbed))
 	for _, entry := range scrubbed {

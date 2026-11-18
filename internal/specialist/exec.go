@@ -527,6 +527,7 @@ func (executor Executor) runBackground(ctx context.Context, built BuildArgsResul
 			status = background.StatusError
 		}
 		_ = manager.MarkExited(built.SessionID, status, exitCode)
+		manager.WaitKill(built.SessionID)
 		if task, ok := manager.Get(built.SessionID); ok {
 			summary := StreamResult{ExitCode: task.ExitCode}
 			if data, err := os.ReadFile(task.OutputFile); err == nil {

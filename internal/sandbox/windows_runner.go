@@ -13,6 +13,7 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/filelock"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/fsutil"
 )
 
 const WindowsSandboxCommandRunnerName = "qg-windows-command-runner.exe"
@@ -336,7 +337,11 @@ func windowsRestrictedTokenCommandPlan(execRequest SandboxExecutionRequest, poli
 	if err != nil {
 		return CommandPlan{}, err
 	}
-	childEnv := sandboxEnvironmentForCommandWithSensitiveEnv(spec.Env, policy, BackendWindowsRestrictedToken, execRequest.WorkspaceRoot, spec.sensitiveEnvKeys)
+	// Servidores MCP recebem variáveis configuradas de forma explícita na config
+	// do projeto confiável (por ex. ACCEPT_TOKEN já expandido de ${VAR}), então
+	// seguem o mesmo caminho do Linux/macOS: sem a heurística de credenciais.
+	// Comandos do modelo mantêm o bloqueio ligado (decisão de produto).
+	childEnv := sandboxEnvironmentForCommandWithScrubMode(spec.Env, policy, BackendWindowsRestrictedToken, execRequest.WorkspaceRoot, !spec.skipHeuristicEnvScrub, spec.sensitiveEnvKeys)
 	childEnv = sandboxRuntimeEnvironment(childEnv, execRequest.PermissionProfile.Runtime)
 	// The unelevated enforcement tier maps to the runner's unelevated level: same
 	// restricted token, but the runner applies the workspace ACL plan itself instead
@@ -490,7 +495,10 @@ func LoadOrCreateWindowsCapabilitySIDs(sandboxHome string) (WindowsCapabilitySID
 }
 
 func loadOrCreateWindowsCapabilitySIDsLocked(path string) (WindowsCapabilitySIDs, error) {
-	if bytes, err := os.ReadFile(path); err == nil {
+	// The inter-process lock above serializes our own writers, but antivirus
+	// scanners and indexers can still hold the file transiently; retry those
+	// Windows lock errors like the sibling marker readers do.
+	if bytes, err := fsutil.ReadFileWithRetry(path, nil); err == nil {
 		var caps WindowsCapabilitySIDs
 		if err := json.Unmarshal(bytes, &caps); err != nil {
 			return WindowsCapabilitySIDs{}, fmt.Errorf("parse windows capability SIDs %s: %w", path, err)
@@ -720,7 +728,10 @@ func saveWindowsCapabilitySIDs(path string, caps WindowsCapabilitySIDs) error {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("close windows capability SID temp file: %w", err)
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	// Lock holders serialize our own writers, but a concurrent reader (or
+	// scanner) can still deny the rename on Windows; retry with the long
+	// budget.
+	if err := fsutil.RenameWithLongRetry(tmpPath, path, nil); err != nil {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("replace windows capability SID file: %w", err)
 	}

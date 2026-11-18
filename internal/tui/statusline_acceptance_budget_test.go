@@ -23,16 +23,25 @@ import (
 // is first noticed, so a slow pump never shrinks a measured gap.
 
 // slRefreshSlack is how far an idle run may trail its refreshMs deadline
-// (pump polling, process start, a loaded machine).
-const slRefreshSlack = 300 * time.Millisecond
+// (pump polling, process start, a loaded machine). The deadline itself is
+// product behavior and is checked against the script's own stamp; the trail
+// is the machine. With every core saturated a run has been measured starting
+// 302ms past its deadline, so 300ms sat exactly on the edge; 750ms keeps
+// headroom without hiding a tick counted from the wrong origin (a doubled
+// period or a chain that never re-armed still reads far outside it).
+const slRefreshSlack = 750 * time.Millisecond
 
 // slTickGapTolerance is how far a measured run-to-run gap may fall short of
 // refreshMs. Both idle-cadence checks use it (R2b forced-to-idle, R2d
 // idle-to-idle): the runs carry the script's own start stamp, so the
-// remaining shortfall is spawn jitter (process start, timer re-arm),
-// measured up to ~200ms under load; 300ms keeps the check meaningful (a
-// stale tick refiring at once reads ~0ms).
-const slTickGapTolerance = 300 * time.Millisecond
+// remaining shortfall is spawn jitter (process start, timer re-arm), which
+// is not symmetric between two runs. The stamp is taken after perl has
+// started, and how late that lands varies per run: measured 8-77ms on an
+// idle machine and up to 166ms with every core saturated, so a pair of runs
+// can differ by more than the smaller figure. 600ms absorbs that on a loaded
+// machine and still keeps the check meaningful (a stale tick refiring at
+// once reads ~0ms).
+const slTickGapTolerance = 600 * time.Millisecond
 
 // slRunLog reads the lines a statusline script appends, one per run. Each
 // line starts with the script's own start stamp
@@ -415,11 +424,15 @@ func TestStatusLineAcceptance_IdleRefreshCadenceAndTurnRefresh(t *testing.T) {
 	if !runs.pumpUntil(p, 1, 5*time.Second) {
 		t.Fatal("the startup run never started")
 	}
-	runs.pumpFor(p, 3300*time.Millisecond)
-	runs.requireStamps(t)
-	if len(runs.at) < 4 {
-		t.Fatalf("idle for 3.3s with refreshMs 1s: want at least 4 runs, got %d", len(runs.at))
+	// Four runs give three idle gaps to measure; the cadence claim itself is
+	// the bounds on those gaps below, so this waits for the runs instead of
+	// racing a fixed window: a loaded machine delays a run, it does not drop
+	// it, and a product that stopped running would still fail there.
+	window := time.Now()
+	if !runs.pumpUntil(p, 4, slSetupWait) {
+		t.Fatalf("refreshMs 1s: want at least 4 idle runs, got %d in %s", len(runs.at), time.Since(window).Round(time.Millisecond))
 	}
+	runs.requireStamps(t)
 	refresh := time.Second
 	for i := 1; i < len(runs.at); i++ {
 		if gap := runs.at[i].Sub(runs.at[i-1]); gap < refresh-slTickGapTolerance || gap > refresh+slRefreshSlack {
@@ -435,7 +448,9 @@ func TestStatusLineAcceptance_IdleRefreshCadenceAndTurnRefresh(t *testing.T) {
 		}
 		return time.Time{}, false
 	}
-	p.waitFor(3*time.Second, func(string) bool { runs.poll(); _, ok := refreshed(); return ok })
+	// Waiting for the refresh to appear is a condition; how late it came is
+	// the claim checked right after, on the script's own stamp.
+	p.waitFor(slSetupWait, func(string) bool { runs.poll(); _, ok := refreshed(); return ok })
 	runs.requireStamps(t)
 	at, ok := refreshed()
 	if !ok {

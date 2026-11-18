@@ -94,6 +94,226 @@ secure_curl() {
   fi
 }
 
+parse_wget_redirect() {
+  local hdr_file="$1"
+  local line rest val status="" location=""
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    case "$line" in
+      "  HTTP/"*)
+        rest="${line#  HTTP/}"
+        rest="${rest#* }"
+        status="${rest%% *}"
+        location=""
+        ;;
+      "  "[Ll][Oo][Cc][Aa][Tt][Ii][Oo][Nn]:*)
+        val="${line#*:}"
+        val="${val#"${val%%[![:space:]]*}"}"
+        val="${val%"${val##*[![:space:]]}"}"
+        location="$val"
+        ;;
+    esac
+  done < "$hdr_file"
+
+  case "$status" in
+    301|302|303|307|308)
+      if [ -n "$location" ]; then
+        printf '%s\n' "$location"
+        return 0
+      fi
+      ;;
+  esac
+  return 1
+}
+
+resolve_redirect_url() {
+  local base_url="$1"
+  local location="$2"
+  local scheme after_scheme authority path_part path_only base_dir
+
+  case "$location" in
+    [A-Za-z][A-Za-z0-9+.-]*:*)
+      printf '%s\n' "$location"
+      return 0
+      ;;
+  esac
+
+  scheme="${base_url%%://*}"
+  after_scheme="${base_url#*://}"
+  authority="${after_scheme%%[/?#]*}"
+
+  case "$location" in
+    //*)
+      printf '%s:%s\n' "$scheme" "$location"
+      ;;
+    /*)
+      printf '%s://%s%s\n' "$scheme" "$authority" "$location"
+      ;;
+    *)
+      path_part="${after_scheme#"$authority"}"
+      path_only="${path_part%%[\?#]*}"
+      case "$path_only" in
+        */*) base_dir="${path_only%/*}/" ;;
+        *) base_dir="/" ;;
+      esac
+      printf '%s://%s%s%s\n' "$scheme" "$authority" "$base_dir" "$location"
+      ;;
+  esac
+}
+
+# O --https-only do GNU wget vale só para modo recursivo (-r), não para 30x:
+# quando há --max-redirect (GNU wget), inspeciona cada salto com --max-redirect=0;
+# quando não há (busybox wget), segue com -S e confere todos os Location antes
+# de aceitar o arquivo baixado.
+wget_max_redirect_mode=""
+wget_supports_max_redirect() {
+  if [ -z "$wget_max_redirect_mode" ]; then
+    case "$(wget --help 2>&1 || true)" in
+      *--max-redirect*) wget_max_redirect_mode="yes" ;;
+      *) wget_max_redirect_mode="no" ;;
+    esac
+  fi
+  [ "$wget_max_redirect_mode" = "yes" ]
+}
+
+advance_wget_hop() {
+  local base_url="$1"
+  local status="$2"
+  local location="$3"
+  local location_count="$4"
+  local hdr_file="$5"
+  local output="$6"
+  local resolved
+
+  next_hop_url="$base_url"
+  case "$status" in
+    301|302|303|307|308)
+      if [ "$location_count" -ne 1 ] || [ -z "$location" ]; then
+        rm -f "$hdr_file" "$output"
+        fail "redirecionamento inválido recusado ao baixar $base_url"
+      fi
+      case "$location" in
+        *[[:cntrl:]]*)
+          rm -f "$hdr_file" "$output"
+          fail "redirecionamento inválido recusado ao baixar $base_url"
+          ;;
+      esac
+      resolved="$(resolve_redirect_url "$base_url" "$location")"
+      case "$resolved" in
+        [Hh][Tt][Tt][Pp][Ss]://*)
+          next_hop_url="https://${resolved#*://}"
+          ;;
+        *)
+          rm -f "$hdr_file" "$output"
+          fail "redirecionamento inseguro recusado para $resolved: só https:// é permitido (defina QG_ALLOW_INSECURE_DOWNLOAD=1 para liberar em testes locais)"
+          ;;
+      esac
+      ;;
+  esac
+}
+
+verify_wget_redirect_chain() {
+  local current_url="$1"
+  local hdr_file="$2"
+  local output="$3"
+  local line rest val status="" location="" location_count=0
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%$'\r'}"
+    case "$line" in
+      "  HTTP/"*)
+        advance_wget_hop "$current_url" "$status" "$location" "$location_count" "$hdr_file" "$output"
+        current_url="$next_hop_url"
+        rest="${line#  HTTP/}"
+        rest="${rest#* }"
+        status="${rest%% *}"
+        location=""
+        location_count=0
+        ;;
+      "  "[Ll][Oo][Cc][Aa][Tt][Ii][Oo][Nn]:*)
+        val="${line#*:}"
+        val="${val#"${val%%[![:space:]]*}"}"
+        val="${val%"${val##*[![:space:]]}"}"
+        location="$val"
+        location_count=$((location_count + 1))
+        ;;
+    esac
+  done < "$hdr_file"
+  advance_wget_hop "$current_url" "$status" "$location" "$location_count" "$hdr_file" "$output"
+}
+
+secure_wget() {
+  local url="$1"
+  local output="$2"
+  shift 2
+
+  if insecure_download_allowed; then
+    wget "$@" -O "$output" "$url"
+    return 0
+  fi
+
+  local hdr_file rc=0
+  if ! wget_supports_max_redirect; then
+    require_https "$url"
+    hdr_file="$(mktemp "${tmp_dir:-${TMPDIR:-/tmp}}/wget-headers.XXXXXX")"
+    if wget -q -S "$@" -O "$output" "$url" 2>"$hdr_file"; then
+      rc=0
+    else
+      rc=$?
+    fi
+    verify_wget_redirect_chain "$url" "$hdr_file" "$output"
+    if [ "$rc" -ne 0 ]; then
+      cat "$hdr_file" >&2
+      rm -f "$hdr_file" "$output"
+      return "$rc"
+    fi
+    rm -f "$hdr_file"
+    return 0
+  fi
+
+  local current_url="$url"
+  local hops=0
+  local location next_url
+
+  while :; do
+    require_https "$current_url"
+    hdr_file="$(mktemp "${tmp_dir:-${TMPDIR:-/tmp}}/wget-headers.XXXXXX")"
+    if wget --no-verbose --server-response --max-redirect=0 "$@" "$current_url" --output-document "$output" 2>"$hdr_file"; then
+      rm -f "$hdr_file"
+      return 0
+    else
+      rc=$?
+    fi
+
+    if location="$(parse_wget_redirect "$hdr_file")"; then
+      rm -f "$hdr_file" "$output"
+      case "$location" in
+        *[[:cntrl:]]*)
+          fail "redirecionamento inválido recusado ao baixar $current_url"
+          ;;
+      esac
+      next_url="$(resolve_redirect_url "$current_url" "$location")"
+      case "$next_url" in
+        [Hh][Tt][Tt][Pp][Ss]://*)
+          next_url="https://${next_url#*://}"
+          ;;
+        *)
+          fail "redirecionamento inseguro recusado para $next_url: só https:// é permitido (defina QG_ALLOW_INSECURE_DOWNLOAD=1 para liberar em testes locais)"
+          ;;
+      esac
+      hops=$((hops + 1))
+      [ "$hops" -le 10 ] || fail "redirecionamentos demais ao baixar $url"
+      current_url="$next_url"
+      continue
+    fi
+
+    cat "$hdr_file" >&2
+    rm -f "$hdr_file" "$output"
+    return "$rc"
+  done
+}
+
 download() {
   local url="$1"
   local output="$2"
@@ -102,7 +322,7 @@ download() {
   if command -v curl >/dev/null 2>&1; then
     secure_curl --fail --location --show-error --progress-bar "$url" --output "$output"
   elif command -v wget >/dev/null 2>&1; then
-    wget "$url" --output-document "$output"
+    secure_wget "$url" "$output"
   else
     fail "curl ou wget é obrigatório"
   fi
@@ -116,7 +336,7 @@ download_json() {
   if command -v curl >/dev/null 2>&1; then
     secure_curl --fail --location --show-error --silent --header 'Accept: application/vnd.github+json' "$url" --output "$output"
   elif command -v wget >/dev/null 2>&1; then
-    wget --quiet --header='Accept: application/vnd.github+json' "$url" --output-document "$output"
+    secure_wget "$url" "$output" --header='Accept: application/vnd.github+json'
   else
     fail "curl ou wget é obrigatório"
   fi
@@ -159,6 +379,51 @@ verify_checksum() {
   else
     fail "shasum ou sha256sum é obrigatório"
   fi
+}
+
+# Identidade esperada do certificado Sigstore, em forma de expressão regular
+# para o cosign: o workflow release-artifacts deste repositório na tag exata.
+# Pontos escapados para a expressão só casar o próprio endereço.
+sigstore_identity_regexp() {
+  local tag="$1"
+  local repo_escaped
+  repo_escaped="$(printf '%s' "$QG_REPO" | sed 's/\./\\./g')"
+  printf '^https://github\\.com/%s/\\.github/workflows/release-artifacts\\.yml@refs/tags/%s$' "$repo_escaped" "$tag"
+}
+
+verify_sigstore() {
+  local archive_path="$1" bundle_path="$2" tag="$3"
+  cosign verify-blob --bundle "$bundle_path" \
+    --certificate-identity-regexp "$(sigstore_identity_regexp "$tag")" \
+    --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+    "$archive_path"
+}
+
+# A assinatura Sigstore existe a partir da 0.0.22: releases anteriores não
+# publicam bundle e seguem só com SHA-256. Versão ilegível exige bundle
+# (falha fechada).
+requires_sigstore_bundle() {
+  local ver="$1" major minor patch rest
+  major="${ver%%.*}"
+  rest="${ver#*.}"
+  minor="${rest%%.*}"
+  patch="${rest#*.}"
+  major="${major%%[!0-9]*}"
+  minor="${minor%%[!0-9]*}"
+  patch="${patch%%[!0-9]*}"
+  if [ -z "$major$minor$patch" ]; then
+    return 0
+  fi
+  major="${major:-0}"
+  minor="${minor:-0}"
+  patch="${patch:-0}"
+  if [ "$major" -gt 0 ]; then
+    return 0
+  fi
+  if [ "$minor" -gt 0 ]; then
+    return 0
+  fi
+  [ "$patch" -ge 22 ]
 }
 
 find_extracted_entry() {
@@ -317,15 +582,32 @@ platform="$(detect_platform)"
 arch="$(detect_arch)"
 archive_name="qg-v${version}-${platform}-${arch}.tar.gz"
 checksum_name="${archive_name}.sha256"
+bundle_name="${archive_name}.sigstore.json"
 release_url="${QG_GITHUB_BASE_URL%/}/${QG_REPO}/releases/download/${tag}"
 archive_path="$tmp_dir/$archive_name"
 checksum_path="$tmp_dir/$checksum_name"
+bundle_path="$tmp_dir/$bundle_name"
 extract_dir="$tmp_dir/extract"
+identity_regexp="$(sigstore_identity_regexp "$tag")"
 
 echo "Instalando QG ${tag} para ${platform}-${arch}"
 printf 'qg install: Baixando %s...\n' "$archive_name" >&2
 download "${release_url}/${archive_name}" "$archive_path"
 download "${release_url}/${checksum_name}" "$checksum_path"
+
+if command -v cosign >/dev/null 2>&1; then
+  printf 'qg install: Baixando assinatura Sigstore...\n' >&2
+  if download "${release_url}/${bundle_name}" "$bundle_path"; then
+    printf 'qg install: Verificando assinatura Sigstore...\n' >&2
+    verify_sigstore "$archive_path" "$bundle_path" "$tag" || fail "assinatura Sigstore inválida para ${archive_name}; a instalação foi recusada"
+  elif requires_sigstore_bundle "$version"; then
+    fail "esta release não publica o bundle Sigstore (${bundle_name}); a assinatura existe a partir da 0.0.22"
+  else
+    printf 'qg install: aviso: %s não tem assinatura Sigstore (só a partir da 0.0.22); verificado só o SHA-256.\n' "$tag" >&2
+  fi
+else
+  printf 'qg install: cosign ausente, assinatura Sigstore não verificada (só SHA-256); baixe %s e rode: cosign verify-blob --bundle %s --certificate-identity-regexp %s --certificate-oidc-issuer https://token.actions.githubusercontent.com %s\n' "${release_url}/${bundle_name}" "$bundle_name" "'${identity_regexp}'" "$archive_name" >&2
+fi
 
 printf 'qg install: Verificando SHA-256...\n' >&2
 (

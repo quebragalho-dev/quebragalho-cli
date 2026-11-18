@@ -1,16 +1,33 @@
 package agent
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sandbox"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/tools"
 	"mvdan.cc/sh/v3/syntax"
 )
 
+type shellCommandSegment struct {
+	tokens       []string
+	dir          string
+	dirAmbiguous bool
+}
+
 func proposedCommandPrefix(toolName string, args map[string]any) []string {
+	return proposedCommandPrefixInDir(toolName, args, "")
+}
+
+func proposedCommandPrefixInDir(toolName string, args map[string]any, baseDir string) []string {
 	if !isShellCommandTool(toolName) {
 		return nil
 	}
@@ -18,12 +35,13 @@ func proposedCommandPrefix(toolName string, args map[string]any) []string {
 	if !ok {
 		return nil
 	}
-	segments, ok := safeShellCommandSegments(command)
+	startDir, startAmbiguous := resolveToolCommandStartDir(args, baseDir)
+	segments, ok := safeShellCommandSegmentsWithDir(command, startDir, startAmbiguous)
 	if !ok {
 		return nil
 	}
 	if requested, ok := requestedPrefixRule(args); ok {
-		if safeRequestedPrefixForSegments(requested, segments) {
+		if safeRequestedPrefixForSegmentsInDir(requested, segments) {
 			return requested
 		}
 		return nil
@@ -34,31 +52,41 @@ func proposedCommandPrefix(toolName string, args map[string]any) []string {
 	// segment, not just the approved one) to bypass the sandbox, so offering a
 	// prefix that leaves an MSYS-prone (or otherwise unsafe) segment uncovered
 	// would let that segment run unsandboxed without ever being reviewed.
-	for index, tokens := range segments {
-		if knownSafeCommandSegment(tokens) {
+	for index, seg := range segments {
+		if knownSafeCommandSegmentInDir(seg) {
 			continue
 		}
-		if !sandbox.ValidCommandPrefix(tokens) || !otherSegmentsKnownSafe(segments, index) {
+		if !segmentAllowsPrefixProposal(seg) || !sandbox.ValidCommandPrefix(seg.tokens) || !otherSegmentsKnownSafeInDir(segments, index) {
 			return nil
 		}
-		return append([]string(nil), tokens...)
+		return append([]string(nil), seg.tokens...)
 	}
-	if len(segments) == 0 || !sandbox.ValidCommandPrefix(segments[0]) {
+	if len(segments) == 0 || !segmentAllowsPrefixProposal(segments[0]) || !sandbox.ValidCommandPrefix(segments[0].tokens) {
 		return nil
 	}
-	return append([]string(nil), segments[0]...)
+	return append([]string(nil), segments[0].tokens...)
 }
 
-// otherSegmentsKnownSafe reports whether every segment other than the one at
-// skip is known-safe on its own.
-func otherSegmentsKnownSafe(segments [][]string, skip int) bool {
-	for index, tokens := range segments {
+// otherSegmentsKnownSafeInDir reports whether every segment other than the one
+// at skip is known-safe on its own in its effective working directory.
+func otherSegmentsKnownSafeInDir(segments []shellCommandSegment, skip int) bool {
+	for index, seg := range segments {
 		if index == skip {
 			continue
 		}
-		if !knownSafeCommandSegment(tokens) {
+		if !knownSafeCommandSegmentInDir(seg) {
 			return false
 		}
+	}
+	return true
+}
+
+func segmentAllowsPrefixProposal(seg shellCommandSegment) bool {
+	if len(seg.tokens) == 0 {
+		return false
+	}
+	if commandName(seg.tokens[0]) == "git" && safeGitCommand(seg.tokens) {
+		return gitSegmentConfigSafe(seg)
 	}
 	return true
 }
@@ -74,22 +102,26 @@ func matchCommandPrefix(toolName string, args map[string]any, options Options) (
 	if !ok {
 		return sandbox.CommandPrefixGrant{}, false, false
 	}
-	segments, ok := safeShellCommandSegments(command)
+	startDir, startAmbiguous := resolveToolCommandStartDir(args, effectiveCommandBaseDir(options))
+	segments, ok := safeShellCommandSegmentsWithDir(command, startDir, startAmbiguous)
 	if !ok {
 		return sandbox.CommandPrefixGrant{}, false, false
 	}
 	var matched sandbox.CommandPrefixGrant
 	matchedAny := false
 	matchedSession := false
-	for _, tokens := range segments {
-		if grant, ok := options.Sandbox.LookupCommandPrefix(toolName, tokens); ok {
+	for _, seg := range segments {
+		if commandName(seg.tokens[0]) == "git" && safeGitCommand(seg.tokens) && !gitSegmentConfigSafe(seg) {
+			return sandbox.CommandPrefixGrant{}, false, false
+		}
+		if grant, ok := options.Sandbox.LookupCommandPrefix(toolName, seg.tokens); ok {
 			if !matchedAny {
 				matched = grant
 			}
 			matchedAny = true
 			continue
 		}
-		if grant, ok := options.Sandbox.LookupCommandPrefixForSession(toolName, tokens); ok {
+		if grant, ok := options.Sandbox.LookupCommandPrefixForSession(toolName, seg.tokens); ok {
 			if !matchedAny {
 				matched = grant
 			}
@@ -97,7 +129,7 @@ func matchCommandPrefix(toolName string, args map[string]any, options Options) (
 			matchedSession = true
 			continue
 		}
-		if knownSafeCommandSegment(tokens) {
+		if knownSafeCommandSegmentInDir(seg) {
 			continue
 		}
 		return sandbox.CommandPrefixGrant{}, false, false
@@ -193,23 +225,26 @@ func cleanPrefixRule(prefix []string) []string {
 	return cleaned
 }
 
-func safeRequestedPrefixForSegments(prefix []string, segments [][]string) bool {
+func safeRequestedPrefixForSegmentsInDir(prefix []string, segments []shellCommandSegment) bool {
 	if len(prefix) == 0 || !sandbox.ValidCommandPrefix(prefix) {
 		return false
 	}
 	matched := false
-	for _, command := range segments {
-		if len(prefix) > len(command) {
-			if knownSafeCommandSegment(command) {
+	for _, seg := range segments {
+		if !segmentAllowsPrefixProposal(seg) {
+			return false
+		}
+		if len(prefix) > len(seg.tokens) {
+			if knownSafeCommandSegmentInDir(seg) {
 				continue
 			}
 			return false
 		}
-		if hasStringPrefix(command, prefix) {
+		if hasStringPrefix(seg.tokens, prefix) {
 			matched = true
 			continue
 		}
-		if knownSafeCommandSegment(command) {
+		if knownSafeCommandSegmentInDir(seg) {
 			continue
 		}
 		return false
@@ -217,7 +252,37 @@ func safeRequestedPrefixForSegments(prefix []string, segments [][]string) bool {
 	return matched
 }
 
-func safeShellCommandSegments(command string) ([][]string, bool) {
+func effectiveCommandBaseDir(options Options) string {
+	if base := strings.TrimSpace(options.Cwd); base != "" {
+		return base
+	}
+	if options.Sandbox != nil {
+		return strings.TrimSpace(options.Sandbox.WorkspaceRoot())
+	}
+	return ""
+}
+
+func resolveToolCommandStartDir(args map[string]any, baseDir string) (string, bool) {
+	base := strings.TrimSpace(baseDir)
+	argDir, hasArg := firstStringArg(args, "workdir", "cwd", "dir", "directory")
+	if !hasArg || filepath.Clean(argDir) == "." {
+		return base, false
+	}
+	if filepath.IsAbs(argDir) {
+		return filepath.Clean(argDir), false
+	}
+	if base == "" {
+		return "", true
+	}
+	return filepath.Clean(filepath.Join(base, argDir)), false
+}
+
+type shellDirState struct {
+	dir       string
+	ambiguous bool
+}
+
+func safeShellCommandSegmentsWithDir(command string, startDir string, startAmbiguous bool) ([]shellCommandSegment, bool) {
 	command = strings.TrimSpace(command)
 	if command == "" {
 		return nil, false
@@ -226,9 +291,10 @@ func safeShellCommandSegments(command string) ([][]string, bool) {
 	if err != nil || len(file.Stmts) == 0 {
 		return nil, false
 	}
-	segments := make([][]string, 0, len(file.Stmts))
+	segments := make([]shellCommandSegment, 0, len(file.Stmts))
+	state := shellDirState{dir: startDir, ambiguous: startAmbiguous}
 	for _, stmt := range file.Stmts {
-		if !collectSafeShellStatement(stmt, &segments) {
+		if !collectSafeShellStatement(stmt, &state, &segments) {
 			return nil, false
 		}
 	}
@@ -238,32 +304,101 @@ func safeShellCommandSegments(command string) ([][]string, bool) {
 	return segments, true
 }
 
-func collectSafeShellStatement(stmt *syntax.Stmt, segments *[][]string) bool {
+func collectSafeShellStatement(stmt *syntax.Stmt, state *shellDirState, segments *[]shellCommandSegment) bool {
 	if stmt == nil || stmt.Negated || stmt.Background || stmt.Coprocess || stmt.Disown || len(stmt.Redirs) > 0 {
 		return false
 	}
-	return collectSafeShellCommand(stmt.Cmd, segments)
+	return collectSafeShellCommand(stmt.Cmd, state, segments)
 }
 
-func collectSafeShellCommand(cmd syntax.Command, segments *[][]string) bool {
+func collectSafeShellCommand(cmd syntax.Command, state *shellDirState, segments *[]shellCommandSegment) bool {
 	switch node := cmd.(type) {
 	case *syntax.CallExpr:
 		tokens, ok := literalCallTokens(node)
 		if !ok {
 			return false
 		}
-		*segments = append(*segments, tokens)
+		*segments = append(*segments, shellCommandSegment{
+			tokens:       tokens,
+			dir:          state.dir,
+			dirAmbiguous: state.ambiguous,
+		})
+		if commandName(tokens[0]) == "cd" {
+			nextDir, ok := resolveCDTargetDir(state.dir, tokens[1:])
+			if !ok {
+				state.ambiguous = true
+			} else {
+				state.dir = nextDir
+			}
+		}
 		return true
 	case *syntax.BinaryCmd:
 		switch node.Op {
-		case syntax.AndStmt, syntax.OrStmt, syntax.Pipe:
+		case syntax.AndStmt:
+			return collectSafeShellStatement(node.X, state, segments) && collectSafeShellStatement(node.Y, state, segments)
+		case syntax.OrStmt:
+			before := *state
+			if !collectSafeShellStatement(node.X, state, segments) {
+				return false
+			}
+			afterX := *state
+			yState := before
+			if afterX != before {
+				yState.ambiguous = true
+			}
+			if !collectSafeShellStatement(node.Y, &yState, segments) {
+				return false
+			}
+			if afterX != before || yState != before {
+				state.ambiguous = true
+			}
+			return true
+		case syntax.Pipe:
+			// Each pipeline stage executes in a subshell, so a `cd` inside one
+			// stage neither changes sibling stages nor escapes to outer commands.
+			leftState := *state
+			rightState := *state
+			return collectSafeShellStatement(node.X, &leftState, segments) && collectSafeShellStatement(node.Y, &rightState, segments)
 		default:
 			return false
 		}
-		return collectSafeShellStatement(node.X, segments) && collectSafeShellStatement(node.Y, segments)
 	default:
 		return false
 	}
+}
+
+func resolveCDTargetDir(currentDir string, args []string) (string, bool) {
+	index := 0
+	for index < len(args) {
+		arg := args[index]
+		if arg == "--" {
+			index++
+			break
+		}
+		if arg == "-" || !strings.HasPrefix(arg, "-") {
+			break
+		}
+		switch arg {
+		case "-L", "-P", "-e", "-@":
+			index++
+		default:
+			return "", false
+		}
+	}
+	if len(args)-index != 1 {
+		return "", false
+	}
+	target := args[index]
+	if target == "" || target == "-" || strings.HasPrefix(target, "~") {
+		return "", false
+	}
+	if filepath.IsAbs(target) {
+		return filepath.Clean(target), true
+	}
+	if strings.TrimSpace(currentDir) == "" {
+		return "", false
+	}
+	return filepath.Clean(filepath.Join(currentDir, target)), true
 }
 
 func literalCallTokens(call *syntax.CallExpr) ([]string, bool) {
@@ -285,6 +420,11 @@ func literalCallTokens(call *syntax.CallExpr) ([]string, bool) {
 }
 
 func knownSafeCommandSegment(command []string) bool {
+	return knownSafeCommandSegmentInDir(shellCommandSegment{tokens: command})
+}
+
+func knownSafeCommandSegmentInDir(seg shellCommandSegment) bool {
+	command := seg.tokens
 	if len(command) == 0 {
 		return false
 	}
@@ -306,7 +446,274 @@ func knownSafeCommandSegment(command []string) bool {
 	case "sed":
 		return safeSedCommand(command[1:])
 	case "git":
-		return safeGitCommand(command)
+		return safeGitCommand(command) && gitSegmentConfigSafe(seg)
+	default:
+		return false
+	}
+}
+
+func gitSegmentConfigSafe(seg shellCommandSegment) bool {
+	if seg.dirAmbiguous {
+		return false
+	}
+	if strings.TrimSpace(seg.dir) == "" {
+		return true
+	}
+	return gitRepoConfigSafe(seg.dir)
+}
+
+const gitConfigCheckTimeout = 5 * time.Second
+
+// gitRepoConfigSafe inspects the repository's effective local/worktree/command
+// git config (including [include]/[includeIf] targets) and checks whether the
+// repository resolves an active post-index-change hook (`git status` runs it
+// when rewriting the index). Fails closed if any active setting or hook can
+// spawn an external program, or if git inspection fails.
+func gitRepoConfigSafe(dir string) bool {
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gitConfigCheckTimeout)
+	defer cancel()
+
+	var configSafe bool
+	out, err := runGitConfigList(ctx, dir, true)
+	if err == nil {
+		configSafe = parseAndValidateGitConfigScopeList(out)
+	} else if isUnknownGitShowScopeError(err) {
+		localOut, localErr := runGitConfigList(ctx, dir, false)
+		if localErr != nil {
+			return false
+		}
+		configSafe = parseAndValidateGitConfigLocalList(localOut)
+	}
+	if !configSafe {
+		return false
+	}
+	return gitPostIndexChangeHookSafe(ctx, dir)
+}
+
+func gitPostIndexChangeHookSafe(ctx context.Context, dir string) bool {
+	// `git rev-parse --git-path` landed in Git 2.5.0 and resolves relative to -C <dir>,
+	// honoring core.hooksPath across all config scopes.
+	out, err := runGitReadOnlyCommand(ctx, dir, "rev-parse", "--git-path", "hooks/post-index-change")
+	if err != nil {
+		return false
+	}
+	hookPath := strings.TrimRight(string(out), "\r\n")
+	if hookPath == "" {
+		return false
+	}
+	if !filepath.IsAbs(hookPath) {
+		hookPath = filepath.Join(dir, hookPath)
+	}
+	info, err := os.Stat(hookPath)
+	if err != nil {
+		return os.IsNotExist(err)
+	}
+	if !info.Mode().IsRegular() {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return false
+	}
+	return info.Mode()&0o111 == 0
+}
+
+type gitConfigListError struct {
+	err    error
+	stderr string
+}
+
+func (e gitConfigListError) Error() string { return e.err.Error() }
+
+func isUnknownGitShowScopeError(err error) bool {
+	var cfgErr gitConfigListError
+	if !errors.As(err, &cfgErr) {
+		return false
+	}
+	lower := strings.ToLower(cfgErr.stderr)
+	return strings.Contains(lower, "unknown option") || strings.Contains(lower, "usage:")
+}
+
+func runGitConfigList(ctx context.Context, dir string, withScope bool) ([]byte, error) {
+	args := []string{"config", "--list", "--includes"}
+	if withScope {
+		args = append(args, "--show-scope")
+	} else {
+		args = append(args, "--local")
+	}
+	args = append(args, "--null")
+	return runGitReadOnlyCommand(ctx, dir, args...)
+}
+
+func runGitReadOnlyCommand(ctx context.Context, dir string, subArgs ...string) ([]byte, error) {
+	args := append([]string{"--no-pager", "-C", dir}, subArgs...)
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, gitConfigListError{err: err, stderr: stderr.String()}
+	}
+	return stdout.Bytes(), nil
+}
+
+func parseAndValidateGitConfigScopeList(data []byte) bool {
+	records := splitGitNullRecords(data)
+	if len(records)%2 != 0 {
+		return false
+	}
+	effective := map[string][]string{}
+	for i := 0; i < len(records); i += 2 {
+		scope := string(records[i])
+		if scope != "local" && scope != "worktree" && scope != "command" {
+			continue
+		}
+		recordGitConfigEntry(effective, string(records[i+1]))
+	}
+	return gitConfigValuesSafe(effective)
+}
+
+func parseAndValidateGitConfigLocalList(data []byte) bool {
+	records := splitGitNullRecords(data)
+	effective := map[string][]string{}
+	for _, rec := range records {
+		recordGitConfigEntry(effective, string(rec))
+	}
+	if vals := effective["extensions.worktreeconfig"]; len(vals) > 0 && isGitBoolTrue(vals[len(vals)-1]) {
+		// Older git without --show-scope cannot enumerate worktree scope directly.
+		return false
+	}
+	return gitConfigValuesSafe(effective)
+}
+
+func splitGitNullRecords(data []byte) [][]byte {
+	if len(data) == 0 {
+		return nil
+	}
+	parts := bytes.Split(data, []byte{0})
+	if len(parts) > 0 && len(parts[len(parts)-1]) == 0 {
+		parts = parts[:len(parts)-1]
+	}
+	return parts
+}
+
+func recordGitConfigEntry(effective map[string][]string, entry string) {
+	key, value, hasValue := strings.Cut(entry, "\n")
+	if key == "" {
+		return
+	}
+	normKey := normalizeGitConfigKey(key)
+	if isMultiValuedGitProgramKey(normKey) {
+		if !hasValue || strings.TrimSpace(value) == "" {
+			effective[normKey] = nil
+			return
+		}
+		effective[normKey] = append(effective[normKey], value)
+		return
+	}
+	if !hasValue {
+		effective[normKey] = []string{"true"}
+		return
+	}
+	effective[normKey] = []string{value}
+}
+
+func normalizeGitConfigKey(key string) string {
+	firstDot := strings.IndexByte(key, '.')
+	lastDot := strings.LastIndexByte(key, '.')
+	if firstDot <= 0 || lastDot < firstDot {
+		return strings.ToLower(key)
+	}
+	if firstDot == lastDot {
+		return strings.ToLower(key)
+	}
+	return strings.ToLower(key[:firstDot]) + key[firstDot:lastDot+1] + strings.ToLower(key[lastDot+1:])
+}
+
+func isMultiValuedGitProgramKey(key string) bool {
+	section, _, variable, _ := splitGitConfigKey(key)
+	return section == "credential" && variable == "helper"
+}
+
+func splitGitConfigKey(key string) (section, subsection, variable string, hasSubsection bool) {
+	firstDot := strings.IndexByte(key, '.')
+	lastDot := strings.LastIndexByte(key, '.')
+	if firstDot <= 0 || lastDot < firstDot || lastDot == len(key)-1 {
+		return "", "", "", false
+	}
+	section = strings.ToLower(key[:firstDot])
+	variable = strings.ToLower(key[lastDot+1:])
+	if lastDot > firstDot {
+		return section, key[firstDot+1 : lastDot], variable, true
+	}
+	return section, "", variable, false
+}
+
+func gitConfigValuesSafe(effective map[string][]string) bool {
+	for key, values := range effective {
+		for _, value := range values {
+			if gitConfigKeyRunsProgram(key, value) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func gitConfigKeyRunsProgram(key string, value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return false
+	}
+	section, _, variable, hasSub := splitGitConfigKey(key)
+	switch {
+	case !hasSub && section == "core" && variable == "fsmonitor":
+		// Boolean true/false selects Git's built-in daemon or disables it;
+		// any other value is a hook command path.
+		return !isGitBool(trimmed)
+	case !hasSub && section == "core" && (variable == "pager" || variable == "sshcommand" || variable == "askpass" || variable == "gitproxy" || variable == "alternaterefscommand" || variable == "hookspath"):
+		return true
+	case !hasSub && section == "pager":
+		// pager.<cmd> may be a boolean toggle or a custom command string.
+		return !isGitBool(trimmed)
+	case !hasSub && section == "diff" && variable == "external":
+		return true
+	case hasSub && section == "diff" && (variable == "command" || variable == "textconv"):
+		return true
+	case hasSub && section == "filter" && (variable == "clean" || variable == "smudge" || variable == "process"):
+		return true
+	case section == "credential" && variable == "helper":
+		return true
+	case section == "gpg" && variable == "program":
+		return true
+	case !hasSub && section == "uploadpack" && variable == "packobjectshook":
+		return true
+	case hasSub && section == "remote" && (variable == "uploadpack" || variable == "receivepack"):
+		return true
+	case hasSub && (section == "mergetool" || section == "difftool" || section == "browser" || section == "man") && variable == "cmd":
+		return true
+	default:
+		return false
+	}
+}
+
+func isGitBool(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "yes", "on", "1", "false", "no", "off", "0":
+		return true
+	default:
+		return false
+	}
+}
+
+func isGitBoolTrue(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "true", "yes", "on", "1":
+		return true
 	default:
 		return false
 	}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/providercatalog"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/redaction"
 )
 
 var errNativeSandboxUnavailable = errors.New("native sandbox backend is unavailable")
@@ -36,6 +37,10 @@ type CommandSpec struct {
 	// sensitiveEnvKeys is populated by Engine from config-derived credential
 	// variable names and carried through SandboxManager to the platform plan.
 	sensitiveEnvKeys []string
+	// skipHeuristicEnvScrub disables redaction.IsSensitiveKey heuristic matching
+	// for callers (such as OriginMCPServer) that deliberately pass user-configured
+	// env vars like ACCEPT_TOKEN or SERVER_TOKEN.
+	skipHeuristicEnvScrub bool
 }
 
 type CommandPlan struct {
@@ -141,10 +146,11 @@ func (engine *Engine) PrepareExecution(ctx context.Context, request execution.Re
 		return execution.PreparedCommand{}, err
 	}
 	command, plan, err := engine.CommandContext(ctx, CommandSpec{
-		Name: request.Command.Name,
-		Args: append([]string(nil), request.Command.Args...),
-		Dir:  request.WorkingDirectory,
-		Env:  append([]string(nil), request.Command.Env...),
+		Name:                  request.Command.Name,
+		Args:                  append([]string(nil), request.Command.Args...),
+		Dir:                   request.WorkingDirectory,
+		Env:                   append([]string(nil), request.Command.Env...),
+		skipHeuristicEnvScrub: request.Origin == execution.OriginMCPServer,
 	})
 	if err != nil {
 		return execution.PreparedCommand{}, err
@@ -198,7 +204,10 @@ func (engine *Engine) BuildCommandPlan(spec CommandSpec) (CommandPlan, error) {
 	if policy.Mode == ModeDisabled {
 		preference = SandboxPreferenceForbid
 	}
-	profile := permissionProfileFromPolicy(workspaceRoot, policy, engine.scope, spec.Dir, spec.Env)
+	// The profile is platform-shaped for the backend that will enforce it, not
+	// for this host: a Windows host planning a Linux command must not plant
+	// host-shaped paths into the other platform's plan.
+	profile := permissionProfileFromPolicy(workspaceRoot, policy, engine.scope, spec.Dir, spec.Env, resolveProfileTargetGOOS(backend.Platform, backend.Name))
 	// Validate in the main process before creating runtime state or launching a
 	// potentially version-skewed helper. Keep the helper check as defense in depth.
 	if preference != SandboxPreferenceForbid && backend.Name == BackendLinuxBwrap && backend.Available && backend.CommandWrapping && backend.NativeIsolation {
@@ -295,7 +304,7 @@ func linuxSandboxHelperCommandPlan(execRequest SandboxExecutionRequest, policy P
 	if err != nil {
 		return CommandPlan{}, err
 	}
-	env := sandboxEnvironmentForCommandWithSensitiveEnv(spec.Env, policy, BackendLinuxBwrap, "", spec.sensitiveEnvKeys)
+	env := sandboxEnvironmentForCommandWithScrubMode(spec.Env, policy, BackendLinuxBwrap, "", !spec.skipHeuristicEnvScrub, spec.sensitiveEnvKeys)
 	env = sandboxRuntimeEnvironment(env, execRequest.PermissionProfile.Runtime)
 	planDir := spec.Dir
 	if helper.Dir != "" {
@@ -374,7 +383,7 @@ func directCommandEnv(spec CommandSpec) []string {
 		// nil through to exec.Cmd, which would skip scrubbing entirely.
 		env = os.Environ()
 	}
-	return scrubSensitiveEnv(env, spec.sensitiveEnvKeys...)
+	return scrubSensitiveEnvWithHeuristic(env, !spec.skipHeuristicEnvScrub, spec.sensitiveEnvKeys...)
 }
 
 func (engine *Engine) resolveCommandDir(dir string, policy Policy) (string, string, error) {
@@ -442,7 +451,7 @@ func seatbeltCommandPlanWithProfile(spec CommandSpec, workspaceRoot string, prof
 	if envBackend == "" {
 		envBackend = BackendMacOSSeatbelt
 	}
-	env := sandboxEnvironmentForCommandWithSensitiveEnv(spec.Env, policy, envBackend, "", spec.sensitiveEnvKeys)
+	env := sandboxEnvironmentForCommandWithScrubMode(spec.Env, policy, envBackend, "", !spec.skipHeuristicEnvScrub, spec.sensitiveEnvKeys)
 	env = sandboxRuntimeEnvironment(env, profile.Runtime)
 	plan := CommandPlan{
 		Backend:           backend,
@@ -499,6 +508,10 @@ func (plan CommandPlan) WriteNetworkDenialReport(blocks []string) error {
 }
 
 func sandboxEnvironmentForCommandWithSensitiveEnv(specEnv []string, policy Policy, backend BackendName, workspaceRoot string, sensitiveEnvKeys []string) []string {
+	return sandboxEnvironmentForCommandWithScrubMode(specEnv, policy, backend, workspaceRoot, true, sensitiveEnvKeys)
+}
+
+func sandboxEnvironmentForCommandWithScrubMode(specEnv []string, policy Policy, backend BackendName, workspaceRoot string, useRedactionHeuristic bool, sensitiveEnvKeys []string) []string {
 	env := cloneStrings(specEnv)
 	if specEnv == nil {
 		// Preserve the caller environment for sandboxed commands. The sandbox
@@ -506,7 +519,7 @@ func sandboxEnvironmentForCommandWithSensitiveEnv(specEnv []string, policy Polic
 		// command env values still replace inherited values below.
 		env = os.Environ()
 	}
-	env = scrubSensitiveEnv(env, sensitiveEnvKeys...)
+	env = scrubSensitiveEnvWithHeuristic(env, useRedactionHeuristic, sensitiveEnvKeys...)
 	pathValue := envListValue(env, "PATH", defaultPath())
 	if runtime.GOOS == "darwin" {
 		// Preserve standard user tool locations so a bare `python3`/`node`
@@ -1162,6 +1175,10 @@ func regexpQuoteMeta(value string) string {
 }
 
 func scrubSensitiveEnv(env []string, additionalKeys ...string) []string {
+	return scrubSensitiveEnvWithHeuristic(env, true, additionalKeys...)
+}
+
+func scrubSensitiveEnvWithHeuristic(env []string, useRedactionHeuristic bool, additionalKeys ...string) []string {
 	// Secrets not covered by the provider catalog: cloud/VCS credentials and
 	// providers QG talks to through generic OpenAI-compatible endpoints. The
 	// well-known provider keys below stay here (not catalog-derived) because
@@ -1175,8 +1192,11 @@ func scrubSensitiveEnv(env []string, additionalKeys ...string) []string {
 		"AZURE_OPENAI_API_KEY",
 		"AWS_SECRET_ACCESS_KEY",
 		"AWS_SESSION_TOKEN",
+		"GITHUB_TOKEN",
 		"GITLAB_TOKEN",
 		"GH_TOKEN",
+		"NPM_TOKEN",
+		"NODE_AUTH_TOKEN",
 		"OPENAI_API_KEY",
 		"ANTHROPIC_API_KEY",
 		"GEMINI_API_KEY",
@@ -1236,11 +1256,13 @@ func scrubSensitiveEnv(env []string, additionalKeys ...string) []string {
 			out = append(out, kv)
 			continue
 		}
-		drop := isDynamicSensitiveEnvKey(key)
-		for _, sensitive := range sensitiveKeys {
-			if strings.EqualFold(key, sensitive) {
-				drop = true
-				break
+		drop := isDynamicSensitiveEnvKey(key) || (useRedactionHeuristic && redaction.IsSensitiveKey(key, redaction.Options{}))
+		if !drop {
+			for _, sensitive := range sensitiveKeys {
+				if strings.EqualFold(key, sensitive) {
+					drop = true
+					break
+				}
 			}
 		}
 		if !drop {

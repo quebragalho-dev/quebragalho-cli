@@ -340,13 +340,14 @@ func (m *model) selectSuggestionAtMouse(msg tea.MouseMsg) (mouseSelectionTarget,
 		return mouseSelectionTarget{}, false
 	}
 	maxVisible := minInt(suggestionPaletteMaxVisible, len(m.suggestions))
-	start := selectableListStart(len(m.suggestions), maxVisible, clampInt(m.suggestionIdx, 0, len(m.suggestions)-1))
+	start := m.suggestionScroll.resolve(len(m.suggestions), maxVisible, clampInt(m.suggestionIdx, 0, len(m.suggestions)-1))
 	row := hit.y - 3
 	if row < 0 || row >= maxVisible {
 		return mouseSelectionTarget{}, false
 	}
 	index := start + row
 	m.suggestionIdx = index
+	m.suggestionScroll.pin(start)
 	scope := "command"
 	if m.suggestionsAreFiles {
 		scope = "file"
@@ -383,8 +384,11 @@ func (m *model) selectMCPManagerAtMouse(msg tea.MouseMsg) (mouseSelectionTarget,
 	if row < 0 || row >= len(itemRows) || itemRows[row] < 0 {
 		return mouseSelectionTarget{}, false
 	}
+	maxVisible := minInt(mcpManagerMaxVisible, len(items))
+	start := m.mcpManager.scroll.resolve(len(items), maxVisible, clampInt(m.mcpManager.selected, 0, len(items)-1))
 	index := itemRows[row]
 	m.mcpManager.selected = index
+	m.mcpManager.scroll.pin(start)
 	return mouseSelectionTarget{Scope: "mcp-manager", Kind: int(items[index].Kind), Value: items[index].Name, Index: index}, true
 }
 
@@ -484,6 +488,7 @@ func (m *model) selectModelPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarget
 			}
 			if hit.y >= y && hit.y < y+height {
 				m.picker.selected = start + index
+				m.picker.scroll.pin(start)
 				return mouseSelectionTarget{Scope: "picker", Kind: int(pickerModel), Value: item.Value, Index: start + index}, true
 			}
 			y += height
@@ -496,7 +501,7 @@ func (m *model) selectModelPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarget
 		return mouseSelectionTarget{}, false
 	}
 	maxVisible := minInt(pickerOverlayMaxVisible, len(m.picker.items))
-	start := selectableListStart(len(m.picker.items), maxVisible, clampInt(m.picker.selected, 0, len(m.picker.items)-1))
+	start := m.picker.scroll.resolve(len(m.picker.items), maxVisible, clampInt(m.picker.selected, 0, len(m.picker.items)-1))
 	// Mirror modelPickerOverlay: search line, optional load-error line,
 	// separator, then one header line per group before its items.
 	y := 3
@@ -515,6 +520,7 @@ func (m *model) selectModelPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarget
 		}
 		if hit.y == y {
 			m.picker.selected = start + offset
+			m.picker.scroll.pin(start)
 			return mouseSelectionTarget{Scope: "picker", Kind: int(m.picker.kind), Value: item.Value, Index: start + offset}, true
 		}
 		y++
@@ -563,7 +569,7 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 		}
 	} else {
 		maxVisible := pickerMaxVisible(m.picker, width)
-		start = selectableListStart(len(m.picker.items), maxVisible, selected)
+		start = m.picker.scroll.resolve(len(m.picker.items), maxVisible, selected)
 		visible = m.picker.items[start : start+maxVisible]
 	}
 	// y=0 titled top border, y=1 search line, y=2 separator; rows begin after
@@ -594,6 +600,7 @@ func (m *model) selectGenericPickerAtMouse(msg tea.MouseMsg) (mouseSelectionTarg
 		if hit.y >= line && hit.y < line+rowLines {
 			index := start + offset
 			m.picker.selected = index
+			m.picker.scroll.pin(start)
 			return mouseSelectionTarget{Scope: "picker", Kind: int(m.picker.kind), Value: item.Value, Index: index}, true
 		}
 		line += rowLines
@@ -614,6 +621,7 @@ func (m *model) selectCompactConfigPickerAtMouse(hit mouseOverlayHit, visible []
 	}
 	if len(visible) > 0 && hit.y == line {
 		m.picker.selected = start
+		m.picker.scroll.pin(start)
 		return mouseSelectionTarget{Scope: "picker", Kind: int(m.picker.kind), Value: visible[0].Value, Index: start}, true
 	}
 	return mouseSelectionTarget{}, false

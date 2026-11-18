@@ -145,7 +145,7 @@ func (backend Backend) BuildPlan(workspaceRoot string, policy Policy) BackendPla
 	if effectivePolicy.Mode == "" {
 		effectivePolicy = DefaultPolicy()
 	}
-	profile := PermissionProfileFromPolicy(workspaceRoot, effectivePolicy, nil)
+	profile := PermissionProfileFromPolicyForGOOS(workspaceRoot, effectivePolicy, nil, resolveProfileTargetGOOS(backend.Platform, backend.Name))
 	execRequest, _ := NewSandboxManager(SandboxManagerOptions{
 		GOOS:    backend.Platform,
 		Backend: backend,

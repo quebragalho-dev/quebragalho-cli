@@ -112,6 +112,9 @@ func (m model) startNewSession() model {
 	m.cacheClearBoundary = true
 	m.lastUsage = usage.Normalized{}
 	m.lastUsageSeen = false
+	m.postCompactTokens = 0
+	m.hasPostCompactTokens = false
+	m.summarizerRecordedLast = false
 	m.streamUsage = qgruntime.Usage{}
 	m.streamEstimateChars = 0
 	m.streamEstimateStart = time.Time{}
@@ -355,16 +358,25 @@ func (m model) handleResumeCommand(args string) (model, string) {
 	m.reconstructedResume = false
 	m.pendingSessionTitle = ""
 	m.sessionEvents = append([]sessions.Event{}, events...)
-	m.lastUsage, m.lastUsageSeen, m.lastUsageReceipt = lastUsageFromSessionEvents(rawUsageEvents)
+	var compactedAfterMain bool
+	m.lastUsage, m.lastUsageSeen, m.lastUsageReceipt, compactedAfterMain = sessionUsageFromEvents(rawUsageEvents)
 	// Recompose the session cache totals from the saved usage events so the
 	// statusline hit and the /usage panel survive a resume; without saved
 	// events the counters start from zero. The drop journal itself is not
 	// rebuilt (motives need live prefix data), only the totals.
 	m = m.seedUsageFromSessionEvents(rawUsageEvents)
 	// The reloaded receipt IS the resumed session's live context: the meter
-	// follows it (and stays dead when the session has no usage), so no value
-	// from the previous session can ever leak through.
-	m.meterLive = m.lastUsageSeen
+	// follows it (and stays dead when the session has no usage or compacted
+	// since the last main call), so no value from the previous session can
+	// ever leak through.
+	m.hasPostCompactTokens = compactedAfterMain
+	m.postCompactTokens = 0
+	if compactedAfterMain {
+		m.postCompactTokens = compactedContextTokens(nil, events, 0)
+		m.meterLive = false
+	} else {
+		m.meterLive = m.lastUsageSeen
+	}
 	m.streamUsage = qgruntime.Usage{}
 	// The border follows the resumed receipt: known rate when the session
 	// saved enough to recompute it, model-only otherwise.
@@ -509,12 +521,17 @@ func (m model) loadExactSnapshot(session *sessions.Metadata, snap *sessions.Cont
 			}
 		}
 	}
+	filtered := sessions.FilterContinuationForModel(sessions.RepairOrphanToolCalls(snap.Messages), snap.ModelID, effectiveModel)
+	if m.hasPostCompactTokens {
+		m.postCompactTokens = compactedContextTokens(filtered, m.sessionEvents, m.postCompactTokens)
+	}
 	// If the restored model’s window is already nearly full, say so now:
 	// the next turn still runs, but the operator knows a /compact is due.
-	if window := modelregistry.AgentContextWindow(m.modelContextWindow(effectiveModel)); window > 0 && m.lastUsage.TotalTokens > 0 && m.lastUsage.TotalTokens*10 >= window*7 {
-		*resumeWarnings = append(*resumeWarnings, fmt.Sprintf("contexto atual (%d tokens) ocupa a maior parte da janela do modelo %s; rode /compact para liberar espaço", m.lastUsage.TotalTokens, effectiveModel))
+	if tokens := m.contextFootprintTokens(); tokens > 0 {
+		if window := modelregistry.AgentContextWindow(m.modelContextWindow(effectiveModel)); window > 0 && tokens*10 >= window*7 {
+			*resumeWarnings = append(*resumeWarnings, fmt.Sprintf("contexto atual (%d tokens) ocupa a maior parte da janela do modelo %s; rode /compact para liberar espaço", tokens, effectiveModel))
+		}
 	}
-	filtered := sessions.FilterContinuationForModel(sessions.RepairOrphanToolCalls(snap.Messages), snap.ModelID, effectiveModel)
 	m.continuation = turnContinuation{
 		sessionID:   session.SessionID,
 		modelID:     effectiveModel,

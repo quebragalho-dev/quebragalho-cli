@@ -201,7 +201,7 @@ type STTConfig struct {
 	// this path.
 	Provider STTProviderKind `json:"provider,omitempty"`
 	// StreamProvider is the streaming backend on desktop: "local" (sherpa-onnx
-	// websocket server, default), "deepgram", or "openai" (Realtime).
+	// via rolling file transcription, default), "deepgram", or "openai" (Realtime).
 	StreamProvider STTProviderKind `json:"streamProvider,omitempty"`
 	// Streaming enables the live-transcript pipeline on platforms that support
 	// it (desktop). Defaults to on; set false to always use the batch pipeline.
@@ -215,13 +215,14 @@ type STTConfig struct {
 	// (batch and streaming). Required to use a local provider.
 	LocalModelPath string `json:"localModelPath,omitempty"`
 	// LocalBinary overrides the offline binary name/path (default
-	// "sherpa-onnx-offline"); LocalServerBinary overrides the streaming server
-	// (default "sherpa-onnx-online-websocket-server"). Both looked up on PATH.
+	// "sherpa-onnx-offline"); LocalOnlineBinary overrides the streaming-model
+	// file decoder binary (default "sherpa-onnx"). Both looked up on PATH.
+	// LocalServerBinary and LocalServerPort are legacy fields kept for config
+	// compatibility and no longer start a network server.
 	LocalBinary       string `json:"localBinary,omitempty"`
+	LocalOnlineBinary string `json:"localOnlineBinary,omitempty"`
 	LocalServerBinary string `json:"localServerBinary,omitempty"`
-	// LocalServerPort is the localhost port for the sherpa-onnx websocket server
-	// (default 6006).
-	LocalServerPort int `json:"localServerPort,omitempty"`
+	LocalServerPort   int    `json:"localServerPort,omitempty"`
 	// EngineVersion selects the sherpa-onnx release the auto-download fetches
 	// ("" → a pinned known-good default; "latest" or any release tag also works,
 	// so a newer engine needs no QG update). Verified against the release's
@@ -286,7 +287,7 @@ func (c STTConfig) AutoSubmitEnabled() bool {
 func (c STTConfig) Empty() bool {
 	return c.Provider == "" && c.StreamProvider == "" && c.Streaming == nil &&
 		c.Model == "" && c.StreamModel == "" && c.LocalModelPath == "" &&
-		c.LocalBinary == "" && c.LocalServerBinary == "" && c.LocalServerPort == 0 &&
+		c.LocalBinary == "" && c.LocalOnlineBinary == "" && c.LocalServerBinary == "" && c.LocalServerPort == 0 &&
 		c.EngineVersion == "" && c.NumThreads == 0 && c.Language == "" &&
 		c.MaxDurationSeconds == 0 && c.SilenceAutoStop == nil && c.AutoSubmit == nil &&
 		!c.VoiceMode && c.WindowsAudioDevice == ""

@@ -436,6 +436,52 @@ func TestRunEscalationRederivesContextWindow(t *testing.T) {
 	}
 }
 
+func TestRunEscalationPreservesCompactionOptOut(t *testing.T) {
+	registry := tools.NewRegistry()
+	registry.Register(escalatingTool{target: "small-window-model"})
+	switched := &mockProvider{turns: [][]qgruntime.StreamEvent{{
+		{Type: qgruntime.StreamEventText, Content: "done"},
+		{Type: qgruntime.StreamEventDone},
+	}}}
+	provider := &mockProvider{turns: [][]qgruntime.StreamEvent{{
+		{Type: qgruntime.StreamEventToolCallStart, ToolCallID: "call-1", ToolName: "escalate"},
+		{Type: qgruntime.StreamEventToolCallDelta, ToolCallID: "call-1", ArgumentsFragment: `{}`},
+		{Type: qgruntime.StreamEventToolCallEnd, ToolCallID: "call-1"},
+		{Type: qgruntime.StreamEventDone},
+	}}}
+
+	var windows []int
+	compacted := false
+	result, err := Run(context.Background(), strings.Repeat("x", 8000), provider, Options{
+		Registry:      registry,
+		ContextWindow: 0, // explicit opt-out
+		Model:         "initial-model",
+		ModelSwitcher: func(context.Context, string) (Provider, error) { return switched, nil },
+		ContextWindowFor: func(modelID string) int {
+			if modelID == "small-window-model" {
+				return 1000
+			}
+			return 0
+		},
+		OnContext:    func(breakdown ContextBreakdown) { windows = append(windows, breakdown.ContextWindow) },
+		OnCompaction: func() { compacted = true },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FinalAnswer != "done" {
+		t.Fatalf("final answer = %q", result.FinalAnswer)
+	}
+	if compacted {
+		t.Fatal("opt-out run (ContextWindow=0) must not compact after model escalation")
+	}
+	for i, w := range windows {
+		if w != 0 {
+			t.Fatalf("turn %d reported ContextWindow = %d on opt-out run, want 0", i, w)
+		}
+	}
+}
+
 // nonComparableProvider has a slice field, so comparing two Provider interface
 // values holding it would panic; the summarizer path must never compare them.
 type nonComparableProvider struct {

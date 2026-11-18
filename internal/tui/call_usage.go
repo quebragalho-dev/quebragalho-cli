@@ -217,14 +217,23 @@ func segJoin(first, second string) string {
 	return first + qgTheme.line.Render(" │ ") + second
 }
 
-func lastUsageFromSessionEvents(events []sessions.Event) (usage.Normalized, bool, transcriptRow) {
+func sessionUsageFromEvents(events []sessions.Event) (usage.Normalized, bool, transcriptRow, bool) {
+	compactedAfterMain := false
 	for i := len(events) - 1; i >= 0; i-- {
 		event := events[i]
+		if event.Type == sessions.EventCompaction {
+			compactedAfterMain = true
+			continue
+		}
 		if event.Type != sessions.EventUsage {
 			continue
 		}
-		modelID, eventUsage, _, ok := parseUsageEventUsage(event.Payload)
+		modelID, eventUsage, summarizer, ok := parseUsageEventUsage(event.Payload)
 		if !ok {
+			continue
+		}
+		if summarizer {
+			compactedAfterMain = true
 			continue
 		}
 		var cost struct {
@@ -234,10 +243,10 @@ func lastUsageFromSessionEvents(events []sessions.Event) (usage.Normalized, bool
 		_ = json.Unmarshal(event.Payload, &cost)
 		normalized, _, err := usage.Normalize(eventUsage)
 		if err == nil {
-			return normalized, true, transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": modelID, "amount": cost.Amount, "currency": cost.Currency}}
+			return normalized, true, transcriptRow{kind: rowSystem, tool: "model-usage", meta: map[string]string{"model": modelID, "amount": cost.Amount, "currency": cost.Currency}}, compactedAfterMain
 		}
 	}
-	return usage.Normalized{}, false, transcriptRow{}
+	return usage.Normalized{}, false, transcriptRow{}, compactedAfterMain
 }
 
 func (m model) statusEffort() string {

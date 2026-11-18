@@ -54,6 +54,18 @@ func voiceHoldKey(msg tea.KeyMsg) bool {
 	return keyIs(msg, tea.KeySpace) && mod == 0
 }
 
+// voiceHoldPreservesLatchKey reports a key press that keeps an already-spent
+// Space hold latched: bare Space itself, Ctrl+Space, or a Ctrl modifier press.
+func voiceHoldPreservesLatchKey(msg tea.KeyMsg, spent bool) bool {
+	if voiceHoldKey(msg) {
+		return true
+	}
+	if !spent {
+		return false
+	}
+	return voiceCaptureKey(msg) || keyIs(msg, tea.KeyLeftCtrl) || keyIs(msg, tea.KeyRightCtrl)
+}
+
 // voiceCaptureReleaseKey matches either half of the held Ctrl+Space chord. A
 // terminal may report Ctrl releasing first, or report the later Space release
 // without ModCtrl because Ctrl is no longer down.
@@ -80,6 +92,22 @@ func (m model) voiceCaptureStatus() string {
 
 // handleVoiceCapturePress handles Ctrl+Space while voice mode is on.
 func (m model) handleVoiceCapturePress(msg tea.KeyMsg) (model, tea.Cmd) {
+	if m.dictation.spaceHeld && (m.dictation.phase == dictStarting || m.dictation.phase == dictRecording) {
+		// A hold recording (bare Space or Ctrl+Space) is already running: holding
+		// Ctrl on top of bare Space (e.g. while pressing Ctrl+C) delivers
+		// auto-repeats as Ctrl+Space and must neither toggle-stop the recording
+		// nor let the Space hold time out.
+		m.dictation.hold.lastAt = m.currentTime()
+		return m, nil
+	}
+	if m.dictation.hold.spent {
+		now := m.currentTime()
+		if now.Sub(m.dictation.hold.lastAt) <= voiceHoldRepeatGap {
+			m.dictation.hold.lastAt = now
+			return m, nil
+		}
+		m.dictation.hold.spent = false
+	}
 	if !m.dictation.eventTypesSupported {
 		// Tier 2: no release events — press-to-toggle.
 		return m.toggleDictation()
@@ -160,7 +188,7 @@ const voiceHoldRepeatGap = 500 * time.Millisecond
 
 // voiceHoldRapidGap is the max pause that still counts as auto-repeat: a
 // press this close to the previous one did not come from typing.
-const voiceHoldRapidGap = 120 * time.Millisecond
+const voiceHoldRapidGap = 300 * time.Millisecond
 
 // voiceHoldPasteGuard is the minimum age of a run before a rapid press counts
 // as auto-repeat; it protects pasted spaces on terminals without bracketed paste.

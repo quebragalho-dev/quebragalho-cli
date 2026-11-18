@@ -42,9 +42,14 @@ func (m model) handleGoalCommand(args string) (model, tea.Cmd) {
 		if m.activeSession.Goal == nil {
 			return m.appendGoalError("Nenhuma meta definida para esta sessão."), nil
 		}
-		if m.activeSession.Goal.Status == sessions.GoalStatusBudgetLimited &&
-			m.activeSession.Goal.TokenBudget > 0 &&
+		if m.activeSession.Goal.TokenBudget > 0 &&
 			m.activeSession.Goal.TokensUsed >= m.activeSession.Goal.TokenBudget {
+			if m.activeSession.Goal.Status != sessions.GoalStatusBudgetLimited && m.sessionStore != nil {
+				if updated, event, err := m.sessionStore.UpdateGoal(m.activeSession.SessionID, sessions.GoalStatusBudgetLimited, "token budget reached"); err == nil {
+					m.activeSession = updated
+					m.sessionEvents = append(m.sessionEvents, event)
+				}
+			}
 			return m.appendGoalError("O orçamento de tokens esgotou. Aumente com /goal edit --tokens N <objective>."), nil
 		}
 		m = m.setGoalStatus(sessions.GoalStatusActive, "")
@@ -425,4 +430,27 @@ func (m model) reconcileGoalAfterRun(usageEvents []qgruntime.Usage, runErr error
 		m.sessionEvents = events
 	}
 	return m
+}
+
+func (m model) accountGoalTokens(tokens int) (model, bool) {
+	if tokens <= 0 || m.sessionStore == nil || m.activeSession.SessionID == "" || !sessions.IsResumableKind(m.activeSession.SessionKind) {
+		return m, false
+	}
+	loaded, err := m.sessionStore.Get(m.activeSession.SessionID)
+	if err != nil || loaded == nil || loaded.Goal == nil {
+		if err != nil {
+			return m.appendGoalError("reload after usage: " + err.Error()), false
+		}
+		return m, false
+	}
+	updated, goalEvent, addErr := m.sessionStore.AddGoalUsage(loaded.SessionID, tokens)
+	if addErr != nil {
+		return m.appendGoalError("account usage: " + addErr.Error()), false
+	}
+	m.activeSession = updated
+	if goalEvent != nil {
+		m.sessionEvents = append(m.sessionEvents, *goalEvent)
+		return m, true
+	}
+	return m, false
 }

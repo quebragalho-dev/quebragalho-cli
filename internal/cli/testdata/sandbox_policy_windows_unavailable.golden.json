@@ -34,7 +34,7 @@
       "fileSystem": {
         "kind": "restricted",
         "readRoots": [
-          "/",
+          "$DRIVE",
           "$WORKSPACE"
         ],
         "writeRoots": [

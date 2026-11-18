@@ -67,6 +67,7 @@ func (m model) suggestionsActive() bool {
 func (m *model) clearSuggestions() {
 	m.suggestions = nil
 	m.suggestionIdx = 0
+	m.suggestionScroll.unpin()
 	m.suggestionsAreFiles = false
 	m.suggestionsAreSpecialists = false
 	m.commandPaletteOpen = false
@@ -78,6 +79,7 @@ func (m *model) clearSuggestions() {
 // disappear once the user starts typing arguments. Modals suppress matching
 // entirely. The selected index is preserved when still in range, otherwise reset.
 func (m *model) recomputeSuggestions() {
+	m.suggestionScroll.unpin()
 	if m.pendingPermission != nil || m.pendingAskUser != nil || m.pendingSpecReview != nil || m.mcpManager != nil {
 		m.clearSuggestions()
 		return
@@ -326,6 +328,7 @@ func commandHasPrefix(command commandDefinition, prefix string) bool {
 // moveSuggestion advances (delta +1) or rewinds (delta -1) the selected
 // suggestion, wrapping at both ends.
 func (m *model) moveSuggestion(delta int) {
+	m.suggestionScroll.unpin()
 	n := len(m.suggestions)
 	if n == 0 {
 		return
@@ -368,6 +371,7 @@ func (m model) completeSuggestion() model {
 	}
 	m.suggestions = nil
 	m.suggestionIdx = 0
+	m.suggestionScroll.unpin()
 	m.suggestionsAreFiles = false
 	m.suggestionsAreSpecialists = false
 	m.commandPaletteOpen = false
@@ -764,6 +768,7 @@ func (m model) dismissSuggestions() model {
 	}
 	m.suggestions = nil
 	m.suggestionIdx = 0
+	m.suggestionScroll.unpin()
 	m.suggestionsAreFiles = false
 	m.commandPaletteOpen = false
 	m.filePaletteOpen = false

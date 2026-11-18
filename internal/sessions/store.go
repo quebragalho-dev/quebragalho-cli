@@ -323,6 +323,12 @@ func (store *Store) Create(input CreateInput) (Metadata, error) {
 		}
 		return Metadata{}, fmt.Errorf("create qg session directory: %w", err)
 	}
+	// Persist the new session directory entry itself, so a power loss right
+	// after Create cannot make an acknowledged session vanish. Creation is a
+	// rare path; the per-event path below performs no directory syncs.
+	if err := syncDir(store.RootDir); err != nil {
+		return Metadata{}, fmt.Errorf("sync qg session root: %w", err)
+	}
 	if err := store.writeMetadata(session); err != nil {
 		return Metadata{}, err
 	}
@@ -333,6 +339,11 @@ func (store *Store) Create(input CreateInput) (Metadata, error) {
 	if err := file.Close(); err != nil {
 		return Metadata{}, fmt.Errorf("close qg session events file: %w", err)
 	}
+	// Persist the events file's directory entry for the same reason: without
+	// this, a crash could surface a session whose events.jsonl is missing.
+	if err := syncDir(store.sessionPath(sessionID)); err != nil {
+		return Metadata{}, fmt.Errorf("sync qg session dir: %w", err)
+	}
 	return session, nil
 }
 
@@ -340,7 +351,7 @@ func (store *Store) Get(sessionID string) (*Metadata, error) {
 	if !ValidSessionID(sessionID) {
 		return nil, fmt.Errorf("invalid qg session id %q", sessionID)
 	}
-	session, err := store.readMetadata(sessionID)
+	session, err := store.loadSession(sessionID)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
@@ -507,7 +518,7 @@ func (store *Store) Fork(parentSessionID string, input ForkInput) (Metadata, err
 	}); err != nil {
 		return Metadata{}, err
 	}
-	loaded, err := store.readMetadata(fork.SessionID)
+	loaded, err := store.loadSession(fork.SessionID)
 	if err != nil {
 		return Metadata{}, err
 	}
@@ -556,7 +567,7 @@ func (store *Store) RecordSpec(sessionID string, input RecordSpecInput) (Metadat
 	if err != nil {
 		return Metadata{}, Event{}, err
 	}
-	loaded, err := store.readMetadata(sessionID)
+	loaded, err := store.loadSession(sessionID)
 	if err != nil {
 		return Metadata{}, Event{}, err
 	}
@@ -660,12 +671,11 @@ func (store *Store) appendPreparedEventsLocked(sessionID string, inputs []prepar
 		return nil, err
 	}
 	sequence := session.EventCount + 1
-	// The events log is the source of truth for sequencing. metadata.EventCount is
-	// persisted separately (after the event line below), so a crash between the two
-	// can leave it behind the log; deriving from the log's last sequence then avoids
-	// reusing a number (a duplicate that would mis-target /rewind). Best-effort: a
-	// log read error falls back to the metadata count. Only triggers on a real
-	// desync (log at/ahead of the metadata-derived sequence).
+	// The events log is the source of truth for sequencing. metadata.EventCount
+	// is no longer rewritten on append (it is reconciled from the log on read),
+	// so it normally trails the log; deriving from the log's last sequence
+	// avoids reusing a number (a duplicate that would mis-target /rewind).
+	// Best-effort: a log read error falls back to the metadata count.
 	if logSeq, err := store.lastEventSequence(sessionID); err == nil && logSeq >= sequence {
 		sequence = logSeq + 1
 	}
@@ -697,11 +707,16 @@ func (store *Store) appendPreparedEventsLocked(sessionID string, inputs []prepar
 		_ = file.Close()
 		return nil, fmt.Errorf("append qg session event: %w", err)
 	}
-	// fsync the events before reporting success: the derived metadata.json IS
-	// fsync'd (writeMetadata), so without this a crash after the metadata flush
-	// but before the events.jsonl page reaches disk leaves EventCount ahead of the
-	// durable log — silently losing just-appended events (incl. checkpoints
-	// that /rewind targets). Make the log at least as durable as its metadata. (AUDIT-M12)
+	// fsync the events before reporting success. This is the ONLY fsync on the
+	// normal append path. metadata.json is deliberately NOT rewritten on every
+	// append: its derived fields (EventCount, UpdatedAt, LastEventType) are
+	// reconciled from the log on read (see reconcileMetadata), so the hot path
+	// performs a single fsync per event instead of three (events file +
+	// metadata temp file + parent directory). The log is the source of truth:
+	// every event reported as appended is durable against kill -9 and power
+	// loss, and metadata.json — written only here on the 0->1 transition and
+	// by rare non-append mutations, always with the full
+	// tmp+fsync+rename+dirsync sequence — can never surface torn.
 	if err := file.Sync(); err != nil {
 		_ = file.Close()
 		return nil, fmt.Errorf("sync qg session event: %w", err)
@@ -710,11 +725,21 @@ func (store *Store) appendPreparedEventsLocked(sessionID string, inputs []prepar
 		return nil, fmt.Errorf("close qg session event file: %w", err)
 	}
 	last := events[len(events)-1]
-	session.UpdatedAt = last.CreatedAt
-	session.EventCount = last.Sequence
-	session.LastEventType = last.Type
-	if err := store.writeMetadata(session); err != nil {
-		return nil, err
+	// First-event transition: persist the derived counters to disk once, with
+	// full durability. This is the only append that costs more than one fsync,
+	// and it happens at most once per session lifetime (plus a self-healing
+	// repeat if a crash ever leaves the log ahead of a zeroed metadata).
+	// The on-disk EventCount > 0 is what tells resume paths (e.g. ACP
+	// session/resume, which requires the events log to exist for populated
+	// sessions) that this session has history; every later append keeps its
+	// single fsync and the API reconciles the rest from the log.
+	if session.EventCount == 0 {
+		session.UpdatedAt = last.CreatedAt
+		session.EventCount = last.Sequence
+		session.LastEventType = last.Type
+		if err := store.writeMetadata(session); err != nil {
+			return nil, err
+		}
 	}
 	return events, nil
 }
@@ -746,13 +771,13 @@ func (store *Store) UpdateTitle(sessionID string, title string) (Metadata, error
 		return Metadata{}, err
 	}
 	if session.Title == trimmed {
-		return session, nil
+		return store.reconcileMetadata(sessionID, session), nil
 	}
 	session.Title = trimmed
 	if err := store.writeMetadata(session); err != nil {
 		return Metadata{}, err
 	}
-	return session, nil
+	return store.reconcileMetadata(sessionID, session), nil
 }
 
 // UpdateTitleIfCurrent replaces a session title only when it still matches
@@ -777,16 +802,16 @@ func (store *Store) UpdateTitleIfCurrent(sessionID string, expected string, titl
 		return Metadata{}, false, err
 	}
 	if session.Title != strings.TrimSpace(expected) {
-		return session, false, nil
+		return store.reconcileMetadata(sessionID, session), false, nil
 	}
 	if session.Title == trimmed {
-		return session, true, nil
+		return store.reconcileMetadata(sessionID, session), true, nil
 	}
 	session.Title = trimmed
 	if err := store.writeMetadata(session); err != nil {
 		return Metadata{}, false, err
 	}
-	return session, true, nil
+	return store.reconcileMetadata(sessionID, session), true, nil
 }
 
 // UpdateModel replaces a session's selected model without changing its activity
@@ -807,13 +832,13 @@ func (store *Store) UpdateModel(sessionID string, modelID string) (Metadata, err
 		return Metadata{}, err
 	}
 	if session.ModelID == modelID {
-		return session, nil
+		return store.reconcileMetadata(sessionID, session), nil
 	}
 	session.ModelID = modelID
 	if err := store.writeMetadata(session); err != nil {
 		return Metadata{}, err
 	}
-	return session, nil
+	return store.reconcileMetadata(sessionID, session), nil
 }
 
 func (store *Store) ReadEvents(sessionID string) ([]Event, error) {
@@ -1026,29 +1051,38 @@ func (store *Store) writeFileAtomicSync(path string, content []byte, perm os.Fil
 	return syncDir(filepath.Dir(path))
 }
 
-// lastEventSequence returns the sequence of the last COMPLETE (newline-
-// terminated) event in the session log, or 0 if the log is empty/absent. A torn
-// trailing partial line (an interrupted append) is ignored, matching ReadEvents.
-// It reads only the file's tail, so it is O(1) regardless of log length. It lets
-// the events log — not the separately-persisted metadata.EventCount — be the
-// source of truth for the next sequence number, so a crash between the event
-// append and the metadata write can never cause a reused (duplicate) sequence.
-func (store *Store) lastEventSequence(sessionID string) (int, error) {
+// eventHead describes the last COMPLETE (newline-terminated) event in the
+// session log: enough to derive metadata's EventCount/LastEventType/UpdatedAt
+// and the next sequence number without scanning the whole file.
+type eventHead struct {
+	sequence  int
+	eventType EventType
+	createdAt string
+}
+
+// lastEventHead returns the head of the session log, or a zero head when the
+// log is empty/absent. A torn trailing partial line (an interrupted append) is
+// ignored, matching ReadEvents. It reads only the file's tail, so it is O(1)
+// regardless of log length. The events log — not the separately-persisted
+// metadata.EventCount — is the source of truth for derived counters and the
+// next sequence number, so a crash (or the normal lag: metadata is no longer
+// rewritten on append) can never cause a reused (duplicate) sequence number.
+func (store *Store) lastEventHead(sessionID string) (eventHead, error) {
 	file, err := os.Open(store.eventsPath(sessionID))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return 0, nil
+			return eventHead{}, nil
 		}
-		return 0, err
+		return eventHead{}, err
 	}
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil {
-		return 0, err
+		return eventHead{}, err
 	}
 	size := info.Size()
 	if size == 0 {
-		return 0, nil
+		return eventHead{}, nil
 	}
 	// Read the tail, growing the window until it contains the last complete line
 	// (events are usually small; a very large last event grows it up to the file).
@@ -1059,12 +1093,12 @@ func (store *Store) lastEventSequence(sessionID string) (int, error) {
 		}
 		buf := make([]byte, window)
 		if _, err := file.ReadAt(buf, size-window); err != nil {
-			return 0, err
+			return eventHead{}, err
 		}
 		lastNL := bytes.LastIndexByte(buf, '\n')
 		if lastNL < 0 {
 			if window >= size {
-				return 0, nil // no newline in the whole file -> no complete event
+				return eventHead{}, nil // no newline in the whole file -> no complete event
 			}
 			window *= 2
 			continue
@@ -1076,28 +1110,72 @@ func (store *Store) lastEventSequence(sessionID string) (int, error) {
 		}
 		line := bytes.TrimSpace(buf[prevNL+1 : lastNL])
 		if len(line) == 0 {
-			return 0, nil
+			return eventHead{}, nil
 		}
 		var probe struct {
-			Sequence int `json:"sequence"`
+			Sequence  int       `json:"sequence"`
+			Type      EventType `json:"type"`
+			CreatedAt string    `json:"createdAt"`
 		}
 		if err := json.Unmarshal(line, &probe); err != nil {
 			// A complete-but-corrupt last line: defer to the full, recovery-aware
 			// read so a single bad line never silently mis-sequences the next event.
 			events, rerr := store.ReadEvents(sessionID)
 			if rerr != nil {
-				return 0, rerr
+				return eventHead{}, rerr
 			}
-			maxSeq := 0
+			var head eventHead
 			for _, event := range events {
-				if event.Sequence > maxSeq {
-					maxSeq = event.Sequence
+				if event.Sequence > head.sequence {
+					head = eventHead{sequence: event.Sequence, eventType: event.Type, createdAt: event.CreatedAt}
 				}
 			}
-			return maxSeq, nil
+			return head, nil
 		}
-		return probe.Sequence, nil
+		return eventHead{sequence: probe.Sequence, eventType: probe.Type, createdAt: probe.CreatedAt}, nil
 	}
+}
+
+// lastEventSequence returns the sequence of the last COMPLETE event in the
+// session log, or 0 when the log is empty/absent. It shares lastEventHead's
+// torn-tail tolerance and O(1) tail scan.
+func (store *Store) lastEventSequence(sessionID string) (int, error) {
+	head, err := store.lastEventHead(sessionID)
+	return head.sequence, err
+}
+
+// reconcileMetadata derives metadata's EventCount/LastEventType/UpdatedAt from
+// the events log when the log runs ahead of the persisted metadata — the
+// normal state, since appends no longer rewrite metadata.json (its on-disk
+// counters lag until the next non-append mutation). When the metadata is ahead
+// (e.g. the crash window between a truncate's log rewrite and its metadata
+// rewrite, or a rewind sequence floor), the persisted values are kept: the
+// next append/rewind resolves them through the same log-derived sequencing.
+// A log read error degrades to the persisted metadata instead of failing the
+// read: corruption still surfaces loudly through ReadEvents.
+func (store *Store) reconcileMetadata(sessionID string, session Metadata) Metadata {
+	head, err := store.lastEventHead(sessionID)
+	if err != nil || head.sequence == 0 || head.sequence <= session.EventCount {
+		return session
+	}
+	session.EventCount = head.sequence
+	session.LastEventType = head.eventType
+	if head.createdAt != "" {
+		session.UpdatedAt = head.createdAt
+	}
+	return session
+}
+
+// loadSession reads metadata.json and reconciles its derived counters from
+// the events log. It is the single entry point for every metadata value
+// surfaced to callers (Get, List, Fork, goal/spec/title returns); internal
+// sequencing keeps using the raw readMetadata plus the log check.
+func (store *Store) loadSession(sessionID string) (Metadata, error) {
+	session, err := store.readMetadata(sessionID)
+	if err != nil {
+		return Metadata{}, err
+	}
+	return store.reconcileMetadata(sessionID, session), nil
 }
 
 func rawPayload(payload any) (json.RawMessage, error) {

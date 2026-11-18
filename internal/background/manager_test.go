@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -537,7 +538,7 @@ func TestManagerKillStaysKilledWhenExitWaiterReapsDuringTerminate(t *testing.T) 
 	}
 }
 
-func TestMarkKilledIfStillRunningReportsWhetherItMarked(t *testing.T) {
+func TestBeginKillClaimsRunningTaskAndSettlesOnce(t *testing.T) {
 	manager, err := NewManagerWithOptions(ManagerOptions{
 		RootDir: t.TempDir(),
 		Now:     sequenceClock(time.Date(2026, 6, 8, 9, 0, 0, 0, time.UTC)),
@@ -549,16 +550,132 @@ func TestMarkKilledIfStillRunningReportsWhetherItMarked(t *testing.T) {
 		t.Fatalf("Register returned error: %v", err)
 	}
 
-	marked, err := manager.markKilledIfStillRunning("t", 7)
-	if err != nil || !marked {
-		t.Fatalf("first call: marked=%v err=%v, want true/nil", marked, err)
+	pid, err := manager.beginKill("t")
+	if err != nil || pid != 7 {
+		t.Fatalf("beginKill: pid=%d err=%v, want 7/nil", pid, err)
 	}
-	// Already killed (not running) → must report not-marked so Kill skips signaling
-	// a possibly-stale pid.
-	marked, err = manager.markKilledIfStillRunning("t", 7)
-	if err != nil || marked {
-		t.Fatalf("second call: marked=%v err=%v, want false/nil", marked, err)
+	if _, err := manager.commitKill("t"); err != nil {
+		t.Fatalf("commitKill: %v", err)
 	}
+	// Already terminal → must refuse instead of signaling a possibly-stale pid.
+	if _, err := manager.beginKill("t"); err == nil || !strings.Contains(err.Error(), "is killed") {
+		t.Fatalf("second beginKill err = %v, want terminal refusal", err)
+	}
+}
+
+func TestManagerKillRaceWithNaturalExitLeavesSingleTerminalState(t *testing.T) {
+	t.Run("failed_kill_after_natural_exit_keeps_completed", func(t *testing.T) {
+		var manager *Manager
+		var err error
+		manager, err = NewManagerWithOptions(ManagerOptions{
+			RootDir: t.TempDir(),
+			KillProcess: func(int) error {
+				if markErr := manager.MarkExited("task_1", StatusCompleted, 0); markErr != nil {
+					t.Errorf("MarkExited during kill: %v", markErr)
+				}
+				return errors.New("process already exited")
+			},
+		})
+		if err != nil {
+			t.Fatalf("NewManagerWithOptions returned error: %v", err)
+		}
+		if _, err := manager.Register(RegisterInput{TaskID: "task_1", Type: "specialist", PID: 42}); err != nil {
+			t.Fatalf("Register returned error: %v", err)
+		}
+		if err := manager.Kill("task_1"); err == nil {
+			t.Fatal("Kill should report an error when the task already finished on its own and termination failed")
+		}
+		task, ok := manager.Get("task_1")
+		if !ok || task.Status != StatusCompleted || task.ExitCode != 0 || task.CompletedAt.IsZero() {
+			t.Fatalf("task after failed kill + natural exit = %#v, want completed/exit 0", task)
+		}
+	})
+
+	t.Run("failed_kill_never_publishes_duplicate_terminal_state", func(t *testing.T) {
+		root := t.TempDir()
+		var manager *Manager
+		var statusDuringKill Status
+		var diskStatusDuringKill Status
+		var err error
+		manager, err = NewManagerWithOptions(ManagerOptions{
+			RootDir: root,
+			KillProcess: func(int) error {
+				if cur, ok := manager.Get("task_2"); ok {
+					statusDuringKill = cur.Status
+				}
+				if raw, readErr := os.ReadFile(filepath.Join(root, "task_2.json")); readErr == nil {
+					var persisted Task
+					if json.Unmarshal(raw, &persisted) == nil {
+						diskStatusDuringKill = persisted.Status
+					}
+				}
+				return errors.New("denied")
+			},
+		})
+		if err != nil {
+			t.Fatalf("NewManagerWithOptions returned error: %v", err)
+		}
+		if _, err := manager.Register(RegisterInput{TaskID: "task_2", Type: "specialist", PID: 42}); err != nil {
+			t.Fatalf("Register returned error: %v", err)
+		}
+		if err := manager.Kill("task_2"); err == nil {
+			t.Fatal("expected Kill error")
+		}
+		if statusDuringKill != StatusRunning || diskStatusDuringKill != StatusRunning {
+			t.Fatalf("in-flight Kill published premature terminal state: mem=%q disk=%q, want both %q", statusDuringKill, diskStatusDuringKill, StatusRunning)
+		}
+		if err := manager.MarkExited("task_2", StatusCompleted, 0); err != nil {
+			t.Fatalf("MarkExited returned error: %v", err)
+		}
+		if task, _ := manager.Get("task_2"); task.Status != StatusCompleted {
+			t.Fatalf("final status = %q, want %q", task.Status, StatusCompleted)
+		}
+	})
+
+	t.Run("concurrent_kill_and_exit_agree_on_single_terminal", func(t *testing.T) {
+		for trial := 0; trial < 50; trial++ {
+			manager, err := NewManagerWithOptions(ManagerOptions{
+				RootDir:     t.TempDir(),
+				KillProcess: func(int) error { return nil },
+			})
+			if err != nil {
+				t.Fatalf("NewManagerWithOptions: %v", err)
+			}
+			if _, err := manager.Register(RegisterInput{TaskID: "race", Type: "specialist", PID: 99}); err != nil {
+				t.Fatalf("Register: %v", err)
+			}
+			start := make(chan struct{})
+			var wg sync.WaitGroup
+			var killErr error
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				<-start
+				killErr = manager.Kill("race")
+			}()
+			go func() {
+				defer wg.Done()
+				<-start
+				_ = manager.MarkExited("race", StatusCompleted, 0)
+			}()
+			close(start)
+			wg.Wait()
+
+			task, ok := manager.Get("race")
+			if !ok {
+				t.Fatal("missing task after race")
+			}
+			if killErr == nil {
+				if task.Status != StatusKilled || task.ExitCode != -1 {
+					t.Fatalf("trial %d: Kill succeeded (nil) but task = %#v, want killed/-1", trial, task)
+				}
+			} else {
+				if task.Status != StatusCompleted || task.ExitCode != 0 {
+					t.Fatalf("trial %d: Kill refused (%v) but task = %#v, want completed/0", trial, killErr, task)
+				}
+			}
+		}
+	})
 }
 
 func sequenceClock(times ...time.Time) func() time.Time {

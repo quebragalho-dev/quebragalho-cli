@@ -231,21 +231,27 @@ func TestCompactionReactiveSequence(t *testing.T) {
 	}
 }
 
-// updateWindow on a run born with ContextWindow==0 enables compaction today.
-// Fixed as characterization: changing it is a pending PRODUCT decision, and
-// the explicit machine must preserve it byte-for-behavior.
-func TestCompactionUpdateWindowEnablesDisabledRun(t *testing.T) {
+// updateWindow and switchModel on a run born with ContextWindow==0 (opt-out)
+// must respect the opt-out and never turn compaction on mid-run.
+func TestCompactionUpdateWindowKeepsDisabledRunDisabled(t *testing.T) {
 	state := newCompactionState(Options{ContextWindow: 0}, nil)
 	if state.enabled {
 		t.Fatal("precondition: zero-window run starts disabled")
 	}
 	state.updateWindow(5000)
-	if !state.enabled || state.window != 5000 || state.threshold != compactionThreshold(5000) {
-		t.Fatalf("updateWindow enables the run today: enabled=%v window=%d threshold=%d",
-			state.enabled, state.window, state.threshold)
+	if state.enabled || state.phase != phaseDisabled || state.window != 0 || state.threshold != 0 {
+		t.Fatalf("updateWindow enabled an opt-out run: enabled=%v phase=%s window=%d threshold=%d",
+			state.enabled, state.phase, state.window, state.threshold)
 	}
-	if state.lowWaterMark != 0 {
-		t.Fatalf("updateWindow resets watermark: mark=%d", state.lowWaterMark)
+	state.switchModel("big-model", 200_000)
+	if state.enabled || state.phase != phaseDisabled {
+		t.Fatalf("switchModel enabled an opt-out run: enabled=%v phase=%s", state.enabled, state.phase)
+	}
+	provider := &summarizeRecordingProvider{}
+	history := compactableHistory()
+	got := state.maybeCompact(context.Background(), provider, history, nil)
+	if len(got) != len(history) || provider.summarizeCalls != 0 {
+		t.Fatalf("opt-out run compacted after updateWindow: len=%d calls=%d", len(got), provider.summarizeCalls)
 	}
 }
 

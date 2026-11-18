@@ -349,3 +349,40 @@ func TestResumedPeerProvenanceKeepsPeerSafetyGuidanceEnabled(t *testing.T) {
 		t.Fatalf("resumed system prompt lost peer safety guidance:\n%s", provider.requests[0].Messages[0].Content)
 	}
 }
+
+func TestCancelRunClearsPendingPeerApproval(t *testing.T) {
+	messages := make(chan any, 2)
+	m := newModel(context.Background(), Options{
+		RuntimeMessageSink: func(message tea.Msg) { messages <- message },
+	})
+	first := peermsg.InboundMessage{ID: "peer-cancel-1", From: peermsg.Peer{Ref: "11111111"}, Body: "first", RequiresApproval: true}
+	second := peermsg.InboundMessage{ID: "peer-cancel-2", From: peermsg.Peer{Ref: "22222222"}, Body: "second", RequiresApproval: true}
+	m, _ = m.handlePeerMessage(first)
+	m, _ = m.handlePeerMessage(second)
+	if m.peerPendingApproval == nil || m.pendingPermission == nil || m.promptPhase() != PromptPeerApproval {
+		t.Fatalf("precondition: peer approval should be open, phase=%s", m.promptPhase())
+	}
+
+	updated, _ := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	next := updated.(model)
+	if next.peerPendingApproval != nil || next.pendingPermission != nil {
+		t.Fatalf("cancelRun left orphaned peer approval: peer=%#v perm=%#v", next.peerPendingApproval, next.pendingPermission)
+	}
+	if next.promptPhase() != PromptNone || !next.noBlockingModal() {
+		t.Fatalf("cancelRun left blocking prompt phase=%s noBlockingModal=%v", next.promptPhase(), next.noBlockingModal())
+	}
+
+	select {
+	case raw := <-messages:
+		decision, ok := raw.(peerDecisionMsg)
+		if !ok || decision.allow || decision.message.ID != first.ID {
+			t.Fatalf("unexpected peer decision on cancel = %#v", raw)
+		}
+		afterDecision, _ := next.handlePeerDecision(decision.message, decision.allow)
+		if afterDecision.peerPendingApproval == nil || afterDecision.peerPendingApproval.ID != second.ID {
+			t.Fatalf("queued peer approval did not advance after cancel: %#v", afterDecision.peerPendingApproval)
+		}
+	default:
+		t.Fatal("cancelling a pending peer approval did not emit a denial decision")
+	}
+}

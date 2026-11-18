@@ -37,13 +37,14 @@ type setupState struct {
 	apiKey       textinput.Model
 	// keyCheck is true while the pasted key is being validated against the
 	// gateway; the credential screen accepts no input until the result lands.
-	keyCheck   bool
-	validate   func(context.Context, string) error
-	models     []providerWizardModel
-	modelIndex int
-	modelQuery string
-	modelForID string
-	modelGen   uint64
+	keyCheck    bool
+	validate    func(context.Context, string) error
+	models      []providerWizardModel
+	modelIndex  int
+	modelScroll listScroll
+	modelQuery  string
+	modelForID  string
+	modelGen    uint64
 
 	// Browser (device-flow) login. deviceCancel is non-nil while a login is
 	// in flight; deviceGen binds async results to that login so a reply that
@@ -193,6 +194,7 @@ func (m model) handleSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.setup.stage == setupStageModel {
 			m.setup.modelQuery = ""
 			m.setup.modelIndex = 0
+			m.setup.modelScroll.unpin()
 		}
 		return m, nil
 	}
@@ -274,12 +276,13 @@ func (m *model) selectSetupModelAtMouse(msg tea.MouseMsg) (mouseSelectionTarget,
 	if row < 0 || row >= maxVisible {
 		return mouseSelectionTarget{}, false
 	}
-	start := selectableListStart(len(models), maxVisible, m.setup.modelIndex)
+	start := m.setup.modelScroll.resolve(len(models), maxVisible, m.setup.modelIndex)
 	index := start + row
 	if index < 0 || index >= len(models) {
 		return mouseSelectionTarget{}, false
 	}
 	m.setup.modelIndex = index
+	m.setup.modelScroll.pin(start)
 	return mouseSelectionTarget{Scope: "first-run-model", Value: models[index].ID, Index: index}, true
 }
 
@@ -413,6 +416,7 @@ func (m *model) resetSetupModels() {
 	models := providerWizardModelOptions(provider)
 	m.setup.models = models
 	m.setup.modelIndex = 0
+	m.setup.modelScroll.unpin()
 	m.setup.modelQuery = ""
 	m.setup.modelForID = provider.ID
 }
@@ -622,6 +626,7 @@ func (m model) setupFilteredModels() []providerWizardModel {
 }
 
 func (m *model) moveSetupModel(delta int) {
+	m.setup.modelScroll.unpin()
 	m.ensureSetupModels()
 	models := m.setupFilteredModels()
 	if len(models) == 0 {
@@ -637,6 +642,7 @@ func (m *model) appendSetupModelQuery(runes []rune) {
 		m.setup.modelQuery += string(r)
 	}
 	m.setup.modelIndex = 0
+	m.setup.modelScroll.unpin()
 	m.setup.err = ""
 }
 func (m *model) deleteSetupModelQueryRune() {
@@ -646,6 +652,7 @@ func (m *model) deleteSetupModelQueryRune() {
 	runes := []rune(m.setup.modelQuery)
 	m.setup.modelQuery = string(runes[:len(runes)-1])
 	m.setup.modelIndex = 0
+	m.setup.modelScroll.unpin()
 	m.setup.err = ""
 }
 func (m model) exitSetupToChat() (tea.Model, tea.Cmd) {
@@ -794,7 +801,7 @@ func (m model) setupModelLines(width int, height int) []string {
 	rowWidth := setupModelBlockWidth(width, m.setup.models)
 	models := m.setupFilteredModels()
 	maxVisible := setupModelMaxVisible(height, len(models))
-	start := selectableListStart(len(models), maxVisible, m.setup.modelIndex)
+	start := m.setup.modelScroll.resolve(len(models), maxVisible, m.setup.modelIndex)
 	lines := []string{
 		padSetupLine("  "+qgTheme.ink.Bold(true).Render("Escolher modelo"), rowWidth),
 		blankSetupBlockLine(rowWidth),

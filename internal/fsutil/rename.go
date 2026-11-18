@@ -44,6 +44,55 @@ func ReplaceWithRetry(src, dst string, replace func(src, dst string) error) erro
 	return RenameWithRetry(src, dst, replace)
 }
 
+// RenameWithLongRetry renames src to dst like RenameWithRetry, but with the
+// ~2s growing-backoff budget instead of ~100ms of fixed 10ms retries: sandbox
+// marker writers lose the race against readers holding the file open mid-read
+// (on Windows that rename fails with access denied), and under load a single
+// short burst is not enough to outlast them. rename overrides os.Rename so
+// tests can exercise the retry path; pass nil to use os.Rename.
+func RenameWithLongRetry(src, dst string, rename func(src, dst string) error) error {
+	return renameWithLongRetry(runtime.GOOS, src, dst, rename, time.Sleep)
+}
+
+// renameWithLongRetry is RenameWithLongRetry with the platform and the sleeper
+// injected, so the retry decision, the backoff shape and the total budget are
+// unit-testable on any OS. The budget is accounted from the scheduled sleeps
+// rather than the wall clock, so a fake sleeper keeps the test loop bounded.
+func renameWithLongRetry(goos string, src, dst string, rename func(src, dst string) error, sleep func(time.Duration)) error {
+	if rename == nil {
+		rename = os.Rename
+	}
+	if sleep == nil {
+		sleep = time.Sleep
+	}
+	var slept time.Duration
+	delay := readRetryInitialDelay
+	for {
+		err := rename(src, dst)
+		if err == nil {
+			return nil
+		}
+		var committed *CommittedReplacementCleanupError
+		if errors.As(err, &committed) {
+			// The source has already been consumed; retrying would rename
+			// the wrong file.
+			return err
+		}
+		if goos != "windows" || (!os.IsPermission(err) && !isWindowsSharingOrLockViolation(err)) {
+			return err
+		}
+		if slept+delay > windowsTransientLockRetryBudget {
+			return err
+		}
+		sleep(delay)
+		slept += delay
+		delay *= 2
+		if delay > readRetryMaxDelay {
+			delay = readRetryMaxDelay
+		}
+	}
+}
+
 // RenameWithRetry renames src to dst, retrying briefly on Windows when the
 // destination is transiently locked (antivirus scanners, search indexers, or
 // a concurrent reader holding the file open). rename overrides os.Rename so

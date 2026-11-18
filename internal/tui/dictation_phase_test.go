@@ -38,6 +38,7 @@ func TestDictationPhaseTable(t *testing.T) {
 				d.regionEnd = 9
 				d.regionAnchor = "seed"
 				d.regionActive = true
+				d.savedComposer = dictComposerSnapshot{valid: true, state: composerState{text: "seed", cursor: 4}, active: true}
 			}
 			args := dictArgs{sessionID: 5}
 			if ev == DictEvStart {
@@ -61,7 +62,7 @@ func TestDictationPhaseTable(t *testing.T) {
 				if d.phase != dictIdle {
 					t.Errorf("%v in %v: want idle, got %v", ev, ph, d.phase)
 				}
-				if d.voiceStopPending || d.spaceHeld || d.regionStart != 0 || d.regionEnd != 0 || d.regionAnchor != "" || d.regionActive {
+				if d.voiceStopPending || d.spaceHeld || d.regionStart != 0 || d.regionEnd != 0 || d.regionAnchor != "" || d.regionActive || d.savedComposer.valid {
 					t.Errorf("%v in %v: twins not zeroed: %+v", ev, ph, d)
 				}
 			}

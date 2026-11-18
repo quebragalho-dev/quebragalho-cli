@@ -176,7 +176,10 @@ func (c *Coordinator) SetStatus(id string, status TaskStatus) error {
 		if t.Status.terminal() && t.Status != status {
 			return fmt.Errorf("swarm: task %s is %s (terminal); cannot move to %s", id, t.Status, status)
 		}
-		return fmt.Errorf("swarm: task %s is being handed off; cannot move to %s", id, status)
+		if t.handoff {
+			return fmt.Errorf("swarm: task %s is being handed off; cannot move to %s", id, status)
+		}
+		return fmt.Errorf("swarm: task %s cannot move directly from %s to %s; use CommitHandoff", id, t.Status, status)
 	}
 	t.UpdatedAt = c.now()
 	c.notifyChangeLocked()

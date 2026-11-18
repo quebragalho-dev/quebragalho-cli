@@ -267,3 +267,140 @@ func TestNewLocalTranscriberRequiresModelPath(t *testing.T) {
 		t.Fatalf("want *SetupError, got %v", err)
 	}
 }
+
+func TestLocalTranscribeOnlineDefaultsToSherpaOnnx(t *testing.T) {
+	dir := writeModelDir(t, "encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt")
+	var gotBin string
+	var gotArgs []string
+	runOutput := func(_ context.Context, name string, args ...string) ([]byte, error) {
+		gotBin, gotArgs = name, args
+		return []byte(`{"text":" streaming via file "}`), nil
+	}
+	tr, err := NewLocalTranscriber(LocalConfig{
+		ModelPath: dir,
+		Online:    true,
+		runOutput: runOutput,
+		tempDir:   func() (string, error) { return t.TempDir(), nil },
+	})
+	if err != nil {
+		t.Fatalf("NewLocalTranscriber: %v", err)
+	}
+	text, err := tr.Transcribe(context.Background(), wavFixture())
+	if err != nil {
+		t.Fatalf("Transcribe: %v", err)
+	}
+	if text != "streaming via file" {
+		t.Errorf("text = %q, want %q", text, "streaming via file")
+	}
+	if gotBin != "sherpa-onnx" {
+		t.Errorf("binary = %q, want %q", gotBin, "sherpa-onnx")
+	}
+	joined := strings.Join(gotArgs, " ")
+	for _, want := range []string{"--encoder=", "--decoder=", "--joiner=", "--tokens=", "--num-threads="} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("missing flag %q in %q", want, joined)
+		}
+	}
+}
+
+func TestLocalTranscribeOnlineMissingBinarySetupError(t *testing.T) {
+	dir := writeModelDir(t, "encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt")
+	for _, tc := range []struct {
+		name string
+		bin  string
+		err  error
+	}{
+		{"path lookup", "", exec.ErrNotFound},
+		{"explicit path", "/tmp/no-such-sherpa-onnx", os.ErrNotExist},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runOutput := func(context.Context, string, ...string) ([]byte, error) { return nil, tc.err }
+			tr, err := NewLocalTranscriber(LocalConfig{
+				Binary:    tc.bin,
+				ModelPath: dir,
+				Online:    true,
+				runOutput: runOutput,
+				tempDir:   func() (string, error) { return t.TempDir(), nil },
+			})
+			if err != nil {
+				t.Fatalf("NewLocalTranscriber: %v", err)
+			}
+			_, err = tr.Transcribe(context.Background(), wavFixture())
+			var setupErr *SetupError
+			if !errors.As(err, &setupErr) {
+				t.Fatalf("want *SetupError, got %v", err)
+			}
+			wantTool := tc.bin
+			if wantTool == "" {
+				wantTool = "sherpa-onnx"
+			}
+			if setupErr.Tool != wantTool {
+				t.Errorf("Tool = %q, want %q", setupErr.Tool, wantTool)
+			}
+			if !strings.Contains(setupErr.Hint, "sherpa-onnx") || strings.Contains(setupErr.Hint, "online-websocket-server") || strings.Contains(setupErr.Hint, "offline") {
+				t.Errorf("Hint = %q, want mention of sherpa-onnx without websocket server or offline", setupErr.Hint)
+			}
+		})
+	}
+}
+
+func TestDetectOnlineModelArgsFamilies(t *testing.T) {
+	paraDir := writeNamedModelDir(t, "sherpa-onnx-streaming-paraformer-bilingual-zh-en", "encoder.int8.onnx", "decoder.int8.onnx", "tokens.txt")
+	paraArgs, err := detectModelArgsFor(paraDir, true)
+	if err != nil {
+		t.Fatalf("streaming paraformer detection failed: %v", err)
+	}
+	paraJoined := strings.Join(paraArgs, " ")
+	if !strings.Contains(paraJoined, "--paraformer-encoder=") || !strings.Contains(paraJoined, "--paraformer-decoder=") {
+		t.Errorf("streaming paraformer got %q, want --paraformer-encoder/--paraformer-decoder", paraJoined)
+	}
+
+	ctcDir := writeNamedModelDir(t, "sherpa-onnx-streaming-zipformer-ctc-multi-zh-hans-2023-12-13", "ctc.onnx", "tokens.txt")
+	ctcArgs, err := detectModelArgsFor(ctcDir, true)
+	if err != nil {
+		t.Fatalf("streaming zipformer2 ctc detection failed: %v", err)
+	}
+	if !strings.Contains(strings.Join(ctcArgs, " "), "--zipformer2-ctc-model=") {
+		t.Errorf("streaming zipformer2 ctc got %v, want --zipformer2-ctc-model=", ctcArgs)
+	}
+
+	tOneDir := writeNamedModelDir(t, "sherpa-onnx-streaming-t-one-ctc-ru", "model.onnx", "tokens.txt")
+	tOneArgs, err := detectModelArgsFor(tOneDir, true)
+	if err != nil {
+		t.Fatalf("streaming t-one ctc detection failed: %v", err)
+	}
+	if !strings.Contains(strings.Join(tOneArgs, " "), "--t-one-ctc-model=") {
+		t.Errorf("streaming t-one ctc got %v, want --t-one-ctc-model=", tOneArgs)
+	}
+}
+
+func TestDetectOnlineKrokoModelTypeFlag(t *testing.T) {
+	krokoDir := writeNamedModelDir(t, "sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06",
+		"encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt")
+
+	onlineArgs, err := detectModelArgsFor(krokoDir, true)
+	if err != nil {
+		t.Fatalf("detectModelArgsFor(kroko, true): %v", err)
+	}
+	if !strings.Contains(strings.Join(onlineArgs, " "), "--model-type=zipformer2") {
+		t.Errorf("kroko online args = %v, want --model-type=zipformer2", onlineArgs)
+	}
+
+	offlineArgs, err := detectModelArgsFor(krokoDir, false)
+	if err != nil {
+		t.Fatalf("detectModelArgsFor(kroko, false): %v", err)
+	}
+	if strings.Contains(strings.Join(offlineArgs, " "), "--model-type=") {
+		t.Errorf("kroko offline args should not set --model-type, got %v", offlineArgs)
+	}
+
+	otherDir := writeNamedModelDir(t, "sherpa-onnx-streaming-zipformer-en-2023-06-26",
+		"encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt")
+	otherArgs, err := detectModelArgsFor(otherDir, true)
+	if err != nil {
+		t.Fatalf("detectModelArgsFor(other, true): %v", err)
+	}
+	if strings.Contains(strings.Join(otherArgs, " "), "--model-type=") {
+		t.Errorf("non-kroko args should not set --model-type, got %v", otherArgs)
+	}
+}

@@ -215,10 +215,13 @@ type model struct {
 	// lastCompletedRate is the exact "42 tok/s" of the last finished call,
 	// shown faint on the border after the run. Cleared on /new, /clear and
 	// model switch; /resume restores it from the reloaded receipt.
-	lastCompletedRate string
-	lastUsage         usage.Normalized
-	lastUsageSeen     bool
-	lastUsageReceipt  transcriptRow
+	lastCompletedRate      string
+	lastUsage              usage.Normalized
+	lastUsageSeen          bool
+	lastUsageReceipt       transcriptRow
+	postCompactTokens      int
+	hasPostCompactTokens   bool
+	summarizerRecordedLast bool
 	// meterLive tracks whether the live context meter may show lastUsage.
 	// The /usage panel keeps its frozen last-call report across session
 	// switches and compactions, while the meter only drops what is stale:
@@ -555,6 +558,7 @@ type model struct {
 	// filePaletteOpen does the same for a trailing "@token" file search.
 	suggestions        []commandSuggestion
 	suggestionIdx      int
+	suggestionScroll   listScroll
 	commandPaletteOpen bool
 	filePaletteOpen    bool
 	// suggestionsAreFiles is true when the overlay is showing "@file" matches
@@ -786,10 +790,17 @@ type agentUsageMsg struct {
 	usage   qgruntime.Usage
 }
 
+type agentCompactionContextMsg struct {
+	runID  int
+	tokens int
+}
+
 type agentResponseMsg struct {
-	runID       int
-	rows        []transcriptRow
-	usageEvents []qgruntime.Usage
+	runID                int
+	rows                 []transcriptRow
+	usageEvents          []qgruntime.Usage
+	postCompactTokens    int
+	hasPostCompactTokens bool
 	// continuation carries the just-finished run's messages for the next
 	// turn. Set on every run that shares the session's history (success,
 	// error and cancellation alike; peer/goal/loop/spec runs and side
@@ -1432,6 +1443,12 @@ func newModel(ctx context.Context, options Options) model {
 	if warning := strings.TrimSpace(options.SandboxWarning); warning != "" {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: warning})
 	}
+	if m.permissionMode == agent.PermissionModeUnsafe {
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{
+			kind: actionAppendSystem,
+			text: "Aviso: modo sem confirmação ativo — os comandos rodam sem isolamento e com acesso total ao computador.",
+		})
+	}
 	// Name unknown statusline field ids once at startup, so a typo in a
 	// hand-written config does not fail silently (the setup card repeats
 	// them at preview time; this covers everything else).
@@ -1663,11 +1680,6 @@ func (m model) shutdownLSPManager() {
 	defer cancel()
 	if m.lspManager != nil {
 		_ = m.lspManager.Shutdown(shutdownCtx)
-	}
-	// The warm sherpa-onnx streaming server is a session-long child process too;
-	// tear it down alongside the language servers (§6a).
-	if m.dictation.shutdownServer != nil {
-		_ = m.dictation.shutdownServer(shutdownCtx)
 	}
 }
 
@@ -1996,9 +2008,10 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyboardEnhancementsMsg:
 		return m.handleKeyboardEnhancements(msg), nil
 	case tea.KeyReleaseMsg:
-		// A bare Space release ends the run and clears the activation latch; a
-		// held key's timing gap does the rest on terminals without release events.
-		if voiceHoldKey(msg) {
+		// A Space release ends the run and clears the activation latch even when
+		// Ctrl is still down; a held key's timing gap does the rest on terminals
+		// without release events.
+		if keyIs(msg, tea.KeySpace) {
 			m.dictation.hold.keyUp()
 		}
 		// Voice mode's hold-to-record ends on Ctrl+Space release; every other
@@ -2045,7 +2058,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the caret, the typed character would render caret-less for up to a
 		// full tick before the timer catches up.
 		m.composerCursorVisible = true
-		if !voiceHoldKey(msg) {
+		if !voiceHoldPreservesLatchKey(msg, m.dictation.hold.spent) {
 			// Any other key ends a Space hold: the system only repeats the
 			// last key pressed, so a latched activation must not swallow the
 			// next Space the user types.
@@ -2999,8 +3012,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		promptRow.runID = msg.runID
 		m.transcript = appendTranscriptRow(m.transcript, promptRow)
 		if m.promptPhase() != PromptNone {
-			// Pre-machine parity: the new request replaced the live prompt
-			// without resolving the old decide (open item, not fixed here).
 			_ = m.promptTransition(PromptEvReplacePermission, promptArgs{permReq: &msg.request, permDecide: msg.decide})
 			return m, nil
 		}
@@ -3026,7 +3037,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.transcript = appendTranscriptRow(m.transcript, askUserTranscriptRow(msg.request))
 		if m.promptPhase() != PromptNone {
-			// Pre-machine parity: overwrite without answering the old one.
 			_ = m.promptTransition(PromptEvReplaceAskUser, promptArgs{askReq: &msg.request, askAnswer: msg.answer, askStates: newAskUserStates(msg.request.Questions)})
 			m.clearComposer()
 			m.clearSuggestions()
@@ -3088,6 +3098,17 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.sessionEvents = append(m.sessionEvents, msg.flushedEvents...)
 					m.foldFlushedSessionMetadata(msg.flushedEvents)
 					m, flushRows = m.appendSessionEvents(events)
+					if msg.goalAware {
+						cancelledTokens := 0
+						for _, ev := range msg.usageEvents {
+							if normalized, _, normErr := usage.Normalize(ev); normErr == nil {
+								cancelledTokens += normalized.TotalTokens
+							}
+						}
+						if cancelledTokens > 0 {
+							m, _ = m.accountGoalTokens(cancelledTokens)
+						}
+					}
 				} else {
 					flushRows = m.appendSessionEventsTo(flushSessionID, events)
 				}
@@ -3115,6 +3136,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 					msg.continuation.runID > m.continuation.runID {
 					m.continuation = *msg.continuation
 					continuationStored = true
+					if msg.hasPostCompactTokens {
+						m.postCompactTokens = msg.postCompactTokens
+						m.hasPostCompactTokens = m.postCompactTokens > 0
+						m.meterLive = false
+					}
 					if m.snapshotWriter != nil {
 						m.snapshotWriter.Queue(buildContinuationSnapshot(msg.continuation.sessionID, msg.continuation.modelID, m.providerName, string(m.reasoningEffort), msg.continuation.goalKey, m.activeSession.EventCount, msg.continuation.messages, msg.continuation.loadedTools), msg.continuation.runID)
 					}
@@ -3170,6 +3196,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		delete(m.liveUsageCounts, msg.runID)
+		if msg.hasPostCompactTokens {
+			m.postCompactTokens = msg.postCompactTokens
+			m.hasPostCompactTokens = m.postCompactTokens > 0
+			m.meterLive = false
+		}
 		var sessionRows []transcriptRow
 		m.sessionEvents = append(m.sessionEvents, msg.flushedEvents...)
 		m.foldFlushedSessionMetadata(msg.flushedEvents)
@@ -3367,13 +3398,19 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// A TUI-side compaction rewrote the history the next request
 			// replays, so a cache miss right after blames it.
 			m.cacheCompactedPending = true
+			m.postCompactTokens = compactedContextTokens(m.continuation.messages, m.sessionEvents, msg.result.AfterTokens)
+			m.hasPostCompactTokens = m.postCompactTokens > 0
 		}
 		m.lastCompactResult = &msg.result
 		// The summarizer request ran on the compact goroutine, which must
 		// not touch model state: record its usage here, through the same
 		// tracker and provider_usage path as agent turns.
 		if msg.hasCompactionUsage && msg.compactionUsage.TotalTokens() > 0 {
-			m = m.recordCompactionUsage(msg.compactionModel, msg.compactionUsage)
+			var goalChanged bool
+			m, goalChanged = m.recordCompactionUsage(msg.compactionModel, msg.compactionUsage)
+			if goalChanged && msg.hasSessionSnapshot {
+				m = m.rewriteSnapshotFromEvents()
+			}
 		}
 		m = m.setCompactStatusRow(m.compactText(true))
 		return m.launchParkedSendNowAfterCompaction()
@@ -3424,6 +3461,16 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if rate := usageRate(msg.usage); rate != "" {
 				m.lastCompletedRate = rate
 			}
+		}
+		return m, nil
+	case agentCompactionContextMsg:
+		if msg.runID != m.activeRunID {
+			return m, nil
+		}
+		if msg.tokens > 0 {
+			m.postCompactTokens = msg.tokens
+			m.hasPostCompactTokens = true
+			m.meterLive = false
 		}
 		return m, nil
 	case agentUsageMsg:
@@ -5286,6 +5333,7 @@ func (m model) choosePicker() (tea.Model, tea.Cmd) {
 	case pickerSTTDownload:
 		return m.handleSTTDownloadSelection(item.Value)
 	case pickerConfig:
+		m.picker = picker
 		return m.chooseConfigRow(item)
 	case pickerTheme:
 		// Selection is applied only after Enter. Moving through the picker renders a
@@ -6968,11 +7016,15 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		runPrefixSystem := ""
 		runArmed := false
 		runCompacted := false
+		compactedSinceMainUsage := false
 		prevOnContext := options.OnContext
 		options.OnContext = func(breakdown agent.ContextBreakdown) {
 			runPrefixTools = breakdown.PrefixToolsHash
 			runPrefixSystem = breakdown.PrefixSystemHash
 			runArmed = true
+			if compactedSinceMainUsage && m.runtimeMessageSink != nil && breakdown.MessageTokens > 0 {
+				m.runtimeMessageSink(agentCompactionContextMsg{runID: runID, tokens: breakdown.MessageTokens})
+			}
 			if prevOnContext != nil {
 				prevOnContext(breakdown)
 			}
@@ -6980,6 +7032,7 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 		prevOnCompaction := options.OnCompaction
 		options.OnCompaction = func() {
 			runCompacted = true
+			compactedSinceMainUsage = true
 			if prevOnCompaction != nil {
 				prevOnCompaction()
 			}
@@ -7467,6 +7520,8 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 				// for cost accounting but is marked so resume skips it in the
 				// session-cache stats, exactly like the live surface does.
 				payload["summarizer"] = true
+			} else {
+				compactedSinceMainUsage = false
 			}
 			payload["call_id"] = receipt.id
 			payload["call_label"] = receipt.text
@@ -7498,6 +7553,10 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 				}})
 			}
 			msg := agentResponseMsg{runID: runID, rows: rows, usageEvents: usageEvents, usageModelID: usageModelID, usageModelIDs: usageModelIDs, sessionEvents: sessionEvents, err: err, goalAware: goalAwareRun, turnTools: toolCalls, turnElapsed: m.activeTurnElapsed(started), persistErr: liveAppendErr, flushedEvents: flushedLive}
+			if compactedSinceMainUsage && len(result.Messages) > 0 {
+				msg.postCompactTokens = compactedContextTokens(result.Messages, nil, 0)
+				msg.hasPostCompactTokens = msg.postCompactTokens > 0
+			}
 			// A failed or cancelled turn still hands its (repaired) history to
 			// the next turn: Esc and provider errors resume exactly instead of
 			// falling back to the textual summary.
@@ -7559,7 +7618,13 @@ func (m model) runAgentWithOptions(runID int, runCtx context.Context, prompt str
 				runID:       int64(runID),
 			}
 		}
-		return agentResponseMsg{runID: runID, rows: rows, usageEvents: usageEvents, usageModelID: usageModelID, usageModelIDs: usageModelIDs, sessionEvents: sessionEvents, goalAware: goalAwareRun, turnTools: toolCalls, turnElapsed: elapsed, ttft: firstTokenElapsed, continuation: continuation, persistErr: liveAppendErr, flushedEvents: flushedLive}
+		var postCompactTokens int
+		var hasPostCompactTokens bool
+		if compactedSinceMainUsage && len(result.Messages) > 0 {
+			postCompactTokens = compactedContextTokens(result.Messages, nil, 0)
+			hasPostCompactTokens = postCompactTokens > 0
+		}
+		return agentResponseMsg{runID: runID, rows: rows, usageEvents: usageEvents, postCompactTokens: postCompactTokens, hasPostCompactTokens: hasPostCompactTokens, usageModelID: usageModelID, usageModelIDs: usageModelIDs, sessionEvents: sessionEvents, goalAware: goalAwareRun, turnTools: toolCalls, turnElapsed: elapsed, ttft: firstTokenElapsed, continuation: continuation, persistErr: liveAppendErr, flushedEvents: flushedLive}
 	}
 }
 

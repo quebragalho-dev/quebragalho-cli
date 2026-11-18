@@ -72,6 +72,7 @@ type commandPicker struct {
 	allItems []pickerItem
 	query    string
 	selected int
+	scroll   listScroll
 	// loading marks a picker still fetching its rows (e.g. the STT model list from
 	// GitHub): the overlay shows a "buscando…" line instead of "nenhum item encontrado".
 	loading        bool
@@ -112,6 +113,7 @@ func (p *commandPicker) wrappedHeader(innerWidth int) []string {
 }
 
 func (p *commandPicker) move(delta int) {
+	p.scroll.unpin()
 	n := len(p.items)
 	if n == 0 {
 		return
@@ -146,6 +148,7 @@ func (p *commandPicker) deleteQueryRune() {
 }
 
 func (p *commandPicker) applyQuery() {
+	p.scroll.unpin()
 	source := p.allItems
 	if len(source) == 0 {
 		source = p.items

@@ -385,9 +385,9 @@ func TestVoiceSetupDownloadSuccessEnables(t *testing.T) {
 	d.voiceAfterSetup = true
 	d.cfg.LocalModelPath = filepath.Join("/models", variant.DirName)
 	comp := dictation.EngineComponents{
-		BinaryPath: "/x/bin/sherpa-onnx-offline",
-		ServerPath: "/x/bin/sherpa-onnx-online-websocket-server",
-		ModelPath:  filepath.Join("/models", variant.DirName),
+		BinaryPath:       "/x/bin/sherpa-onnx-offline",
+		OnlineBinaryPath: "/x/bin/sherpa-onnx",
+		ModelPath:        filepath.Join("/models", variant.DirName),
 	}
 
 	next, cmd := model{dictation: d}.handleDictationDownloaded(dictationDownloadedMsg{components: comp, label: variant.Label})
@@ -790,8 +790,6 @@ func TestVoiceSetupOffRunsNoCheck(t *testing.T) {
 	d.lookPath = func(string) (string, error) { return "", errors.New("no arecord") }
 	d.micCheck = func(context.Context) (dictation.MicCheck, error) { return dictation.MicCheck{}, errors.New("no mic") }
 	d.build = func(config.STTConfig, bool) (Transcriber, bool, error) { return nil, false, errors.New("no model") }
-	calls := 0
-	d.shutdownServer = func(context.Context) error { calls++; return nil }
 
 	off, cmd := model{dictation: d}.toggleVoiceMode()
 	if off.dictation.voiceModeEnabled {
@@ -800,12 +798,8 @@ func TestVoiceSetupOffRunsNoCheck(t *testing.T) {
 	if transcriptHasText(off, "Para usar o modo de voz") || transcriptHasText(off, "Não foi possível testar") {
 		t.Error("turning off must run neither the capture nor the microphone check")
 	}
-	if cmd == nil {
-		t.Error("turning off should still release the server")
-	}
-	cmd()
-	if calls != 1 {
-		t.Errorf("shutdown called %d times, want 1", calls)
+	if cmd != nil {
+		t.Errorf("turning off should return nil cmd, got %v", cmd)
 	}
 }
 

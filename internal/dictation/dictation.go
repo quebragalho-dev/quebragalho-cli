@@ -5,11 +5,12 @@
 // Two pipelines share a keybinding and a composer-insertion target:
 //
 //   - Batch: record to a temp WAV file (Recorder.Start/Stop), then transcribe
-//     in one shot (Transcriber.Transcribe) — a local sherpa-onnx-offline exec
-//     or a single HTTPS POST to Groq/OpenAI. The only pipeline on Termux.
+//     in one shot (Transcriber.Transcribe) — a local sherpa-onnx/sherpa-onnx-offline
+//     exec or a single HTTPS POST to Groq/OpenAI. The only pipeline on Termux.
 //   - Streaming: capture raw PCM from the mic tool's stdout
-//     (Recorder.StartStreaming), feed 50ms chunks to a websocket
-//     (Transcriber.StreamTranscribe), and render partial transcripts live.
+//     (Recorder.StartStreaming), feed 50ms chunks to a cloud websocket
+//     (Deepgram/OpenAI) or rolling file transcription (local), and render
+//     partial transcripts live.
 //
 // Every OS integration shells out via exec.Command with discrete argv — never
 // a shell string, never CGO — matching internal/imageinput/clipboard.go. The

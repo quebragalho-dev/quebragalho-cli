@@ -11,8 +11,13 @@ type WindowsACLAction string
 
 const (
 	WindowsACLAllowWrite WindowsACLAction = "allow-write"
-	WindowsACLDenyRead   WindowsACLAction = "deny-read"
-	WindowsACLDenyWrite  WindowsACLAction = "deny-write"
+	// WindowsACLAllowRead grants a capability SID read access on a path. It is
+	// load-bearing only for the fully restricted token (DenyRead profiles),
+	// whose restricted-SID check applies to reads; under WRITE_RESTRICTED reads
+	// already pass via the user identity, so the extra ACE changes nothing.
+	WindowsACLAllowRead WindowsACLAction = "allow-read"
+	WindowsACLDenyRead  WindowsACLAction = "deny-read"
+	WindowsACLDenyWrite WindowsACLAction = "deny-write"
 	// WindowsACLRevokeCapability removes any existing ACE (allow or deny) for
 	// Capability at Path, without itself granting or denying anything (applied
 	// via SetEntriesInAclW's SET_ACCESS mode with a qg mask, not
@@ -57,11 +62,38 @@ func BuildWindowsACLPlan(config WindowsSandboxCommandConfig) (WindowsACLPlan, er
 	}
 	var entries []WindowsACLEntry
 	for _, capability := range writeCapabilities {
-		entries = append(entries, WindowsACLEntry{
-			Action:     WindowsACLAllowWrite,
-			Path:       capability.Root,
-			Capability: capability.SID,
-		})
+		entries = append(entries, []WindowsACLEntry{
+			{
+				Action:     WindowsACLAllowWrite,
+				Path:       capability.Root,
+				Capability: capability.SID,
+			},
+			// The fully restricted token (DenyRead profiles) checks reads
+			// against the restricted list too, so the workspace needs an
+			// explicit read grant or nothing inside it opens. Inert under
+			// WRITE_RESTRICTED, where reads pass via the user identity.
+			{
+				Action:     WindowsACLAllowRead,
+				Path:       capability.Root,
+				Capability: capability.SID,
+			},
+		}...)
+		for _, path := range capability.MaterializedWriteDenyPaths {
+			// Protected metadata (.qg, .agents) denies materialize: a deny ACE
+			// cannot attach to a path that does not exist, and the apply skips
+			// missing non-materialized targets, so without this an isolated
+			// command creates the directory itself and writes inside it.
+			// Operator-named subpaths below deliberately keep the old
+			// behaviour: creating arbitrary operator paths during (possibly
+			// elevated) setup would be host mutation, not confinement.
+			entries = append(entries, WindowsACLEntry{
+				Action:      WindowsACLDenyWrite,
+				Path:        path,
+				Capability:  capability.SID,
+				Anchor:      capability.Root,
+				Materialize: true,
+			})
+		}
 		for _, path := range capability.ProtectedWriteDenyPaths {
 			// ANCHORED ONLY WHERE THE ANCHOR IS TRUE. Most of these are derived
 			// from the root and sit under it, and holding those inside it is the
@@ -110,14 +142,67 @@ func BuildWindowsACLPlan(config WindowsSandboxCommandConfig) (WindowsACLPlan, er
 			})
 		}
 	}
+	// Credential stores (~/.ssh, tokens, ...) are denied best-effort: deny
+	// what exists, never plant what does not. Materializing an absent store
+	// during (possibly elevated) setup would create a host directory the user
+	// no longer owns, breaking their own tools — so unlike operator-named
+	// DenyRead, these entries skip missing targets instead of creating them.
+	// The write deny holds under both token modes; the read deny is enforced
+	// by the fully restricted token (DenyRead profiles) and inert under
+	// WRITE_RESTRICTED, where reads bypass the restricted-SID check (#612).
+	for _, path := range planWindowsCredentialDenyPaths(config.PermissionProfile.FileSystem.DenyReadIfExists) {
+		for _, sid := range readDenySIDs {
+			entries = append(entries,
+				WindowsACLEntry{Action: WindowsACLDenyWrite, Path: path, Capability: sid},
+				WindowsACLEntry{Action: WindowsACLDenyRead, Path: path, Capability: sid},
+			)
+		}
+	}
+	// Carveouts stay readable inside a denied credential root (QG plugin,
+	// specialist and command trees run through the sandbox). The allow sits on
+	// the child object itself, so it wins over the inherited parent deny. Like
+	// the denies above, carveouts name the resolved object: an unresolved
+	// spelling under a symlinked parent would make the apply refuse a
+	// reparse-point target, and the plan content then tracks existence — a
+	// carveout created later changes the hash and the on-demand apply picks it
+	// up, instead of the hash staying stable while coverage silently lags.
+	for _, path := range planWindowsCredentialDenyPaths(config.PermissionProfile.FileSystem.DenyReadCarveouts) {
+		for _, sid := range readDenySIDs {
+			entries = append(entries, WindowsACLEntry{
+				Action:     WindowsACLAllowRead,
+				Path:       path,
+				Capability: sid,
+			})
+		}
+	}
 
 	return WindowsACLPlan{Entries: dedupeWindowsACLEntries(entries)}, nil
+}
+
+// windowsSandboxOwnedMetadataName reports whether a protected metadata directory
+// is owned by the sandbox itself (.qg, .agents) rather than merely guarded.
+// Only owned names materialize their deny target: creating an arbitrary guarded
+// name (for example an empty .git) during setup would change tool behaviour on
+// the host, while an empty .qg or .agents directory is indistinguishable from
+// an absent one to every consumer.
+func windowsSandboxOwnedMetadataName(name string) bool {
+	for _, owned := range sandboxFullyProtectedMetadataNames {
+		if strings.EqualFold(strings.TrimSpace(name), owned) {
+			return true
+		}
+	}
+	return false
 }
 
 type windowsWriteRootCapability struct {
 	Root                    string
 	SID                     string
 	ProtectedWriteDenyPaths []string
+	// MaterializedWriteDenyPaths are denies derived from ProtectedMetadataNames
+	// (.qg, .agents). Unlike operator-named ReadOnlySubpaths (which keep
+	// ProtectedWriteDenyPaths), these materialize their target so the deny
+	// holds whether or not the directory existed before setup.
+	MaterializedWriteDenyPaths []string
 }
 
 func windowsWriteRootCapabilities(config WindowsSandboxCommandConfig) ([]windowsWriteRootCapability, error) {
@@ -131,21 +216,27 @@ func windowsWriteRootCapabilities(config WindowsSandboxCommandConfig) ([]windows
 		if err != nil {
 			return nil, err
 		}
-		protected := make([]string, 0, len(root.ProtectedMetadataNames)+len(root.ReadOnlySubpaths))
+		protected := make([]string, 0, len(root.ReadOnlySubpaths))
 		for _, subpath := range root.ReadOnlySubpaths {
 			if trimmed := strings.TrimSpace(subpath); trimmed != "" {
 				protected = append(protected, trimmed)
 			}
 		}
+		materialized := make([]string, 0, len(root.ProtectedMetadataNames))
 		for _, name := range root.ProtectedMetadataNames {
 			if trimmed := strings.TrimSpace(name); trimmed != "" {
-				protected = append(protected, filepath.Join(rootPath, trimmed))
+				if windowsSandboxOwnedMetadataName(trimmed) {
+					materialized = append(materialized, filepath.Join(rootPath, trimmed))
+				} else {
+					protected = append(protected, filepath.Join(rootPath, trimmed))
+				}
 			}
 		}
 		out = append(out, windowsWriteRootCapability{
-			Root:                    rootPath,
-			SID:                     sid,
-			ProtectedWriteDenyPaths: protected,
+			Root:                       rootPath,
+			SID:                        sid,
+			ProtectedWriteDenyPaths:    protected,
+			MaterializedWriteDenyPaths: materialized,
 		})
 	}
 	return out, nil
@@ -188,6 +279,39 @@ func windowsReadDenyCapabilitySIDs(config WindowsSandboxCommandConfig, writeSIDs
 	return []string{caps.ReadOnly}, nil
 }
 
+// planWindowsCredentialDenyPaths resolves best-effort credential deny paths to
+// the entries the Windows ACL plan can actually stamp.
+//
+// Only the resolved spelling is emitted: the profile path itself may be a
+// symlink, and the apply refuses reparse-point targets outright, so emitting
+// the link spelling would fail closed on every such host. Denying the resolved
+// object covers access through the link too, because the target's DACL governs
+// both. Missing paths are skipped (never materialized): the apply denies
+// whatever exists when it runs, so a store created later is picked up by the
+// next on-demand apply.
+func planWindowsCredentialDenyPaths(paths []string) []string {
+	out := make([]string, 0, len(paths))
+	seen := map[string]struct{}{}
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			continue
+		}
+		resolved = filepath.Clean(resolved)
+		key := windowsCapabilityPathKey(resolved)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, resolved)
+	}
+	return out
+}
+
 func planWindowsDenyReadPaths(paths []string) []string {
 	out := make([]string, 0, len(paths)*2)
 	seen := map[string]struct{}{}
@@ -214,7 +338,7 @@ func planWindowsDenyReadPaths(paths []string) []string {
 
 func dedupeWindowsACLEntries(entries []WindowsACLEntry) []WindowsACLEntry {
 	out := make([]WindowsACLEntry, 0, len(entries))
-	seen := map[string]struct{}{}
+	seen := map[string]int{}
 	for _, entry := range entries {
 		if entry.Action == "" || strings.TrimSpace(entry.Path) == "" || strings.TrimSpace(entry.Capability) == "" {
 			continue
@@ -224,10 +348,14 @@ func dedupeWindowsACLEntries(entries []WindowsACLEntry) []WindowsACLEntry {
 		// collapsing them could silently promote a deliberately non-inherited
 		// shared-path deny into an inheritable one (or vice versa).
 		key := string(entry.Action) + "\x00" + windowsCapabilityPathKey(entry.Path) + "\x00" + strings.ToLower(entry.Capability) + "\x00" + fmt.Sprintf("%t", entry.NoInherit)
-		if _, ok := seen[key]; ok {
+		if index, ok := seen[key]; ok {
+			// The same deny can reach the plan twice (operator-named and
+			// metadata-derived). Keep the stronger shape: a duplicate must
+			// never disarm materialization the metadata deny relies on.
+			out[index].Materialize = out[index].Materialize || entry.Materialize
 			continue
 		}
-		seen[key] = struct{}{}
+		seen[key] = len(out)
 		out = append(out, entry)
 	}
 	return out

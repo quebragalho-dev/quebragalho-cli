@@ -184,6 +184,53 @@ func TestCoordinatorCommitHandoffPublishesBothSides(t *testing.T) {
 	}
 }
 
+func TestCoordinatorSetStatusRejectsDirectHandedOff(t *testing.T) {
+	c := NewCoordinator()
+	if _, err := c.Register("pending-src", "a1", "team", "desc"); err != nil {
+		t.Fatalf("Register pending-src: %v", err)
+	}
+	if err := c.SetStatus("pending-src", StatusHandedOff); err == nil {
+		t.Fatal("SetStatus(StatusHandedOff) on pending task must fail; must go through BeginHandoff/CommitHandoff")
+	}
+	if task, _ := c.Get("pending-src"); task.Status != StatusPending {
+		t.Fatalf("pending-src status = %v, want pending", task.Status)
+	}
+
+	if _, err := c.Register("running-src", "a1", "team", "desc"); err != nil {
+		t.Fatalf("Register running-src: %v", err)
+	}
+	if err := c.SetStatus("running-src", StatusRunning); err != nil {
+		t.Fatalf("SetStatus running: %v", err)
+	}
+	if err := c.SetStatus("running-src", StatusHandedOff); err == nil {
+		t.Fatal("SetStatus(StatusHandedOff) on running task must fail; must go through BeginHandoff/CommitHandoff")
+	}
+	if task, _ := c.Get("running-src"); task.Status != StatusRunning {
+		t.Fatalf("running-src status = %v, want running", task.Status)
+	}
+
+	// Only BeginHandoff -> ReserveHandoffSuccessor -> CommitHandoff transitions to handed-off.
+	if _, err := c.BeginHandoff("running-src"); err != nil {
+		t.Fatalf("BeginHandoff: %v", err)
+	}
+	if err := c.SetStatus("running-src", StatusHandedOff); err == nil {
+		t.Fatal("SetStatus(StatusHandedOff) during active handoff claim must still fail; CommitHandoff required")
+	}
+	if err := c.ReserveHandoffSuccessor("running-src", "running-dst"); err != nil {
+		t.Fatalf("ReserveHandoffSuccessor: %v", err)
+	}
+	if _, err := c.CommitHandoff("running-src", "running-dst", "a2", "team", "cont"); err != nil {
+		t.Fatalf("CommitHandoff: %v", err)
+	}
+	if task, _ := c.Get("running-src"); task.Status != StatusHandedOff {
+		t.Fatalf("running-src status after CommitHandoff = %v, want handed-off", task.Status)
+	}
+	// Idempotent self-set on already handed-off task remains allowed, matching done/failed.
+	if err := c.SetStatus("running-src", StatusHandedOff); err != nil {
+		t.Fatalf("idempotent SetStatus(StatusHandedOff) on handed-off task failed: %v", err)
+	}
+}
+
 func TestCoordinatorColorStability(t *testing.T) {
 	c := NewCoordinator()
 	first := c.Color("a1")
