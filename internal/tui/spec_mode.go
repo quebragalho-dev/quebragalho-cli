@@ -65,7 +65,7 @@ func (m model) handleSpecCommand(task string) (tea.Model, tea.Cmd) {
 		}
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{
 			kind: actionAppendSystem,
-			text: fmt.Sprintf("Model %s does not support image input; ignoring %d image(s).", name, len(turnImages)),
+			text: fmt.Sprintf("O modelo %s não suporta imagens; %d imagem(ns) ignorada(s).", name, len(turnImages)),
 		})
 		turnImages = nil
 	}

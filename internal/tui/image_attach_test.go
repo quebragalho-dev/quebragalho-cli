@@ -118,7 +118,7 @@ func TestImageCommandNonVisionRefuses(t *testing.T) {
 		t.Fatalf("non-vision model must refuse: got %d pending images", len(next.pendingImages))
 	}
 	notice := lastTranscriptText(next)
-	if !strings.Contains(notice, "does not support image input") {
+	if !strings.Contains(notice, "não suporta") {
 		t.Fatalf("expected an inline refusal notice, got %q", notice)
 	}
 }
@@ -263,7 +263,7 @@ func TestSubmitDropsImagesWhenModelSwitchedToNonVision(t *testing.T) {
 	if len(next.pendingImages) != 0 || len(next.pendingImageLabels) != 0 {
 		t.Fatalf("submit must clear pending images, got %d/%d", len(next.pendingImages), len(next.pendingImageLabels))
 	}
-	if notice := lastTranscriptText(next); !strings.Contains(notice, "does not support image input") {
+	if notice := lastTranscriptText(next); !strings.Contains(notice, "não suporta") {
 		t.Fatalf("expected an inline drop notice, got %q", notice)
 	}
 
@@ -363,7 +363,7 @@ func TestImageCommandAttachesExtensionlessPDFByContent(t *testing.T) {
 	if !strings.Contains(next.pendingDocuments[0].text, "Extensionless PDF body text") {
 		t.Fatalf("document text %q should contain the body", next.pendingDocuments[0].text)
 	}
-	if notice := lastTranscriptText(next); strings.Contains(notice, "does not support image input") {
+	if notice := lastTranscriptText(next); strings.Contains(notice, "não suporta") {
 		t.Fatalf("a real PDF must not be refused at the vision gate, got %q", notice)
 	}
 }
@@ -570,5 +570,44 @@ func TestRetryResendsAttachments(t *testing.T) {
 	}
 	if !strings.Contains(last.Content, "describe both") {
 		t.Fatalf("retried prompt should include the remembered user text, got:\n%s", last.Content)
+	}
+}
+
+// Sem suporte a imagem, a recusa do clipboard sai em português e sem inglês:
+// o pedido do Gabriel vale para colar (Ctrl+V, botão direito, paste vazio).
+func TestClipboardImageRefusedInPortuguese(t *testing.T) {
+	m := newModel(context.Background(), Options{ModelName: "deepseek-v4-pro"})
+	updated := m.attachClipboardImage([]byte{0x89, 0x50, 0x4E, 0x47}, "image/png")
+	next := updated
+
+	if len(next.pendingImages) != 0 {
+		t.Fatalf("modelo sem visão não deve anexar: %d pendentes", len(next.pendingImages))
+	}
+	notice := lastTranscriptText(next)
+	if !strings.Contains(notice, "não suporta") {
+		t.Fatalf("recusa deveria ser em português, veio: %q", notice)
+	}
+	if strings.Contains(notice, "does not support") {
+		t.Fatalf("recusa ainda contém inglês: %q", notice)
+	}
+}
+
+// O mesmo vale para o arrastar/colar caminho: a recusa do /image sai em
+// português, nomeando que imagens (e PDFs com página) exigem visão.
+func TestImageCommandRefusedInPortuguese(t *testing.T) {
+	root := t.TempDir()
+	writeTestPNG(t, root, "photo.png")
+
+	m := newModel(context.Background(), Options{Cwd: root, ModelName: "totally-unknown-custom"})
+	m.input.SetValue("/image photo.png")
+	updated, _ := m.handleSubmit()
+	next := updated.(model)
+
+	notice := lastTranscriptText(next)
+	if !strings.Contains(notice, "não suporta") {
+		t.Fatalf("recusa deveria ser em português, veio: %q", notice)
+	}
+	if strings.Contains(notice, "does not support") {
+		t.Fatalf("recusa ainda contém inglês: %q", notice)
 	}
 }

@@ -17,7 +17,7 @@ func TestVisionDropWarning(t *testing.T) {
 	// warn immediately, naming the count.
 	withImg := model{pendingImages: make([]qgruntime.ImageBlock, 2)}
 	warn := withImg.visionDropWarning()
-	if !strings.Contains(warn, "will be dropped") || !strings.Contains(warn, "2 staged") {
+	if !strings.Contains(warn, "descartadas") || !strings.Contains(warn, "2 imagem(ns)") {
 		t.Fatalf("expected a drop warning naming the count, got %q", warn)
 	}
 }

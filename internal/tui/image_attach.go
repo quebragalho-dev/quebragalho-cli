@@ -157,14 +157,11 @@ func (m model) modelSupportsVisionTUI() bool {
 // sits in the shared system temp dir.
 func (m model) attachClipboardImage(data []byte, mediaType string) model {
 	if !m.modelSupportsVisionTUI() {
-		name := m.modelName
-		if name == "" {
-			name = "the active model"
-		}
-		return m.appendImageNotice("Model " + name + " does not support image input; clipboard image refused.")
+		name := displayValue(m.modelName, "o modelo atual")
+		return m.appendImageNotice("O modelo " + name + " não suporta imagens; imagem da área de transferência recusada.")
 	}
 	if len(data) > imageinput.MaxImageBytes {
-		return m.appendImageNotice("Clipboard image is larger than the 10 MiB limit.")
+		return m.appendImageNotice("A imagem da área de transferência passa do limite de 10 MiB.")
 	}
 	tempPath := ""
 	if p, err := saveClipboardTempFile(data, clipboardMediaTypeExt(mediaType)); err == nil {
@@ -279,11 +276,8 @@ func (m model) handleImageCommand(arg string) model {
 	}
 
 	if !m.modelSupportsVisionTUI() {
-		name := m.modelName
-		if name == "" {
-			name = "the active model"
-		}
-		return m.appendImageNotice("Model " + name + " does not support image input; attachment refused.")
+		name := displayValue(m.modelName, "o modelo atual")
+		return m.appendImageNotice("O modelo " + name + " não suporta imagens; anexo recusado.")
 	}
 
 	block, err := imageinput.LoadFile(trimmed, m.cwd)
@@ -437,8 +431,8 @@ func (m model) visionDropWarning() string {
 	if len(m.pendingImages) == 0 || m.modelSupportsVisionTUI() {
 		return ""
 	}
-	return fmt.Sprintf("⚠ %d staged image(s) will be dropped — %s has no vision support.",
-		len(m.pendingImages), displayValue(m.modelName, "the active model"))
+	return fmt.Sprintf("⚠ %d imagem(ns) na fila serão descartadas — %s não tem suporte a visão.",
+		len(m.pendingImages), displayValue(m.modelName, "o modelo atual"))
 }
 
 func renderAttachmentChips(imageLabels []string, docs []pendingDocument) string {
