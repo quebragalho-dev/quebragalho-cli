@@ -195,6 +195,11 @@ type unixInstallFixture struct {
 
 func newUnixInstallFixture(t *testing.T) unixInstallFixture {
 	t.Helper()
+	return newUnixInstallFixtureVersion(t, "0.1.0")
+}
+
+func newUnixInstallFixtureVersion(t *testing.T, version string) unixInstallFixture {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix installer smoke does not run on Windows")
 	}
@@ -203,7 +208,7 @@ func newUnixInstallFixture(t *testing.T) unixInstallFixture {
 
 	releasePlatform := unixReleasePlatform(t)
 	releaseArch := unixReleaseArch(t)
-	packageName := fmt.Sprintf("qg-v0.1.0-%s-%s", releasePlatform, releaseArch)
+	packageName := fmt.Sprintf("qg-v%s-%s-%s", version, releasePlatform, releaseArch)
 	archiveName := packageName + ".tar.gz"
 	checksumName := archiveName + ".sha256"
 	bundleName := archiveName + ".sigstore.json"

@@ -1,6 +1,7 @@
 package installtest
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -22,6 +23,16 @@ func TestUnixInstallerScriptMentionsSigstoreVerification(t *testing.T) {
 		"assinatura Sigstore inválida",
 		"cosign ausente, assinatura Sigstore não verificada",
 		"e rode: cosign verify-blob",
+	})
+}
+
+func TestPowerShellInstallerGatesSigstoreOnReleaseVersion(t *testing.T) {
+	script := readRepoText(t, "scripts/install.ps1")
+	containsAll(t, script, []string{
+		`[version]"0.0.22"`,
+		"$bundlePresent",
+		"nao publica o bundle Sigstore",
+		"nao tem assinatura Sigstore",
 	})
 }
 
@@ -84,6 +95,72 @@ func TestUnixInstallerRefusesInvalidSigstoreSignature(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "assinatura Sigstore inválida") {
 		t.Fatalf("stderr missing refusal message:\n%s", stderr)
+	}
+}
+
+// O comando manual impresso tem os argumentos na ordem certa: copiável.
+func TestUnixInstallerManualVerifyCommandIsCopyPasteable(t *testing.T) {
+	if _, err := exec.LookPath("cosign"); err == nil {
+		t.Skip("cosign is on PATH, cannot test the fallback hint")
+	}
+	fixture := newUnixInstallFixture(t)
+
+	_, stderr, err := runUnixInstaller(t, fixture)
+	if err != nil {
+		t.Fatalf("install.sh without cosign failed: %v\nstderr:\n%s", err, stderr)
+	}
+	pairing := "--bundle " + fixture.bundleName + " --certificate-identity-regexp '"
+	if !strings.Contains(stderr, pairing) {
+		t.Fatalf("manual verify command pairs bundle and identity wrongly, want %q in:\n%s", pairing, stderr)
+	}
+	if !strings.Contains(stderr, "@refs/tags/v0.1.0") {
+		t.Fatalf("manual verify command should pin the installed tag, got:\n%s", stderr)
+	}
+}
+
+func removeFixtureBundle(t *testing.T, fixture unixInstallFixture) {
+	t.Helper()
+	if err := os.Remove(fixture.bundlePath); err != nil {
+		t.Fatalf("Remove bundle: %v", err)
+	}
+}
+
+// Release antiga (anterior a 0.0.22) sem bundle: com cosign no PATH, avisa
+// numa linha e segue só com o SHA-256, sem chamar o cosign.
+func TestUnixInstallerWarnsAndContinuesForUnsignedOldRelease(t *testing.T) {
+	fixture := newUnixInstallFixtureVersion(t, "0.0.21")
+	removeFixtureBundle(t, fixture)
+	cosignLog := filepath.Join(t.TempDir(), "cosign-args")
+	writeFakeCosign(t, fixture.mockBin, cosignLog, 0)
+
+	stdout, stderr, err := runUnixInstallerWithEnv(t, fixture, "", "0.0.21")
+	if err != nil {
+		t.Fatalf("install.sh 0.0.21 without bundle failed: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "v0.0.21 não tem assinatura Sigstore") {
+		t.Fatalf("stderr missing old-release warning:\n%s", stderr)
+	}
+	if _, err := os.Stat(cosignLog); !os.IsNotExist(err) {
+		t.Fatal("cosign must not run when the old release has no bundle")
+	}
+}
+
+// Release nova sem bundle: com cosign no PATH, recusa em vez de instalar.
+func TestUnixInstallerRefusesNewReleaseWithoutBundle(t *testing.T) {
+	fixture := newUnixInstallFixture(t)
+	removeFixtureBundle(t, fixture)
+	cosignLog := filepath.Join(t.TempDir(), "cosign-args")
+	writeFakeCosign(t, fixture.mockBin, cosignLog, 0)
+
+	_, stderr, err := runUnixInstaller(t, fixture)
+	if err == nil {
+		t.Fatal("install.sh succeeded without the required bundle")
+	}
+	if !strings.Contains(stderr, "não publica o bundle Sigstore") {
+		t.Fatalf("stderr missing missing-bundle refusal:\n%s", stderr)
+	}
+	if _, err := os.Stat(cosignLog); !os.IsNotExist(err) {
+		t.Fatal("cosign must not run without a bundle to verify")
 	}
 }
 

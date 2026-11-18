@@ -309,6 +309,14 @@ $checksumPath = Join-Path $tempDir $checksumName
 $bundlePath = Join-Path $tempDir $bundleName
 $repoEscaped = $Repository -replace '\.', '\.'
 $sigstoreIdentityRegexp = '^https://github\.com/' + $repoEscaped + '/\.github/workflows/release-artifacts\.yml@refs/tags/' + $tag + '$'
+# A assinatura Sigstore existe a partir da 0.0.22: releases anteriores nao
+# publicam bundle e seguem so com SHA-256. Versao ilegivel exige bundle.
+$sigstoreRequired = $true
+try {
+  $sigstoreRequired = ([version]$releaseVersion -ge [version]"0.0.22")
+} catch {
+  $sigstoreRequired = $true
+}
 
 try {
   New-Item -ItemType Directory -Path $tempDir, $extractDir -Force | Out-Null
@@ -319,15 +327,23 @@ try {
 
   if (Get-Command cosign -ErrorAction SilentlyContinue) {
     Write-Host "Baixando assinatura Sigstore..."
+    $bundlePresent = $true
     try {
       Invoke-QGSecureWebRequest -Uri "$releaseUrl/$bundleName" -OutFile $bundlePath -TimeoutSec 300 | Out-Null
     } catch {
+      $bundlePresent = $false
+    }
+    if ((-not $bundlePresent) -and $sigstoreRequired) {
       throw "Esta release nao publica o bundle Sigstore ($bundleName); a assinatura existe a partir da 0.0.22"
     }
-    Write-Host "Verificando assinatura Sigstore..."
-    & cosign verify-blob --bundle $bundlePath --certificate-identity-regexp $sigstoreIdentityRegexp --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' $archivePath
-    if ($LASTEXITCODE -ne 0) {
-      throw "Assinatura Sigstore invalida para $archiveName; a instalacao foi recusada"
+    if ($bundlePresent) {
+      Write-Host "Verificando assinatura Sigstore..."
+      & cosign verify-blob --bundle $bundlePath --certificate-identity-regexp $sigstoreIdentityRegexp --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' $archivePath
+      if ($LASTEXITCODE -ne 0) {
+        throw "Assinatura Sigstore invalida para $archiveName; a instalacao foi recusada"
+      }
+    } else {
+      Write-Host "aviso: $tag nao tem assinatura Sigstore (so a partir da 0.0.22); verificado so o SHA-256."
     }
   } else {
     Write-Host "cosign ausente, assinatura Sigstore nao verificada (so SHA-256); baixe $releaseUrl/$bundleName e rode: cosign verify-blob --bundle $bundleName --certificate-identity-regexp '$sigstoreIdentityRegexp' --certificate-oidc-issuer https://token.actions.githubusercontent.com $archiveName"

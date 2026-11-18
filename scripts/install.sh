@@ -399,6 +399,33 @@ verify_sigstore() {
     "$archive_path"
 }
 
+# A assinatura Sigstore existe a partir da 0.0.22: releases anteriores não
+# publicam bundle e seguem só com SHA-256. Versão ilegível exige bundle
+# (falha fechada).
+requires_sigstore_bundle() {
+  local ver="$1" major minor patch rest
+  major="${ver%%.*}"
+  rest="${ver#*.}"
+  minor="${rest%%.*}"
+  patch="${rest#*.}"
+  major="${major%%[!0-9]*}"
+  minor="${minor%%[!0-9]*}"
+  patch="${patch%%[!0-9]*}"
+  if [ -z "$major$minor$patch" ]; then
+    return 0
+  fi
+  major="${major:-0}"
+  minor="${minor:-0}"
+  patch="${patch:-0}"
+  if [ "$major" -gt 0 ]; then
+    return 0
+  fi
+  if [ "$minor" -gt 0 ]; then
+    return 0
+  fi
+  [ "$patch" -ge 22 ]
+}
+
 find_extracted_entry() {
   local root="$1"
   local name="$2"
@@ -570,11 +597,16 @@ download "${release_url}/${checksum_name}" "$checksum_path"
 
 if command -v cosign >/dev/null 2>&1; then
   printf 'qg install: Baixando assinatura Sigstore...\n' >&2
-  download "${release_url}/${bundle_name}" "$bundle_path" || fail "esta release não publica o bundle Sigstore (${bundle_name}); a assinatura existe a partir da 0.0.22"
-  printf 'qg install: Verificando assinatura Sigstore...\n' >&2
-  verify_sigstore "$archive_path" "$bundle_path" "$tag" || fail "assinatura Sigstore inválida para ${archive_name}; a instalação foi recusada"
+  if download "${release_url}/${bundle_name}" "$bundle_path"; then
+    printf 'qg install: Verificando assinatura Sigstore...\n' >&2
+    verify_sigstore "$archive_path" "$bundle_path" "$tag" || fail "assinatura Sigstore inválida para ${archive_name}; a instalação foi recusada"
+  elif requires_sigstore_bundle "$version"; then
+    fail "esta release não publica o bundle Sigstore (${bundle_name}); a assinatura existe a partir da 0.0.22"
+  else
+    printf 'qg install: aviso: %s não tem assinatura Sigstore (só a partir da 0.0.22); verificado só o SHA-256.\n' "$tag" >&2
+  fi
 else
-  printf 'qg install: cosign ausente, assinatura Sigstore não verificada (só SHA-256); baixe %s e rode: cosign verify-blob --bundle %s --certificate-identity-regexp %s --certificate-oidc-issuer https://token.actions.githubusercontent.com %s\n' "${release_url}/${bundle_name}" "'${identity_regexp}'" "$bundle_name" "$archive_name" >&2
+  printf 'qg install: cosign ausente, assinatura Sigstore não verificada (só SHA-256); baixe %s e rode: cosign verify-blob --bundle %s --certificate-identity-regexp %s --certificate-oidc-issuer https://token.actions.githubusercontent.com %s\n' "${release_url}/${bundle_name}" "$bundle_name" "'${identity_regexp}'" "$archive_name" >&2
 fi
 
 printf 'qg install: Verificando SHA-256...\n' >&2
