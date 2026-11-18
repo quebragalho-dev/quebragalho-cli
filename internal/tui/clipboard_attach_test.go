@@ -62,10 +62,15 @@ func TestCtrlVPastesClipboardFilesLikeDragDrop(t *testing.T) {
 	}
 }
 
-// Arquivo de vídeo copiado não anexa (outro engenheiro); o usuário recebe um
-// aviso em português em vez de silêncio.
-func TestCtrlVPastedVideoWarnsInPortuguese(t *testing.T) {
+// Arquivo de vídeo copiado no Finder/Explorer anexa quadros, igual ao
+// arrastar: precisa do ffmpeg no PATH (falso aqui).
+func TestCtrlVPastesVideoAsFrames(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("FAKE_FFMPEG_LOG", filepath.Join(dir, "argv.log"))
+	writeFakeFFmpegTUI(t, dir, "ffmpeg")
+	writeFakeFFmpegTUI(t, dir, "ffprobe")
 	clip := filepath.Join(dir, "clip.mp4")
 	if err := os.WriteFile(clip, []byte("fake-video"), 0o644); err != nil {
 		t.Fatal(err)
@@ -78,12 +83,30 @@ func TestCtrlVPastedVideoWarnsInPortuguese(t *testing.T) {
 	updated2, _ := updated.(model).Update(msg.(clipboardImageMsg))
 	got := updated2.(model)
 
-	if len(got.pendingImages) != 0 {
-		t.Fatal("vídeo não deveria anexar")
+	if len(got.pendingImages) == 0 {
+		t.Fatalf("vídeo colado deveria anexar quadros, aviso: %q", lastTranscriptText(got))
 	}
-	notice := lastTranscriptText(got)
-	if !strings.Contains(notice, "deo") {
-		t.Fatalf("sem aviso sobre vídeo em português, veio: %q", notice)
+	if len(got.pendingVideoInfos) != 1 {
+		t.Fatal("vídeo colado deveria gerar linha de contexto")
+	}
+}
+
+// GIF animado copiado anexa quadros sem precisar de ffmpeg.
+func TestCtrlVPastesAnimatedGIFAsFrames(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	clip := writeTinyGIF(t, dir, "animado.gif", 4)
+	stubClipboardContent(t, clipboardStub{files: []string{clip}})
+
+	m := newModel(context.Background(), Options{Cwd: dir, ModelName: "muse-spark-1.3-contributor"})
+	updated, cmd := m.Update(testKeyCtrl('v'))
+	msg := execCmd(cmd)
+	updated2, _ := updated.(model).Update(msg.(clipboardImageMsg))
+	got := updated2.(model)
+
+	if len(got.pendingImages) == 0 {
+		t.Fatalf("GIF animado colado deveria anexar quadros, aviso: %q", lastTranscriptText(got))
 	}
 }
 

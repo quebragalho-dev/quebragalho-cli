@@ -121,8 +121,9 @@ func TestVideoAttachRefusesWithoutVision(t *testing.T) {
 	if len(next.pendingImages) != 0 {
 		t.Fatal("sem visão, nada deveria anexar")
 	}
-	if notice := lastTranscriptText(next); !strings.Contains(notice, "não aceita imagens") {
-		t.Fatalf("aviso deveria ser em português, foi: %q", notice)
+	want := "O modelo totally-unknown-custom não suporta imagens; anexo de vídeo recusado."
+	if notice := lastTranscriptText(next); notice != want {
+		t.Fatalf("aviso = %q, want %q", notice, want)
 	}
 }
 

@@ -222,10 +222,16 @@ func (m *model) discardPendingImageTemps() {
 // in Portuguese.
 func (m model) attachClipboardFiles(paths []string) model {
 	attached := 0
-	videos := 0
+	videoFailed := false
 	for _, p := range paths {
-		if media.IsVideoPath(p) {
-			videos++
+		if media.IsVideoPath(p) || media.IsAnimatedGIFFile(p, m.cwd) {
+			before := len(m.pendingImages)
+			m = m.handleVideoAttach(p)
+			if len(m.pendingImages) > before {
+				attached++
+			} else {
+				videoFailed = true
+			}
 			continue
 		}
 		before := len(m.pendingImages) + len(m.pendingDocuments)
@@ -238,14 +244,12 @@ func (m model) attachClipboardFiles(paths []string) model {
 		}
 	}
 	switch {
-	case attached > 0 && videos > 0:
-		return m.appendImageNotice("Vídeo ainda não é suportado como anexo — as imagens foram anexadas e o(s) vídeo(s) ignorado(s).")
 	case attached > 0:
-		return m // chips ([Image #N]/[Doc #N]) confirmam, como no arrastar
-	case videos > 0:
-		return m.appendImageNotice("Vídeo ainda não é suportado como anexo no qg — copie uma imagem ou PDF.")
+		return m
+	case videoFailed:
+		return m
 	default:
-		return m.appendImageNotice("Nenhum arquivo copiado pôde ser anexado — o qg anexa imagens e PDFs.")
+		return m.appendImageNotice("Nenhum arquivo copiado pôde ser anexado — o qg anexa imagens, PDFs e vídeos.")
 	}
 }
 
@@ -352,8 +356,8 @@ type pendingVideoInfo struct {
 // notice in Portuguese and attaches nothing.
 func (m model) handleVideoAttach(path string) model {
 	if !m.modelSupportsVisionTUI() {
-		name := displayValue(m.modelName, "ativo")
-		return m.appendImageNotice("Modelo " + name + " não aceita imagens; anexo de vídeo recusado.")
+		name := displayValue(m.modelName, "o modelo atual")
+		return m.appendImageNotice("O modelo " + name + " não suporta imagens; anexo de vídeo recusado.")
 	}
 	label := filepath.Base(path)
 	var frames []media.Frame
