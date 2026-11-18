@@ -194,7 +194,7 @@ func (store *Store) TruncateEvents(sessionID string, keepThroughSequence int) er
 		return err
 	}
 	defer unlock()
-	return store.truncateEventsLocked(sessionID, keepThroughSequence)
+	return store.truncateEventsLocked(sessionID, keepThroughSequence, false)
 }
 
 // truncateHead is the single head derived from the kept log: the last kept
@@ -227,10 +227,29 @@ func deriveTruncateHead(events []Event, keepThroughSequence int) truncateHead {
 
 // truncateEventsLocked is the body of TruncateEvents WITHOUT acquiring the
 // session lock. The caller MUST already hold store.lockSession(sessionID).
-func (store *Store) truncateEventsLocked(sessionID string, keepThroughSequence int) error {
+// When preserveSequenceFloor is true (ApplyRewind), EventCount never drops
+// below the highest pre-truncate Sequence so the trailing rewind marker and
+// all subsequent events advance monotonically without reusing truncated IDs.
+func (store *Store) truncateEventsLocked(sessionID string, keepThroughSequence int, preserveSequenceFloor bool) error {
 	events, err := store.ReadEvents(sessionID)
 	if err != nil {
 		return err
+	}
+	session, err := store.readMetadata(sessionID)
+	if err != nil {
+		return err
+	}
+	highWater := session.EventCount
+	for _, ev := range events {
+		if ev.Sequence > highWater {
+			highWater = ev.Sequence
+		}
+	}
+	if preserveSequenceFloor && highWater > session.EventCount {
+		session.EventCount = highWater
+		if err := store.writeMetadata(session); err != nil {
+			return err
+		}
 	}
 	var kept [][]byte
 	head := deriveTruncateHead(events, keepThroughSequence)
@@ -252,11 +271,10 @@ func (store *Store) truncateEventsLocked(sessionID string, keepThroughSequence i
 	if err := store.writeFileAtomicSync(path, encoded, 0o600); err != nil {
 		return fmt.Errorf("write truncated events: %w", err)
 	}
-	session, err := store.readMetadata(sessionID)
-	if err != nil {
-		return err
-	}
 	session.EventCount = head.eventCount
+	if preserveSequenceFloor && highWater > session.EventCount {
+		session.EventCount = highWater
+	}
 	session.LastEventType = head.lastEventType
 	session.UpdatedAt = store.timestamp()
 	return store.writeMetadata(session)
@@ -264,7 +282,8 @@ func (store *Store) truncateEventsLocked(sessionID string, keepThroughSequence i
 
 // ApplyRewind performs a full safe rewind: restore workspace files to targetSeq,
 // truncate the event log, prune now-orphaned blobs, and append an EventSessionRewind
-// marker. Returns the restore report.
+// marker whose Sequence advances monotonically past any truncated events so
+// deterministic event IDs (sess:seq) are never reused. Returns the restore report.
 func (store *Store) ApplyRewind(sessionID, workspaceRoot string, targetSeq int) (RestoreReport, error) {
 	if !ValidSessionID(sessionID) {
 		return RestoreReport{TargetSequence: targetSeq}, fmt.Errorf("invalid qg session id %q", sessionID)
@@ -283,7 +302,7 @@ func (store *Store) ApplyRewind(sessionID, workspaceRoot string, targetSeq int) 
 	if err != nil {
 		return report, err
 	}
-	if err := store.truncateEventsLocked(sessionID, targetSeq); err != nil {
+	if err := store.truncateEventsLocked(sessionID, targetSeq, true); err != nil {
 		return report, err
 	}
 	_, _ = store.pruneOrphanBlobsLocked(sessionID)
