@@ -336,7 +336,11 @@ func windowsRestrictedTokenCommandPlan(execRequest SandboxExecutionRequest, poli
 	if err != nil {
 		return CommandPlan{}, err
 	}
-	childEnv := sandboxEnvironmentForCommandWithSensitiveEnv(spec.Env, policy, BackendWindowsRestrictedToken, execRequest.WorkspaceRoot, spec.sensitiveEnvKeys)
+	// Servidores MCP recebem variáveis configuradas de forma explícita na config
+	// do projeto confiável (por ex. ACCEPT_TOKEN já expandido de ${VAR}), então
+	// seguem o mesmo caminho do Linux/macOS: sem a heurística de credenciais.
+	// Comandos do modelo mantêm o bloqueio ligado (decisão de produto).
+	childEnv := sandboxEnvironmentForCommandWithScrubMode(spec.Env, policy, BackendWindowsRestrictedToken, execRequest.WorkspaceRoot, !spec.skipHeuristicEnvScrub, spec.sensitiveEnvKeys)
 	childEnv = sandboxRuntimeEnvironment(childEnv, execRequest.PermissionProfile.Runtime)
 	// The unelevated enforcement tier maps to the runner's unelevated level: same
 	// restricted token, but the runner applies the workspace ACL plan itself instead
