@@ -217,14 +217,14 @@ func (m *model) discardPendingImageTemps() {
 // attachClipboardFiles attaches files copied in the OS clipboard (a
 // Finder/Explorer/file-manager copy) the same way a drag-drop does: images
 // and PDFs stage as attachments with the preview chips that already exist.
-// Video files are classified at the imageinput.VideoExtensions extension
-// point and refused with a notice (another engineer owns video attachments);
-// anything else is ignored. All user-facing text is in Portuguese.
+// Video files are classified by media.IsVideoPath (single detector) and
+// refused with a notice; anything else is ignored. All user-facing text is
+// in Portuguese.
 func (m model) attachClipboardFiles(paths []string) model {
 	attached := 0
 	videos := 0
 	for _, p := range paths {
-		if imageinput.IsVideoPath(p) {
+		if media.IsVideoPath(p) {
 			videos++
 			continue
 		}
@@ -378,8 +378,7 @@ func (m model) handleVideoAttach(path string) model {
 		frames, duration = extracted, extractedDuration
 	}
 	for _, frame := range frames {
-		m.pendingImages = append(m.pendingImages, qgruntime.ImageBlock{MediaType: "image/jpeg", Data: frame.Data})
-		m.pendingImageLabels = append(m.pendingImageLabels, label)
+		m.appendPendingImage(qgruntime.ImageBlock{MediaType: "image/jpeg", Data: frame.Data}, label, "")
 	}
 	m.pendingVideoInfos = append(m.pendingVideoInfos, pendingVideoInfo{
 		label:  label,
@@ -456,6 +455,9 @@ func (m model) removeLastAttachment() (model, bool) {
 			m.pendingImageLabels = m.pendingImageLabels[:len(m.pendingImageLabels)-1]
 			if len(m.pendingImages) > 0 {
 				m.pendingImages = m.pendingImages[:len(m.pendingImages)-1]
+			}
+			if len(m.pendingImageTemps) > 0 {
+				m.pendingImageTemps = m.pendingImageTemps[:len(m.pendingImageTemps)-1]
 			}
 			removed++
 		}

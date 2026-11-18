@@ -209,6 +209,33 @@ func TestConsumePendingVideosPreamble(t *testing.T) {
 	}
 }
 
+// Quadros de vídeo entram pelo mesmo caminho das imagens: temps em lockstep
+// ("" porque o quadro vem de arquivo real, não de temporário).
+func TestVideoAttachKeepsTempsInLockstep(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", root)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("FAKE_FFMPEG_LOG", filepath.Join(root, "argv.log"))
+	writeFakeFFmpegTUI(t, root, "ffmpeg")
+	writeFakeFFmpegTUI(t, root, "ffprobe")
+	video := filepath.Join(root, "filme.mp4")
+	if err := os.WriteFile(video, []byte("fake-video-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	next := videoAttachModel(t, root).handleImageCommand(video)
+	if len(next.pendingImages) == 0 {
+		t.Fatalf("setup: nada anexado (%q)", lastTranscriptText(next))
+	}
+	if len(next.pendingImageTemps) != len(next.pendingImages) {
+		t.Fatalf("temps fora de lockstep: %d temps para %d imagens", len(next.pendingImageTemps), len(next.pendingImages))
+	}
+	for _, temp := range next.pendingImageTemps {
+		if temp != "" {
+			t.Fatalf("quadro de vídeo não tem temporário próprio, foi %q", temp)
+		}
+	}
+}
+
 // Remover anexo tira o vídeo inteiro (todos os quadros) de uma vez.
 func TestRemoveLastAttachmentDropsWholeVideo(t *testing.T) {
 	root := t.TempDir()
@@ -230,6 +257,10 @@ func TestRemoveLastAttachmentDropsWholeVideo(t *testing.T) {
 	removed, ok := staged.removeLastAttachment()
 	if !ok {
 		t.Fatal("removeLastAttachment deveria remover o vídeo")
+	}
+	if len(removed.pendingImageTemps) != len(removed.pendingImages) {
+		t.Fatalf("temps fora de lockstep após remover vídeo: %d temps, %d imagens",
+			len(removed.pendingImageTemps), len(removed.pendingImages))
 	}
 	if len(removed.pendingImages) != 0 || len(removed.pendingVideoInfos) != 0 {
 		t.Fatalf("vídeo deveria sair inteiro: %d imagens, %d infos",

@@ -33,6 +33,21 @@ func TestFFmpegAssetForKnownPlatforms(t *testing.T) {
 	}
 }
 
+// O detector único de vídeo: os 5 contêineres suportados (case-insensitive);
+// .avi e o resto não são vídeo (caem no caminho de imagem, que recusa).
+func TestIsVideoPathMatchesSupportedContainers(t *testing.T) {
+	for _, path := range []string{"a.mov", "A.MP4", "a.webm", "a.mkv", "a.m4v"} {
+		if !IsVideoPath(path) {
+			t.Fatalf("IsVideoPath(%q) = false, want true", path)
+		}
+	}
+	for _, path := range []string{"a.avi", "foto.png", "doc.pdf", "nota.txt"} {
+		if IsVideoPath(path) {
+			t.Fatalf("IsVideoPath(%q) = true, want false", path)
+		}
+	}
+}
+
 func TestFFmpegAssetForDarwinIsSystemOnly(t *testing.T) {
 	for _, arch := range []string{"amd64", "arm64"} {
 		if _, ok := FFmpegAssetFor("darwin", arch); ok {
