@@ -188,7 +188,7 @@ const voiceHoldRepeatGap = 500 * time.Millisecond
 
 // voiceHoldRapidGap is the max pause that still counts as auto-repeat: a
 // press this close to the previous one did not come from typing.
-const voiceHoldRapidGap = 120 * time.Millisecond
+const voiceHoldRapidGap = 300 * time.Millisecond
 
 // voiceHoldPasteGuard is the minimum age of a run before a rapid press counts
 // as auto-repeat; it protects pasted spaces on terminals without bracketed paste.
