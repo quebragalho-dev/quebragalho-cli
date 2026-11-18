@@ -10,11 +10,17 @@ import (
 
 // BrowserOptionsFromConfig builds BrowserOptions from resolved LocalControlConfig.
 func BrowserOptionsFromConfig(cfg config.LocalControlConfig) BrowserOptions {
-	return BrowserOptions{
+	options := BrowserOptions{
 		Enabled:    cfg.BrowserEnabled(),
 		Driver:     cfg.Browser.Driver,
 		HelperPath: cfg.Browser.HelperPath,
 	}
+	if driver := strings.TrimSpace(cfg.Browser.Driver); driver == "" || driver == DefaultBrowserDriver {
+		options.Ensure = func(ctx context.Context) (string, error) {
+			return EnsureAgentBrowser(ctx, AgentBrowserInstallOptions{})
+		}
+	}
+	return options
 }
 
 // DesktopOptionsFromConfig builds DesktopOptions from resolved LocalControlConfig

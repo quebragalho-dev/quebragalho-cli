@@ -115,6 +115,23 @@ func TestRegisterLocalControlToolsAppliesDefaults(t *testing.T) {
 	}
 }
 
+func TestLocalBrowserOptionsInstallAgentBrowserOnlyForDefaultDriver(t *testing.T) {
+	for _, tc := range []struct {
+		driver     string
+		wantEnsure bool
+	}{
+		{driver: "", wantEnsure: true},
+		{driver: "agent-browser", wantEnsure: true},
+		{driver: "custom-driver", wantEnsure: false},
+	} {
+		var cfg config.LocalControlConfig
+		cfg.Browser.Driver = tc.driver
+		if got := localBrowserOptionsFromConfig(cfg).Ensure != nil; got != tc.wantEnsure {
+			t.Fatalf("driver %q: Ensure set = %v, want %v", tc.driver, got, tc.wantEnsure)
+		}
+	}
+}
+
 func TestLocalDesktopOptionsInstallAgentDesktopOnlyForDefaultDriver(t *testing.T) {
 	for _, tc := range []struct {
 		driver     string

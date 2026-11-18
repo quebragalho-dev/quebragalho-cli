@@ -34,9 +34,9 @@ const (
 	defaultAgentDesktopMaxExtractedBytes = 256 << 20 // 256 MiB (conteúdo extraído)
 	defaultAgentDesktopTimeout           = 2 * time.Minute
 
-	agentDesktopLockFileName     = ".agent-desktop.lock"
-	agentDesktopLockPollInterval = 20 * time.Millisecond
-	agentDesktopInstalledMarker  = ".qg-complete"
+	agentDesktopLockFileName = ".agent-desktop.lock"
+	toolInstallLockPoll      = 20 * time.Millisecond
+	toolInstalledMarker      = ".qg-complete"
 )
 
 // AgentDesktopAsset descreve o pacote oficial do agent-desktop para um par GOOS/GOARCH.
@@ -78,11 +78,15 @@ func AgentDesktopAssetFor(goos, goarch string) (AgentDesktopAsset, bool) {
 // DefaultAgentDesktopRoot devolve a pasta padrão do QG para o agent-desktop baixado,
 // na mesma raiz de configuração usada pelo motor de ditado (<config do qg>/tools/agent-desktop).
 func DefaultAgentDesktopRoot() (string, error) {
+	return defaultQGToolRoot("agent-desktop")
+}
+
+func defaultQGToolRoot(toolDir string) (string, error) {
 	userConfigDir, err := config.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("resolver pasta de configuração do QG: %w", err)
 	}
-	return filepath.Join(userConfigDir, "qg", "tools", "agent-desktop"), nil
+	return filepath.Join(userConfigDir, "qg", "tools", toolDir), nil
 }
 
 // EnsureAgentDesktop garante que o agent-desktop na versão fixada esteja instalado
@@ -115,12 +119,12 @@ func EnsureAgentDesktop(ctx context.Context, opts AgentDesktopInstallOptions) (s
 
 	installDir := filepath.Join(root, fmt.Sprintf("%s-%s-%s", AgentDesktopVersion, goos, goarch))
 	execPath := filepath.Join(installDir, spec.ExecutableName)
-	if isAgentDesktopInstalled(installDir, goos, spec) {
+	if isToolInstalled(installDir, goos, spec.ExecutableName, spec.CompanionBinary) {
 		return execPath, nil
 	}
 
 	downloadURL := strings.TrimRight(cmp.Or(strings.TrimSpace(opts.BaseURL), defaultAgentDesktopBaseURL), "/") + "/" + spec.AssetName
-	if err := requireSecureAgentDesktopURL(downloadURL); err != nil {
+	if err := requireSecureReleaseURL(downloadURL, "agent-desktop"); err != nil {
 		return "", err
 	}
 
@@ -134,7 +138,7 @@ func EnsureAgentDesktop(ctx context.Context, opts AgentDesktopInstallOptions) (s
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return "", fmt.Errorf("criar pasta de instalação do agent-desktop: %w", err)
 	}
-	releaseLock, err := acquireAgentDesktopLock(dlCtx, filepath.Join(root, agentDesktopLockFileName))
+	releaseLock, err := acquireToolInstallLock(dlCtx, filepath.Join(root, agentDesktopLockFileName), "agent-desktop")
 	if err != nil {
 		return "", err
 	}
@@ -150,7 +154,7 @@ func EnsureAgentDesktop(ctx context.Context, opts AgentDesktopInstallOptions) (s
 }
 
 func installAgentDesktopLocked(ctx context.Context, opts AgentDesktopInstallOptions, root, installDir, goos, downloadURL string, spec AgentDesktopAsset) error {
-	if isAgentDesktopInstalled(installDir, goos, spec) {
+	if isToolInstalled(installDir, goos, spec.ExecutableName, spec.CompanionBinary) {
 		return nil
 	}
 	maxBytes := opts.maxBytes
@@ -158,7 +162,7 @@ func installAgentDesktopLocked(ctx context.Context, opts AgentDesktopInstallOpti
 		maxBytes = defaultAgentDesktopMaxBytes
 	}
 	expectedSHA := cmp.Or(strings.TrimSpace(opts.expectedSHA256), spec.SHA256)
-	archiveBytes, err := fetchAndVerifyAgentDesktop(ctx, opts.HTTPClient, downloadURL, spec.AssetName, expectedSHA, maxBytes)
+	archiveBytes, err := fetchAndVerifyReleaseAsset(ctx, opts.HTTPClient, downloadURL, spec.AssetName, expectedSHA, "agent-desktop", maxBytes)
 	if err != nil {
 		return err
 	}
@@ -177,33 +181,33 @@ func installAgentDesktopLocked(ctx context.Context, opts AgentDesktopInstallOpti
 	if err := extractAgentDesktopTarGz(bytes.NewReader(archiveBytes), stageDir, spec); err != nil {
 		return err
 	}
-	if err := verifyAgentDesktopTree(stageDir, goos, spec); err != nil {
+	if err := verifyInstalledBinaries(stageDir, goos, spec.ExecutableName, spec.CompanionBinary); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(stageDir, agentDesktopInstalledMarker), []byte(AgentDesktopVersion+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(stageDir, toolInstalledMarker), []byte(AgentDesktopVersion+"\n"), 0o644); err != nil {
 		return fmt.Errorf("gravar marcador de instalação: %w", err)
 	}
-	if err := publishAgentDesktopDir(stageDir, installDir); err != nil {
+	if err := publishInstalledDir(stageDir, installDir); err != nil {
 		return err
 	}
 	committed = true
 	return nil
 }
 
-func isAgentDesktopInstalled(installDir, goos string, spec AgentDesktopAsset) bool {
-	info, err := os.Stat(filepath.Join(installDir, agentDesktopInstalledMarker))
-	return err == nil && info.Mode().IsRegular() && verifyAgentDesktopTree(installDir, goos, spec) == nil
+func isToolInstalled(installDir, goos string, binaries ...string) bool {
+	info, err := os.Stat(filepath.Join(installDir, toolInstalledMarker))
+	return err == nil && info.Mode().IsRegular() && verifyInstalledBinaries(installDir, goos, binaries...) == nil
 }
 
-func verifyAgentDesktopTree(dir, goos string, spec AgentDesktopAsset) error {
+func verifyInstalledBinaries(dir, goos string, binaries ...string) error {
 	needExecBit := runtime.GOOS != "windows" && goos != "windows"
-	for _, name := range []string{spec.ExecutableName, spec.CompanionBinary} {
+	for _, name := range binaries {
 		if name == "" {
 			continue
 		}
 		info, err := os.Stat(filepath.Join(dir, name))
 		if err != nil {
-			return fmt.Errorf("binário %s ausente após extração: %w", name, err)
+			return fmt.Errorf("binário %s ausente na instalação: %w", name, err)
 		}
 		if !info.Mode().IsRegular() || info.Size() <= 0 {
 			return fmt.Errorf("binário %s inválido", name)
@@ -215,7 +219,7 @@ func verifyAgentDesktopTree(dir, goos string, spec AgentDesktopAsset) error {
 	return nil
 }
 
-func publishAgentDesktopDir(stageDir, installDir string) error {
+func publishInstalledDir(stageDir, installDir string) error {
 	if _, err := os.Lstat(installDir); errors.Is(err, os.ErrNotExist) {
 		return os.Rename(stageDir, installDir)
 	} else if err != nil {
@@ -232,16 +236,16 @@ func publishAgentDesktopDir(stageDir, installDir string) error {
 	return os.RemoveAll(backupDir)
 }
 
-func acquireAgentDesktopLock(ctx context.Context, lockPath string) (func() error, error) {
+func acquireToolInstallLock(ctx context.Context, lockPath, toolName string) (func() error, error) {
 	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("abrir trava de instalação do agent-desktop: %w", err)
+		return nil, fmt.Errorf("abrir trava de instalação do %s: %w", toolName, err)
 	}
 	for {
 		locked, err := filelock.TryLockExclusive(file)
 		if err != nil {
 			_ = file.Close()
-			return nil, fmt.Errorf("travar instalação do agent-desktop: %w", err)
+			return nil, fmt.Errorf("travar instalação do %s: %w", toolName, err)
 		}
 		if locked {
 			return func() error { return errors.Join(filelock.Unlock(file), file.Close()) }, nil
@@ -249,20 +253,20 @@ func acquireAgentDesktopLock(ctx context.Context, lockPath string) (func() error
 		select {
 		case <-ctx.Done():
 			_ = file.Close()
-			return nil, fmt.Errorf("aguardar trava de instalação do agent-desktop: %w", ctx.Err())
-		case <-time.After(agentDesktopLockPollInterval):
+			return nil, fmt.Errorf("aguardar trava de instalação do %s: %w", toolName, ctx.Err())
+		case <-time.After(toolInstallLockPoll):
 		}
 	}
 }
 
-func fetchAndVerifyAgentDesktop(ctx context.Context, baseClient *http.Client, downloadURL, assetName, expectedSHA256 string, maxBytes int64) ([]byte, error) {
+func fetchAndVerifyReleaseAsset(ctx context.Context, baseClient *http.Client, downloadURL, assetName, expectedSHA256, toolName string, maxBytes int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("criar requisição de download do %s: %w", assetName, err)
 	}
-	req.Header.Set("User-Agent", "qg/agent-desktop-installer")
+	req.Header.Set("User-Agent", "qg/"+toolName+"-installer")
 
-	resp, err := agentDesktopHTTPClient(baseClient).Do(req)
+	resp, err := secureReleaseHTTPClient(baseClient, toolName).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("baixar %s: %w", assetName, err)
 	}
@@ -292,7 +296,7 @@ func fetchAndVerifyAgentDesktop(ctx context.Context, baseClient *http.Client, do
 	return data, nil
 }
 
-func agentDesktopHTTPClient(base *http.Client) *http.Client {
+func secureReleaseHTTPClient(base *http.Client, toolName string) *http.Client {
 	var cloned http.Client
 	var prevRedirect func(req *http.Request, via []*http.Request) error
 	if base != nil {
@@ -301,12 +305,12 @@ func agentDesktopHTTPClient(base *http.Client) *http.Client {
 	}
 	cloned.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 10 {
-			return errors.New("redirecionamentos demais ao baixar o agent-desktop")
+			return fmt.Errorf("redirecionamentos demais ao baixar o %s", toolName)
 		}
 		if len(via) > 0 && strings.EqualFold(via[len(via)-1].URL.Scheme, "https") && !strings.EqualFold(req.URL.Scheme, "https") {
-			return fmt.Errorf("redirecionamento inseguro recusado ao baixar o agent-desktop: %s", req.URL.Redacted())
+			return fmt.Errorf("redirecionamento inseguro recusado ao baixar o %s: %s", toolName, req.URL.Redacted())
 		}
-		if err := requireSecureAgentDesktopURL(req.URL.String()); err != nil {
+		if err := requireSecureReleaseURL(req.URL.String(), toolName); err != nil {
 			return err
 		}
 		if prevRedirect != nil {
@@ -317,14 +321,14 @@ func agentDesktopHTTPClient(base *http.Client) *http.Client {
 	return &cloned
 }
 
-func requireSecureAgentDesktopURL(raw string) error {
+func requireSecureReleaseURL(raw, toolName string) error {
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return errors.New("URL inválida para download do agent-desktop")
+		return fmt.Errorf("URL inválida para download do %s", toolName)
 	}
 	host := parsed.Hostname()
 	if parsed.Host == "" || host == "" {
-		return fmt.Errorf("URL sem host para download do agent-desktop: %s", parsed.Redacted())
+		return fmt.Errorf("URL sem host para download do %s: %s", toolName, parsed.Redacted())
 	}
 	switch strings.ToLower(parsed.Scheme) {
 	case "https":
@@ -333,9 +337,9 @@ func requireSecureAgentDesktopURL(raw string) error {
 		if addr, err := netip.ParseAddr(host); strings.EqualFold(host, "localhost") || (err == nil && addr.Unmap().IsLoopback()) {
 			return nil
 		}
-		return fmt.Errorf("URL insegura recusada para download do agent-desktop (%s): http só é aceito para loopback em testes", parsed.Redacted())
+		return fmt.Errorf("URL insegura recusada para download do %s (%s): http só é aceito para loopback em testes", toolName, parsed.Redacted())
 	default:
-		return fmt.Errorf("esquema de URL não suportado para download do agent-desktop: %s", parsed.Redacted())
+		return fmt.Errorf("esquema de URL não suportado para download do %s: %s", toolName, parsed.Redacted())
 	}
 }
 
