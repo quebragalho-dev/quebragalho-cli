@@ -9,11 +9,15 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/localcontrol"
 )
 
-const localBrowserOutputBudgetBytes = 128 * 1024
+const (
+	localBrowserOutputBudgetBytes = 128 * 1024
+	browserInstallTimeout         = 10 * time.Minute
+)
 
 type localControlRunner interface {
 	Run(ctx context.Context, args ...string) (localcontrol.CommandResult, error)
@@ -43,6 +47,9 @@ type browserInstallTool struct {
 }
 
 func newBrowserInstallTool(options localcontrol.BrowserOptions) Tool {
+	if options.Timeout <= 0 {
+		options.Timeout = browserInstallTimeout
+	}
 	return browserInstallTool{
 		baseTool: baseTool{
 			name:        "browser_install",
@@ -1113,6 +1120,9 @@ func browserFirstUseHint(goos string, goarch string, command string, message str
 	if command == "install" {
 		if isLinuxARM64 || strings.Contains(lower, "does not provide linux arm64 builds") {
 			return "Chrome for Testing is not available on Linux ARM64. Install system Chromium instead (sudo apt install chromium or sudo dnf install chromium), then retry the browser command."
+		}
+		if strings.Contains(lower, "timed out") || strings.Contains(lower, "deadline exceeded") {
+			return "Chrome download did not finish before the timeout (slow network). The user can install Google Chrome normally on the system; do not retry the download in a loop."
 		}
 		return ""
 	}

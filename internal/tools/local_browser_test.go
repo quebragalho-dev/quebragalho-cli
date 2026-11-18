@@ -16,6 +16,7 @@ import (
 type fakeBrowserRunner struct {
 	args     []string
 	calls    [][]string
+	timeout  time.Duration
 	stdout   string
 	stderr   string
 	exitCode int
@@ -28,9 +29,10 @@ type fakeBrowserAppLauncher struct {
 	err     error
 }
 
-func (runner *fakeBrowserRunner) Run(_ context.Context, path string, args []string, _ []string, _ time.Duration) (localcontrol.CommandResult, error) {
+func (runner *fakeBrowserRunner) Run(_ context.Context, path string, args []string, _ []string, timeout time.Duration) (localcontrol.CommandResult, error) {
 	runner.args = append([]string(nil), args...)
 	runner.calls = append(runner.calls, append([]string(nil), args...))
+	runner.timeout = timeout
 	stdout := runner.stdout
 	if stdout == "" && runner.stderr == "" && runner.err == nil {
 		stdout = "browser ok\n"
@@ -690,5 +692,61 @@ func TestBrowserToolsRealExampleCom(t *testing.T) {
 	t.Logf("browser_action get_url:\n%s", urlRes.Output)
 	if !strings.Contains(urlRes.Output, "iana.org") {
 		t.Fatalf("expected navigated URL on iana.org, got %q", urlRes.Output)
+	}
+}
+
+func TestBrowserInstallUsesLongTimeoutWhileOtherToolsKeepDefault(t *testing.T) {
+	runner := &fakeBrowserRunner{}
+	reg := NewRegistry()
+	for _, tool := range NewLocalBrowserTools(localBrowserTestOptions(t, runner)) {
+		reg.Register(tool)
+	}
+	opts := RunOptions{PermissionGranted: true}
+
+	if res := reg.RunWithOptions(context.Background(), "browser_install", map[string]any{}, opts); res.Status != StatusOK {
+		t.Fatalf("browser_install failed: %s", res.Output)
+	}
+	if runner.timeout != 10*time.Minute {
+		t.Fatalf("browser_install timeout = %v, want %v", runner.timeout, 10*time.Minute)
+	}
+
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{tool: "browser_connect", args: map[string]any{"target": "9222"}},
+		{tool: "browser_open", args: map[string]any{"url": "https://example.com"}},
+		{tool: "browser_snapshot", args: map[string]any{}},
+		{tool: "browser_click", args: map[string]any{"ref": "@e1"}},
+		{tool: "browser_type", args: map[string]any{"ref": "@e1", "text": "abc"}},
+		{tool: "browser_press", args: map[string]any{"key": "Enter"}},
+		{tool: "browser_action", args: map[string]any{"command": "get_url"}},
+	} {
+		runner.timeout = 0
+		if res := reg.RunWithOptions(context.Background(), tc.tool, tc.args, opts); res.Status != StatusOK {
+			t.Fatalf("%s failed: %s", tc.tool, res.Output)
+		}
+		if runner.timeout != localcontrol.DefaultTimeout {
+			t.Fatalf("%s timeout = %v, want %v", tc.tool, runner.timeout, localcontrol.DefaultTimeout)
+		}
+	}
+}
+
+func TestBrowserInstallTimeoutGuidance(t *testing.T) {
+	runner := &fakeBrowserRunner{
+		stderr: "Downloading Chrome for Testing... 10/205 MB (5%)",
+		err:    errors.New("local control helper timed out after 600000ms"),
+	}
+	tool := newBrowserInstallTool(localBrowserTestOptions(t, runner))
+
+	res := tool.Run(context.Background(), map[string]any{})
+	if res.Status != StatusError {
+		t.Fatalf("status = %s, want error", res.Status)
+	}
+	if !strings.Contains(res.Output, "did not finish") || !strings.Contains(res.Output, "Google Chrome") {
+		t.Fatalf("expected timeout guidance mentioning incomplete Chrome download and Google Chrome install, got %q", res.Output)
+	}
+	if strings.Contains(res.Output, "browser_install") {
+		t.Fatalf("timeout guidance must not suggest calling browser_install again, got %q", res.Output)
 	}
 }
