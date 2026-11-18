@@ -10,11 +10,11 @@ import (
 func TestSetSTTLocalEngineResetsStreamProvider(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/config.json"
-	// Pre-seed a cloud streaming provider — the situation the fix guards against.
-	if err := os.WriteFile(path, []byte(`{"stt":{"streamProvider":"deepgram"}}`), 0o600); err != nil {
+	// Pre-seed a cloud streaming provider and legacy server binary — both must be replaced.
+	if err := os.WriteFile(path, []byte(`{"stt":{"streamProvider":"deepgram","localServerBinary":"/old/sherpa-onnx-online-websocket-server"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := SetSTTLocalEngine(path, "sherpa-onnx-offline", "sherpa-onnx-online-websocket-server", "/models/kroko", true)
+	cfg, err := SetSTTLocalEngine(path, "sherpa-onnx-offline", "sherpa-onnx", "/models/kroko", true)
 	if err != nil {
 		t.Fatalf("SetSTTLocalEngine: %v", err)
 	}
@@ -22,6 +22,12 @@ func TestSetSTTLocalEngineResetsStreamProvider(t *testing.T) {
 	// the leftover cloud streamProvider keeps the live transcript on the cloud.
 	if cfg.STT.Provider != STTProviderLocal || cfg.STT.StreamProvider != STTProviderLocal {
 		t.Errorf("both providers should be local, got provider=%q streamProvider=%q", cfg.STT.Provider, cfg.STT.StreamProvider)
+	}
+	if cfg.STT.LocalBinary != "sherpa-onnx-offline" || cfg.STT.LocalOnlineBinary != "sherpa-onnx" {
+		t.Errorf("local binaries = (%q, %q), want (sherpa-onnx-offline, sherpa-onnx)", cfg.STT.LocalBinary, cfg.STT.LocalOnlineBinary)
+	}
+	if cfg.STT.LocalServerBinary != "" {
+		t.Errorf("legacy localServerBinary should be cleared, got %q", cfg.STT.LocalServerBinary)
 	}
 }
 

@@ -679,9 +679,8 @@ func SetSTTModel(path string, provider STTProviderKind, model string) (result Fi
 // SetSTTLocalEngine persists the paths of an auto-downloaded local engine +
 // model and switches dictation to the local provider, mirroring SetTheme
 // (read-modify-atomic-write). streaming selects the pipeline matching the
-// downloaded model (a streaming transducer vs a batch model). Called after a
-// download completes.
-func SetSTTLocalEngine(path, binary, serverBinary, modelPath string, streaming bool) (result FileConfig, err error) {
+// downloaded model. Called after a download completes.
+func SetSTTLocalEngine(path, binary, onlineBinary, modelPath string, streaming bool) (result FileConfig, err error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return FileConfig{}, fmt.Errorf("config path is required")
@@ -710,11 +709,11 @@ func SetSTTLocalEngine(path, binary, serverBinary, modelPath string, streaming b
 	// after the user switched to a downloaded local model.
 	cfg.STT.StreamProvider = STTProviderLocal
 	cfg.STT.LocalBinary = strings.TrimSpace(binary)
-	cfg.STT.LocalServerBinary = strings.TrimSpace(serverBinary)
+	cfg.STT.LocalOnlineBinary = strings.TrimSpace(onlineBinary)
+	cfg.STT.LocalServerBinary = ""
 	cfg.STT.LocalModelPath = strings.TrimSpace(modelPath)
-	// Match the pipeline to the downloaded model: a streaming transducer drives
-	// the websocket server for a live transcript; a batch model uses the offline
-	// binary.
+	// Match the pipeline to the downloaded model: every installed model uses
+	// file-based transcription wrapped in the rolling live transcriber.
 	s := streaming
 	cfg.STT.Streaming = &s
 	if err := validateSTTConfig(cfg.STT); err != nil {

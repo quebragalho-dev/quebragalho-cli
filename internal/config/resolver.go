@@ -879,6 +879,9 @@ func mergeSTTConfig(dst *STTConfig, src STTConfig) {
 	if src.LocalBinary != "" {
 		dst.LocalBinary = src.LocalBinary
 	}
+	if src.LocalOnlineBinary != "" {
+		dst.LocalOnlineBinary = src.LocalOnlineBinary
+	}
 	if src.LocalServerBinary != "" {
 		dst.LocalServerBinary = src.LocalServerBinary
 	}
