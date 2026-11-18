@@ -19,7 +19,9 @@
 # Usage: scripts/npm/publish-packages.sh <npm-dir>
 #
 # Auth comes from the environment (npm OIDC trusted publishing in CI).
-# QG_NPM_PUBLISH_RETRY_DELAY overrides the seconds between dist-tag lookups.
+# QG_NPM_PUBLISH_RETRY_DELAY and QG_NPM_PUBLISH_RETRY_ATTEMPTS override the
+# seconds between dist-tag lookups (default 20) and lookup count (default 31,
+# covering 10 minutes).
 set -euo pipefail
 
 fail() {
@@ -39,9 +41,13 @@ manifest_field() {
 name="$(manifest_field "$wrapper_dir" name)"
 version="$(manifest_field "$wrapper_dir" version)"
 [ -n "$name" ] && [ -n "$version" ] || fail "${wrapper_dir}/package.json has no name or version"
-delay="${QG_NPM_PUBLISH_RETRY_DELAY:-10}"
+delay="${QG_NPM_PUBLISH_RETRY_DELAY:-20}"
 case "$delay" in
   '' | *[!0-9]*) fail "QG_NPM_PUBLISH_RETRY_DELAY must be a whole number of seconds, got ${delay}" ;;
+esac
+attempts="${QG_NPM_PUBLISH_RETRY_ATTEMPTS:-31}"
+case "$attempts" in
+  '' | 0 | *[!0-9]*) fail "QG_NPM_PUBLISH_RETRY_ATTEMPTS must be a positive whole number, got ${attempts}" ;;
 esac
 
 # The wrapper pins every platform version exactly, so a wrapper whose aliases
@@ -105,13 +111,18 @@ echo "dist-tag latest of ${name} is ${latest:-unset} (unchanged by the platform 
 
 publish "$wrapper_dir" "$version"
 
-# Registry metadata can lag a publish by up to a couple of minutes.
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+# Registry metadata can lag a publish by several minutes (~150 s observed on
+# npmjs.org); retry every 20 s for up to 10 minutes before giving up.
+attempt=1
+while [ "$attempt" -le "$attempts" ]; do
   latest="$(npm view "$name" dist-tags.latest 2>/dev/null || true)"
   if [ "$latest" = "$version" ]; then
     echo "dist-tag latest of ${name} is ${version}."
     exit 0
   fi
-  sleep "$delay"
+  if [ "$attempt" -lt "$attempts" ]; then
+    sleep "$delay"
+  fi
+  attempt=$((attempt + 1))
 done
 fail "dist-tag latest of ${name} is ${latest:-unset}, expected ${version} after the wrapper publish."

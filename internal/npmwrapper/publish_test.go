@@ -34,6 +34,12 @@ if (args[0] === 'view') {
     process.exit(1);
   }
   if (args[2] === 'dist-tags.latest') {
+    if (registry.afterWrapper && registry.lagLatestReads > 0) {
+      registry.lagLatestReads -= 1;
+      save();
+      if (registry.staleLatest) { process.stdout.write(registry.staleLatest + '\n'); process.exit(0); }
+      process.exit(1);
+    }
     if (registry.tags.latest) { process.stdout.write(registry.tags.latest + '\n'); process.exit(0); }
     process.exit(1);
   }
@@ -43,6 +49,9 @@ if (args[0] === 'publish') {
   const pkg = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
   const tagIndex = args.indexOf('--tag');
   const tag = tagIndex === -1 ? 'latest' : args[tagIndex + 1];
+  if (tag === 'latest') {
+    registry.afterWrapper = true;
+  }
   registry.versions.push(pkg.version);
   registry.tags[tag] = pkg.version;
   save();
@@ -178,4 +187,67 @@ func TestPublishPackagesRefusesMismatchedPayloads(t *testing.T) {
 	if _, statErr := os.Stat(f.npmLog); statErr == nil && len(f.publishes(t)) != 0 {
 		t.Fatalf("published %v before refusing", f.publishes(t))
 	}
+}
+
+func installSleepRecorder(t *testing.T) string {
+	t.Helper()
+	shimDir := t.TempDir()
+	sleepLog := filepath.Join(shimDir, "sleep.log")
+	writeFixtureFile(t, filepath.Join(shimDir, "sleep"),
+		"#!/bin/sh\nprintf '%s\\n' \"$1\" >> "+shellQuote(sleepLog)+"\n", 0o755)
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return sleepLog
+}
+
+// TestPublishPackagesWaitsUpToTenMinutesForLatestPropagation covers npm
+// registry lag where dist-tags.latest takes several minutes (>150 s) to move
+// onto the newly published wrapper version.
+func TestPublishPackagesWaitsUpToTenMinutesForLatestPropagation(t *testing.T) {
+	t.Run("succeeds when latest catches up after several minutes", func(t *testing.T) {
+		f := newPublishFixture(t, "@quebragalho/cli", "0.0.21", []string{"linux-x64"})
+		sleepLog := installSleepRecorder(t)
+		t.Setenv("QG_NPM_PUBLISH_RETRY_DELAY", "")
+		// 18 lagging lookups at the default 20 s interval = 360 s (6 min), well
+		// past the ~150 s lag seen on 0.0.21 and the old 12-lookup cap.
+		writeFixtureFile(t, f.registry,
+			`{"versions":[],"tags":{"latest":"0.0.20"},"staleLatest":"0.0.20","lagLatestReads":18}`, 0o644)
+
+		output, err := f.run(t)
+		if err != nil {
+			t.Fatalf("publish-packages.sh gave up before latest caught up: %v\n%s", err, output)
+		}
+		if !strings.Contains(output, "dist-tag latest of @quebragalho/cli is 0.0.21.") {
+			t.Fatalf("output = %s, want latest 0.0.21 confirmation", output)
+		}
+		sleeps := readLines(t, sleepLog)
+		if len(sleeps) != 18 {
+			t.Fatalf("sleep count = %d (%v), want 18", len(sleeps), sleeps)
+		}
+		for _, s := range sleeps {
+			if s != "20" {
+				t.Fatalf("default retry delay = %q, want 20s", s)
+			}
+		}
+	})
+
+	t.Run("fails after exhausting the full 10-minute window", func(t *testing.T) {
+		f := newPublishFixture(t, "@quebragalho/cli", "0.0.21", []string{"linux-x64"})
+		sleepLog := installSleepRecorder(t)
+		t.Setenv("QG_NPM_PUBLISH_RETRY_DELAY", "")
+		writeFixtureFile(t, f.registry,
+			`{"versions":[],"tags":{"latest":"0.0.20"},"staleLatest":"0.0.20","lagLatestReads":999}`, 0o644)
+
+		output, err := f.run(t)
+		if err == nil {
+			t.Fatalf("publish-packages.sh succeeded even though latest never moved:\n%s", output)
+		}
+		if !strings.Contains(output, "dist-tag latest of @quebragalho/cli is 0.0.20, expected 0.0.21") {
+			t.Fatalf("output = %s, want expected-version failure", output)
+		}
+		sleeps := readLines(t, sleepLog)
+		// 30 sleeps of 20 s between 31 lookups = 600 s (10 minutes).
+		if len(sleeps) != 30 {
+			t.Fatalf("sleep count = %d (%v), want 30 intervals of 20s (600s total)", len(sleeps), sleeps)
+		}
+	})
 }
