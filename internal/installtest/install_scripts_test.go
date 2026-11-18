@@ -941,10 +941,11 @@ func TestUnixInstallerBusyBoxWget(t *testing.T) {
 		checksumData := readFile(t, fixture.checksumPath)
 		checksumName := fixture.archiveName + ".sha256"
 
-		var baseURL string
+		var baseURL atomic.Value // string: publicada antes do instalador rodar, lida pelos handlers HTTP
+		redirectBase := func() string { return baseURL.Load().(string) }
 		mux := http.NewServeMux()
 		mux.HandleFunc("/repos/quebragalho-dev/quebragalho-cli/releases/latest", func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, baseURL+"/api-final/latest", http.StatusFound)
+			http.Redirect(w, r, redirectBase()+"/api-final/latest", http.StatusFound)
 		})
 		mux.HandleFunc("/api-final/latest", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
@@ -954,25 +955,25 @@ func TestUnixInstallerBusyBoxWget(t *testing.T) {
 			http.Redirect(w, r, "/hop/"+fixture.archiveName, http.StatusFound)
 		})
 		mux.HandleFunc("/hop/"+fixture.archiveName, func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, baseURL+"/cdn/"+fixture.archiveName, http.StatusMovedPermanently)
+			http.Redirect(w, r, redirectBase()+"/cdn/"+fixture.archiveName, http.StatusMovedPermanently)
 		})
 		mux.HandleFunc("/cdn/"+fixture.archiveName, func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = w.Write(archiveData)
 		})
 		mux.HandleFunc("/quebragalho-dev/quebragalho-cli/releases/download/v0.1.0/"+checksumName, func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, baseURL+"/cdn/"+checksumName, http.StatusFound)
+			http.Redirect(w, r, redirectBase()+"/cdn/"+checksumName, http.StatusFound)
 		})
 		mux.HandleFunc("/cdn/"+checksumName, func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = w.Write(checksumData)
 		})
-		var certPath string
-		baseURL, certPath = newLocalhostTLSServer(t, mux)
+		serverURL, certPath := newLocalhostTLSServer(t, mux)
+		baseURL.Store(serverURL)
 
 		stdout, stderr, err := runUnixInstallerWithEnv(t, fixture, "", "latest",
 			"PATH="+pathOnlyBusyBox,
 			"SSL_CERT_FILE="+certPath,
-			"QG_GITHUB_API="+baseURL,
-			"QG_GITHUB_BASE_URL="+baseURL,
+			"QG_GITHUB_API="+redirectBase(),
+			"QG_GITHUB_BASE_URL="+redirectBase(),
 		)
 		if err != nil {
 			t.Fatalf("install.sh with busybox wget failed across https redirects: %v\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
