@@ -14,17 +14,21 @@ import (
 	"strings"
 )
 
-// LocalConfig configures the offline sherpa-onnx batch transcriber. Every tier
+// LocalConfig configures the local sherpa-onnx file transcriber. Every tier
 // (default/standard/high-end, §7) is just a different ModelPath — there are no
 // tier-specific code paths; the model family is detected from the files present.
 type LocalConfig struct {
-	// Binary is the sherpa-onnx-offline executable; looked up on PATH when a
-	// bare name. Empty defaults to "sherpa-onnx-offline".
+	// Binary is the sherpa-onnx executable; looked up on PATH when a bare name.
+	// Empty defaults to "sherpa-onnx-offline" (or "sherpa-onnx" when Online is
+	// true).
 	Binary string
 	// ModelPath is the directory holding the model's .onnx + tokens.txt files
 	// (stt.localModelPath).
 	ModelPath  string
 	NumThreads int
+	// Online selects the streaming/online file decoder binary ("sherpa-onnx")
+	// and its model flags instead of "sherpa-onnx-offline".
+	Online bool
 
 	// Test seams.
 	runOutput commandOutputRunner
@@ -35,7 +39,7 @@ type localTranscriber struct {
 	cfg LocalConfig
 }
 
-// NewLocalTranscriber builds the offline transcriber. It does not touch the
+// NewLocalTranscriber builds the local file transcriber. It does not touch the
 // filesystem or PATH until Transcribe runs, so a missing binary/model degrades
 // to a clear setup message at use time (matching internal/lsp).
 func NewLocalTranscriber(cfg LocalConfig) (Transcriber, error) {
@@ -46,7 +50,11 @@ func NewLocalTranscriber(cfg LocalConfig) (Transcriber, error) {
 		}
 	}
 	if cfg.Binary == "" {
-		cfg.Binary = "sherpa-onnx-offline"
+		if cfg.Online {
+			cfg.Binary = "sherpa-onnx"
+		} else {
+			cfg.Binary = "sherpa-onnx-offline"
+		}
 	}
 	if cfg.runOutput == nil {
 		cfg.runOutput = runCommandOutput
@@ -61,7 +69,7 @@ func (l *localTranscriber) Transcribe(ctx context.Context, audio []byte) (string
 	if len(audio) == 0 {
 		return "", errors.New("no audio to transcribe")
 	}
-	modelArgs, err := detectModelArgs(l.cfg.ModelPath)
+	modelArgs, err := detectModelArgsFor(l.cfg.ModelPath, l.cfg.Online)
 	if err != nil {
 		return "", err
 	}
@@ -101,9 +109,13 @@ func (l *localTranscriber) Transcribe(ctx context.Context, audio []byte) (string
 	out, err := l.cfg.runOutput(ctx, l.cfg.Binary, args...)
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
+			hint := "instale o sherpa-onnx e coloque o binário sherpa-onnx-offline no PATH (ou rode /stt-model para baixar o motor)"
+			if l.cfg.Online {
+				hint = "instale o sherpa-onnx e coloque o binário sherpa-onnx no PATH (ou rode /stt-model para baixar o motor)"
+			}
 			return "", &SetupError{
 				Tool: l.cfg.Binary,
-				Hint: "instale o sherpa-onnx e coloque o binário offline no PATH (ou rode /stt-model para baixar o motor)",
+				Hint: hint,
 			}
 		}
 		return "", fmt.Errorf("sherpa-onnx transcription failed: %w (%s)", err, lastLines(out, 3))
@@ -136,11 +148,15 @@ func effectiveNumThreads(cfgNum int) int {
 	return n
 }
 
-// detectModelArgs inspects a sherpa-onnx model directory and builds the
-// family-specific --*=path flags. Supports the families sherpa-onnx-offline
-// accepts; Moonshine (the design's default/standard/high-end tiers) is the
-// primary target. tokens.txt is required by every family.
+// detectModelArgs inspects a sherpa-onnx model directory for the offline binary.
 func detectModelArgs(dir string) ([]string, error) {
+	return detectModelArgsFor(dir, false)
+}
+
+// detectModelArgsFor inspects a sherpa-onnx model directory and builds the
+// family-specific --*=path flags for either sherpa-onnx-offline (online=false)
+// or sherpa-onnx (online=true). tokens.txt is required by every family.
+func detectModelArgsFor(dir string, online bool) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, &SetupError{
@@ -195,6 +211,13 @@ func detectModelArgs(dir string) ([]string, error) {
 		return []string{"--encoder=" + set[0], "--decoder=" + set[1], "--joiner=" + set[2], "--tokens=" + tokens}, nil
 	}
 
+	// Online streaming paraformer ships encoder + decoder without a joiner.
+	if online && nameMatchesFamily(dirName, files, []string{"paraformer"}) {
+		if set := consistentQuantizedSet(files, "encoder", "decoder"); set != nil {
+			return []string{"--paraformer-encoder=" + set[0], "--paraformer-decoder=" + set[1], "--tokens=" + tokens}, nil
+		}
+	}
+
 	// Encoder+decoder families that share Whisper's file shape (encoder + decoder,
 	// no joiner) but need their own flags — FireRedASR-AED, Canary, Cohere. They are
 	// indistinguishable from Whisper by files alone, so disambiguate by name FIRST;
@@ -222,7 +245,11 @@ func detectModelArgs(dir string) ([]string, error) {
 	// first so a compound name (e.g. "fire-red-asr2-ctc") matches its own family
 	// before a generic token in it (e.g. bare "ctc") could steer it elsewhere.
 	if m := singleModelOnnx(files); m != "" {
-		for _, fam := range singleModelFamilies {
+		families := singleModelFamilies
+		if online {
+			families = onlineSingleModelFamilies
+		}
+		for _, fam := range families {
 			if nameMatchesFamily(dirName, files, fam.match) {
 				return []string{fam.flag + "=" + m, "--tokens=" + tokens}, nil
 			}
@@ -254,6 +281,18 @@ var singleModelFamilies = []struct {
 	{[]string{"tdnn"}, "--tdnn-model"},
 	{[]string{"sense-voice", "sensevoice"}, "--sense-voice-model"},
 	{[]string{"paraformer"}, "--paraformer"},
+}
+
+// onlineSingleModelFamilies maps a streaming single-file model's name signature
+// to the sherpa-onnx online binary's flag.
+var onlineSingleModelFamilies = []struct {
+	match []string
+	flag  string
+}{
+	{[]string{"zipformer2-ctc", "zipformer-ctc"}, "--zipformer2-ctc-model"},
+	{[]string{"nemo-ctc", "nemo_ctc"}, "--nemo-ctc-model"},
+	{[]string{"wenet"}, "--wenet-ctc-model"},
+	{[]string{"t-one-ctc", "t_one_ctc"}, "--t-one-ctc-model"},
 }
 
 // encoderDecoderFamilies are offline families shaped like Whisper (an encoder +
@@ -404,8 +443,8 @@ func lastLines(out []byte, n int) string {
 	return strings.Join(lines, " | ")
 }
 
-// StreamTranscribe is unsupported for the offline binary; local streaming uses
-// the sherpa-onnx websocket server transcriber instead.
+// StreamTranscribe is unsupported directly; live transcription wraps this
+// file transcriber in NewRollingTranscriber.
 func (l *localTranscriber) StreamTranscribe(context.Context, <-chan []byte, func(string, bool)) (string, error) {
 	return "", ErrStreamingUnsupported
 }
