@@ -567,9 +567,6 @@ func normalizeSandboxPolicyGoldenTempRoots(t *testing.T, gotBytes []byte, worksp
 		t.Fatalf("NewScope(%q): %v", workspace, err)
 	}
 	roots := scope.Roots()
-	if len(roots) <= 1 {
-		return gotBytes
-	}
 	tempRoots := map[string]struct{}{}
 	for _, root := range roots[1:] {
 		tempRoots[root] = struct{}{}
@@ -581,14 +578,29 @@ func normalizeSandboxPolicyGoldenTempRoots(t *testing.T, gotBytes []byte, worksp
 	plan, _ := value.(map[string]any)["plan"].(map[string]any)
 	profile, _ := plan["permissionProfile"].(map[string]any)
 	fileSystem, _ := profile["fileSystem"].(map[string]any)
-	wantDenyRead := []string(nil)
 	// Resolved the same way the profile builder resolves its candidates, on
-	// every platform: the Windows backend now carries the credential baseline
-	// too, so the golden pins it there as well.
+	// every platform: the Windows backend carries the credential baseline too.
 	credentialHome := emptyHome
 	if resolved, err := filepath.EvalSymlinks(emptyHome); err == nil {
 		credentialHome = resolved
 	}
+	normalizeSandboxPolicyFileSystem(t, fileSystem, tempRoots, credentialHome)
+	normalized, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		t.Fatalf("encode normalized policy JSON: %v\n%s", err, string(gotBytes))
+	}
+	return append(normalized, '\n')
+}
+
+// normalizeSandboxPolicyFileSystem applies the golden-only normalization to a
+// decoded permissionProfile.fileSystem map: assert the credential baseline
+// content, drop the machine-specific credential fields, drop temp roots, and
+// tokenize drive roots. It takes tempRoots and the resolved credential home
+// explicitly so the no-temp-roots case (blanked TEMP/TMP on Windows) is
+// exercised directly instead of being skipped.
+func normalizeSandboxPolicyFileSystem(t *testing.T, fileSystem map[string]any, tempRoots map[string]struct{}, credentialHome string) {
+	t.Helper()
+	wantDenyRead := []string(nil)
 	{
 		wantDenyRead = []string{
 			filepath.Join(credentialHome, ".ssh"),
@@ -639,11 +651,6 @@ func normalizeSandboxPolicyGoldenTempRoots(t *testing.T, gotBytes []byte, worksp
 	delete(fileSystem, "ensureDenyReadDirs")
 	fileSystem["readRoots"] = normalizeGoldenDriveRoots(filterJSONStringRoots(fileSystem["readRoots"], tempRoots))
 	fileSystem["writeRoots"] = filterJSONWriteRoots(fileSystem["writeRoots"], tempRoots)
-	normalized, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		t.Fatalf("encode normalized policy JSON: %v", err)
-	}
-	return append(normalized, '\n')
 }
 
 // normalizeGoldenDriveRoots keeps the policy golden deterministic across
@@ -1157,5 +1164,77 @@ func TestApplyConfiguredSandboxPolicyEnabledFalseDisables(t *testing.T) {
 	enabled := true
 	if got := applyConfiguredSandboxPolicy(sandbox.DefaultPolicy(), config.SandboxConfig{Enabled: &enabled}); got.Mode == sandbox.ModeDisabled {
 		t.Fatal("enabled:true must not disable the sandbox")
+	}
+}
+
+// TestNormalizeGoldenDriveRootsDedupsMultipleDrives pins the multi-drive
+// contract: any number of mounted roots collapses into one $DRIVE token, so
+// the golden stays deterministic whether the runner sees one drive or five.
+func TestNormalizeGoldenDriveRootsDedupsMultipleDrives(t *testing.T) {
+	got := normalizeGoldenDriveRoots([]any{`C:\`, `D:\`, `Z:\`, "$WORKSPACE"})
+	want := []any{"$DRIVE", "$WORKSPACE"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("normalizeGoldenDriveRoots = %#v, want %#v", got, want)
+	}
+	if got := normalizeGoldenDriveRoots([]any{`C:\`, "$WORKSPACE"}); !reflect.DeepEqual(got, []any{"$DRIVE", "$WORKSPACE"}) {
+		t.Fatalf("normalizeGoldenDriveRoots single drive = %#v, want one $DRIVE token", got)
+	}
+	if got := normalizeGoldenDriveRoots([]any{"/", "$WORKSPACE"}); !reflect.DeepEqual(got, []any{"/", "$WORKSPACE"}) {
+		t.Fatalf("normalizeGoldenDriveRoots must leave non-drive roots alone: %#v", got)
+	}
+}
+
+// TestNormalizeSandboxPolicyFileSystemWithoutTempRoots replays the Windows CI
+// shape on any host: multiple drive roots plus absolute credential paths, and
+// no temp roots at all (blanked TEMP/TMP on Windows leave the scope with only
+// the workspace, which used to skip normalization entirely). The credential
+// content is asserted, the machine-specific fields are dropped, and every
+// drive root collapses into one $DRIVE token.
+func TestNormalizeSandboxPolicyFileSystemWithoutTempRoots(t *testing.T) {
+	// Windows-shaped inputs spelled the way the profile builder spells them on
+	// the failing host; the join below renders backslashes there and slashes
+	// here, exactly like both sides of the integration assertion do.
+	home := `C:\Users\runneradmin`
+	fileSystem := map[string]any{
+		"kind":      "restricted",
+		"readRoots": []any{`C:\`, `D:\`, "$WORKSPACE"},
+		"writeRoots": []any{map[string]any{
+			"root":                   "$WORKSPACE",
+			"readOnlySubpaths":       []any{`$WORKSPACE\.git\hooks`},
+			"protectedMetadataNames": []any{".qg", ".agents"},
+		}},
+		"denyReadIfExists": []any{
+			filepath.Join(home, ".ssh"),
+			filepath.Join(home, ".gnupg"),
+			filepath.Join(home, ".aws"),
+			filepath.Join(home, ".azure"),
+			filepath.Join(home, ".git-credentials"),
+			filepath.Join(home, ".config", "git", "credentials"),
+			filepath.Join(home, ".npmrc"),
+			filepath.Join(home, ".pypirc"),
+			filepath.Join(home, ".netrc"),
+			filepath.Join(home, ".kube"),
+			filepath.Join(home, ".docker", "config.json"),
+			filepath.Join(home, ".config", "gh"),
+			filepath.Join(home, ".config", "gcloud"),
+			filepath.Join(home, ".config", "qg"),
+		},
+		"denyReadCarveouts": []any{
+			filepath.Join(home, ".config", "qg", "plugins"),
+			filepath.Join(home, ".config", "qg", "specialists"),
+			filepath.Join(home, ".config", "qg", "commands"),
+		},
+		"ensureDenyReadDirs":   []any{filepath.Join(home, ".config", "qg")},
+		"includePlatformRoots": true,
+		"allowTemp":            true,
+	}
+	normalizeSandboxPolicyFileSystem(t, fileSystem, map[string]struct{}{}, home)
+	if got := fileSystem["readRoots"]; !reflect.DeepEqual(got, []any{"$DRIVE", "$WORKSPACE"}) {
+		t.Fatalf("readRoots = %#v, want one $DRIVE token plus the workspace", got)
+	}
+	for _, key := range []string{"denyReadIfExists", "denyReadCarveouts", "ensureDenyReadDirs"} {
+		if _, present := fileSystem[key]; present {
+			t.Fatalf("machine-specific field %q must be dropped from the golden, still present: %#v", key, fileSystem[key])
+		}
 	}
 }
