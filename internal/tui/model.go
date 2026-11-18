@@ -1997,9 +1997,10 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyboardEnhancementsMsg:
 		return m.handleKeyboardEnhancements(msg), nil
 	case tea.KeyReleaseMsg:
-		// A bare Space release ends the run and clears the activation latch; a
-		// held key's timing gap does the rest on terminals without release events.
-		if voiceHoldKey(msg) {
+		// A Space release ends the run and clears the activation latch even when
+		// Ctrl is still down; a held key's timing gap does the rest on terminals
+		// without release events.
+		if keyIs(msg, tea.KeySpace) {
 			m.dictation.hold.keyUp()
 		}
 		// Voice mode's hold-to-record ends on Ctrl+Space release; every other
@@ -2046,7 +2047,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the caret, the typed character would render caret-less for up to a
 		// full tick before the timer catches up.
 		m.composerCursorVisible = true
-		if !voiceHoldKey(msg) {
+		if !voiceHoldPreservesLatchKey(msg, m.dictation.hold.spent) {
 			// Any other key ends a Space hold: the system only repeats the
 			// last key pressed, so a latched activation must not swallow the
 			// next Space the user types.

@@ -2,8 +2,11 @@ package tui
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 // Ctrl+C during a dictation cancels the dictation, exactly like Esc: the
@@ -292,4 +295,199 @@ func TestDictationCtrlCWithExitArmedDoesNotQuit(t *testing.T) {
 		t.Fatal("Ctrl+C during a dictation must not quit, even with the exit armed")
 	}
 	waitCtrlcRecorderStop(t, rec)
+}
+
+type ctrlcStreamingRecorder struct {
+	chunks chan []byte
+	stopCh chan struct{}
+}
+
+func newCtrlcStreamingRecorder() *ctrlcStreamingRecorder {
+	return &ctrlcStreamingRecorder{
+		chunks: make(chan []byte),
+		stopCh: make(chan struct{}, 1),
+	}
+}
+
+func (r *ctrlcStreamingRecorder) Start() error { return nil }
+func (r *ctrlcStreamingRecorder) Stop() ([]byte, error) {
+	return nil, nil
+}
+func (r *ctrlcStreamingRecorder) StartStreaming() (<-chan []byte, func() error, error) {
+	stop := func() error {
+		select {
+		case r.stopCh <- struct{}{}:
+			close(r.chunks)
+		default:
+		}
+		return nil
+	}
+	return r.chunks, stop, nil
+}
+
+// Ctrl+C during a bare-Space hold recording cancels dictation (even when
+// pressing Ctrl first delivers a Ctrl+Space auto-repeat and Space stays down
+// briefly afterward), discards dimmed live text without transcribing, restores
+// the composer as it was before recording, and leaves outside-recording Ctrl+C
+// unchanged.
+func TestDictationCtrlCDuringSpaceHoldCancelsAndRestoresComposer(t *testing.T) {
+	for _, releaseEvents := range []bool{false, true} {
+		name := "without_release_events"
+		if releaseEvents {
+			name = "with_release_events"
+		}
+		t.Run(name, func(t *testing.T) {
+			acceptCacheTrueColor(t)
+			at := time.Unix(1_700_000_000, 0)
+			m := holdTestModel(t, &at)
+			m.dictation.eventTypesSupported = releaseEvents
+			m.setComposerState(composerState{text: "rascunho", cursor: len([]rune("rascunho"))})
+
+			holdToActivation(t, m, &at)
+			updated, _ := m.Update(dictationStartedMsg{sessionID: m.dictation.sessionID})
+			*m = updated.(model)
+			rec := newCtrlcStreamingRecorder()
+			m.dictation.streaming = true
+			_, stopStream, _ := rec.StartStreaming()
+			m.dictation.streamStop = stopStream
+			cancelledSession := m.dictation.sessionID
+
+			*m = m.handleDictationPartial(sttPartialMsg{sessionID: cancelledSession, text: "texto ao vivo"})
+			dimStyle := qgTheme.faint.Inline(true)
+			if !strings.Contains(m.composerLine(80), dimStyle.Render(" texto ao vivo")) {
+				t.Fatalf("precondition: live partial should render dimmed, got %q", m.composerLine(80))
+			}
+
+			// Pressing Ctrl while bare Space is still held delivers an
+			// auto-repeated Ctrl+Space just before C lands.
+			at = at.Add(30 * time.Millisecond)
+			pressKey(t, m, tea.Key{Code: tea.KeySpace, Mod: tea.ModCtrl})
+			if m.dictation.phase != dictRecording {
+				t.Fatalf("Ctrl+Space during Space-hold recording changed phase to %v, want recording", m.dictation.phase)
+			}
+
+			at = at.Add(30 * time.Millisecond)
+			updated, _ = m.Update(testKeyCtrl('c'))
+			*m = updated.(model)
+
+			if m.dictation.phase != dictIdle {
+				t.Fatalf("phase after Ctrl+C = %v, want idle", m.dictation.phase)
+			}
+			select {
+			case <-rec.stopCh:
+			default:
+				t.Fatal("Ctrl+C must stop the streaming capture")
+			}
+			if got := m.currentComposerState(); got != (composerState{text: "rascunho", cursor: 8}) {
+				t.Fatalf("composer state after Ctrl+C = %+v, want {rascunho 8}", got)
+			}
+			if strings.Contains(m.composerLine(80), dimStyle.Render("texto ao vivo")) {
+				t.Fatalf("dimmed live text must be discarded on Ctrl+C: %q", m.composerLine(80))
+			}
+
+			// Remaining auto-repeats of the still-held Space must neither type
+			// spaces nor start a new recording that refills live text.
+			holdSpace(t, m, &at, repeatGaps(80, 30*time.Millisecond)...)
+			if m.dictation.phase != dictIdle {
+				t.Fatalf("held Space after Ctrl+C restarted dictation: phase = %v", m.dictation.phase)
+			}
+			if got := m.composerValue(); got != "rascunho" {
+				t.Fatalf("held Space after Ctrl+C modified composer = %q, want %q", got, "rascunho")
+			}
+
+			// Late partial and final transcript from the cancelled session must drop.
+			*m = m.handleDictationPartial(sttPartialMsg{sessionID: cancelledSession, text: "volta a preencher"})
+			updated, _ = m.Update(dictationTranscribedMsg{sessionID: cancelledSession, text: "volta a preencher", streaming: true})
+			*m = updated.(model)
+			if got := m.composerValue(); got != "rascunho" {
+				t.Fatalf("late streaming messages modified composer = %q, want %q", got, "rascunho")
+			}
+
+			// Outside recording, Ctrl+C keeps its normal behavior: first clears
+			// the non-empty box, next arms exit, third quits.
+			updated, _ = m.Update(testKeyCtrl('c'))
+			*m = updated.(model)
+			if got := m.composerValue(); got != "" || m.exitConfirmActive || m.exiting {
+				t.Fatalf("first idle Ctrl+C should only clear composer: text=%q exitArm=%v exiting=%v", got, m.exitConfirmActive, m.exiting)
+			}
+			updated, _ = m.Update(testKeyCtrl('c'))
+			*m = updated.(model)
+			if !m.exitConfirmActive || m.exiting {
+				t.Fatalf("second idle Ctrl+C should arm exit: exitArm=%v exiting=%v", m.exitConfirmActive, m.exiting)
+			}
+			updated, _ = m.Update(testKeyCtrl('c'))
+			*m = updated.(model)
+			if !m.exiting {
+				t.Fatal("third idle Ctrl+C should quit")
+			}
+		})
+	}
+}
+
+// Ctrl+C during a Ctrl+Space recording cancels dictation, discards dimmed live
+// partials even when the cursor started mid-text with paste previews, restores
+// the exact pre-recording composer state, and ignores trailing chord repeats
+// and releases.
+func TestDictationCtrlCDuringCtrlSpaceRestoresExactMidCursorComposer(t *testing.T) {
+	acceptCacheTrueColor(t)
+	at := time.Unix(1_700_000_000, 0)
+	m := holdTestModel(t, &at)
+	m.dictation.eventTypesSupported = true
+	preState := composerState{text: "antes BLOCK depois", cursor: 5}
+	prePreviews := []composerPastePreview{{active: true, start: 6, end: 11, label: "[Pasted #1]"}}
+	m.setComposerState(preState)
+	m.composerPastePreviews = append([]composerPastePreview(nil), prePreviews...)
+
+	updated, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeySpace, Mod: tea.ModCtrl}))
+	if cmd == nil {
+		t.Fatal("Ctrl+Space should start dictation")
+	}
+	*m = updated.(model)
+	updated, _ = m.Update(dictationStartedMsg{sessionID: m.dictation.sessionID})
+	*m = updated.(model)
+	rec := newCtrlcStreamingRecorder()
+	m.dictation.streaming = true
+	_, stopStream, _ := rec.StartStreaming()
+	m.dictation.streamStop = stopStream
+	cancelledSession := m.dictation.sessionID
+
+	// Two cumulative partials arrive while the cursor was mid-text.
+	*m = m.handleDictationPartial(sttPartialMsg{sessionID: cancelledSession, text: "um"})
+	*m = m.handleDictationPartial(sttPartialMsg{sessionID: cancelledSession, text: "um dois tres"})
+
+	at = at.Add(50 * time.Millisecond)
+	updated, _ = m.Update(testKeyCtrl('c'))
+	*m = updated.(model)
+
+	if m.dictation.phase != dictIdle {
+		t.Fatalf("phase after Ctrl+C = %v, want idle", m.dictation.phase)
+	}
+	select {
+	case <-rec.stopCh:
+	default:
+		t.Fatal("Ctrl+C must stop the streaming capture")
+	}
+	if got := m.currentComposerState(); got != preState {
+		t.Fatalf("composer state after Ctrl+C = %+v, want exact pre-recording %+v", got, preState)
+	}
+	if len(m.composerPastePreviews) != 1 || m.composerPastePreviews[0] != prePreviews[0] {
+		t.Fatalf("paste previews after Ctrl+C = %+v, want %+v", m.composerPastePreviews, prePreviews)
+	}
+	if m.dictation.regionActive {
+		t.Fatal("live region must be inactive after Ctrl+C")
+	}
+
+	// Trailing Ctrl+Space repeat and key releases after Ctrl+C must be inert.
+	at = at.Add(30 * time.Millisecond)
+	pressKey(t, m, tea.Key{Code: tea.KeySpace, Mod: tea.ModCtrl})
+	updated, _ = m.Update(tea.KeyReleaseMsg(tea.Key{Code: tea.KeySpace, Mod: tea.ModCtrl}))
+	*m = updated.(model)
+	updated, _ = m.Update(tea.KeyReleaseMsg(tea.Key{Code: tea.KeyLeftCtrl}))
+	*m = updated.(model)
+	if m.dictation.phase != dictIdle {
+		t.Fatalf("trailing chord events changed phase to %v, want idle", m.dictation.phase)
+	}
+	if got := m.currentComposerState(); got != preState {
+		t.Fatalf("trailing chord events changed composer to %+v, want %+v", got, preState)
+	}
 }

@@ -92,6 +92,7 @@ func (m model) handleDictationPartial(msg sttPartialMsg) model {
 
 func (m *model) applyStreamingText(text string) {
 	state := m.currentComposerState()
+	runes := []rune(state.text)
 	if !m.dictation.regionActive {
 		m.dictation.regionActive = true
 		m.dictation.regionStart = state.cursor
@@ -100,11 +101,19 @@ func (m *model) applyStreamingText(text string) {
 		// Anchor the prefix text BEFORE the live region. If the user types or
 		// pastes outside the region, the next partial can detect the change in
 		// this prefix and shift [start,end) to stay aligned.
-		m.dictation.regionAnchor = state.text
+		m.dictation.regionAnchor = string(runes[:state.cursor])
 		if needsLeadingSpace(state) {
 			// Fold the separator into the region so a cancel removes it too.
 			m.dictation.regionPrefix = " "
 		}
+	} else if m.dictation.regionStart < 0 || m.dictation.regionStart > len(runes) || m.dictation.regionEnd < m.dictation.regionStart || m.dictation.regionEnd > len(runes) {
+		m.dictation.regionStart = state.cursor
+		m.dictation.regionEnd = state.cursor
+		m.dictation.regionPrefix = ""
+		if needsLeadingSpace(state) {
+			m.dictation.regionPrefix = " "
+		}
+		m.dictation.regionAnchor = string(runes[:state.cursor])
 	} else {
 		// Compare the prefix before the live region. If it changed (the user
 		// typed/pasted there) shift [start,end) by the length delta so the
@@ -112,7 +121,7 @@ func (m *model) applyStreamingText(text string) {
 		// INSIDE the region, drop the live region and re-anchor at the
 		// current cursor — we can't tell the partial from the user's text
 		// after that point.
-		prefix := string([]rune(state.text)[:m.dictation.regionStart])
+		prefix := string(runes[:m.dictation.regionStart])
 		anchor := m.dictation.regionAnchor
 		switch {
 		case prefix == anchor:
@@ -137,23 +146,31 @@ func (m *model) applyStreamingText(text string) {
 			m.dictation.regionStart = state.cursor
 			m.dictation.regionEnd = state.cursor
 			m.dictation.regionPrefix = ""
-			m.dictation.regionAnchor = string([]rune(state.text)[:state.cursor])
+			m.dictation.regionAnchor = string(runes[:state.cursor])
 		}
 	}
 	// Replace [regionStart, regionEnd) with prefix + the new cumulative text.
 	rendered := m.dictation.regionPrefix + text
-	cleared := deleteComposerRange(state, m.dictation.regionStart, m.dictation.regionEnd)
+	cleared, nextPreviews := deleteComposerRangeWithPastePreviews(state, m.composerPastePreviews, m.dictation.regionStart, m.dictation.regionEnd)
 	// Preserve the user's cursor if they moved it outside the live region
 	// (e.g. to edit elsewhere in the composer) — yanking it to regionStart on
 	// every partial would steal their focus mid-edit.
-	if cleared.cursor < m.dictation.regionStart || cleared.cursor > m.dictation.regionEnd {
-		// keep cleared.cursor
-	} else {
-		cleared.cursor = m.dictation.regionStart
+	outsideCursor := -1
+	if state.cursor < m.dictation.regionStart {
+		outsideCursor = state.cursor
+	} else if state.cursor > m.dictation.regionEnd {
+		outsideCursor = state.cursor - (m.dictation.regionEnd - m.dictation.regionStart) + len([]rune(rendered))
 	}
+	insertAt := m.dictation.regionStart
+	cleared.cursor = insertAt
+	nextPreviews = composerPastePreviewsAfterInsert(nextPreviews, insertAt, len([]rune(rendered)))
 	updated := insertComposerText(cleared, rendered)
+	if outsideCursor >= 0 {
+		updated.cursor = outsideCursor
+	}
 	m.dictation.regionEnd = m.dictation.regionStart + len([]rune(rendered))
 	m.setComposerState(updated)
+	m.composerPastePreviews = nextPreviews
 }
 
 // commitDictationRegion keeps the streamed text in the composer and stops
@@ -169,7 +186,9 @@ func (m model) commitDictationRegion() model {
 func (m model) discardDictationRegion() model {
 	if m.dictation.regionActive {
 		state := m.currentComposerState()
-		m.setComposerState(deleteComposerRange(state, m.dictation.regionStart, m.dictation.regionEnd))
+		nextState, nextPreviews := deleteComposerRangeWithPastePreviews(state, m.composerPastePreviews, m.dictation.regionStart, m.dictation.regionEnd)
+		m.setComposerState(nextState)
+		m.composerPastePreviews = nextPreviews
 		m.dictation.regionActive = false
 	}
 	return m
