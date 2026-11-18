@@ -373,3 +373,34 @@ func TestDetectOnlineModelArgsFamilies(t *testing.T) {
 		t.Errorf("streaming t-one ctc got %v, want --t-one-ctc-model=", tOneArgs)
 	}
 }
+
+func TestDetectOnlineKrokoModelTypeFlag(t *testing.T) {
+	krokoDir := writeNamedModelDir(t, "sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06",
+		"encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt")
+
+	onlineArgs, err := detectModelArgsFor(krokoDir, true)
+	if err != nil {
+		t.Fatalf("detectModelArgsFor(kroko, true): %v", err)
+	}
+	if !strings.Contains(strings.Join(onlineArgs, " "), "--model-type=zipformer2") {
+		t.Errorf("kroko online args = %v, want --model-type=zipformer2", onlineArgs)
+	}
+
+	offlineArgs, err := detectModelArgsFor(krokoDir, false)
+	if err != nil {
+		t.Fatalf("detectModelArgsFor(kroko, false): %v", err)
+	}
+	if strings.Contains(strings.Join(offlineArgs, " "), "--model-type=") {
+		t.Errorf("kroko offline args should not set --model-type, got %v", offlineArgs)
+	}
+
+	otherDir := writeNamedModelDir(t, "sherpa-onnx-streaming-zipformer-en-2023-06-26",
+		"encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt")
+	otherArgs, err := detectModelArgsFor(otherDir, true)
+	if err != nil {
+		t.Fatalf("detectModelArgsFor(other, true): %v", err)
+	}
+	if strings.Contains(strings.Join(otherArgs, " "), "--model-type=") {
+		t.Errorf("non-kroko args should not set --model-type, got %v", otherArgs)
+	}
+}

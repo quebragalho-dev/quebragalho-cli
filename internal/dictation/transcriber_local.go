@@ -214,7 +214,13 @@ func detectModelArgsFor(dir string, online bool) ([]string, error) {
 	// Transducer (Zipformer/Conformer): encoder + decoder + joiner, matched as a
 	// consistent int8-or-fp32 set (mixing quantizations is invalid).
 	if set := consistentQuantizedSet(files, "encoder", "decoder", "joiner"); set != nil {
-		return []string{"--encoder=" + set[0], "--decoder=" + set[1], "--joiner=" + set[2], "--tokens=" + tokens}, nil
+		args := []string{"--encoder=" + set[0], "--decoder=" + set[1], "--joiner=" + set[2], "--tokens=" + tokens}
+		if online {
+			if mt := onlineTransducerModelType(dirName); mt != "" {
+				args = append(args, "--model-type="+mt)
+			}
+		}
+		return args, nil
 	}
 
 	// Online streaming paraformer ships encoder + decoder without a joiner.
@@ -312,6 +318,15 @@ var encoderDecoderFamilies = []struct {
 	{[]string{"fire-red-asr"}, "--fire-red-asr-encoder", "--fire-red-asr-decoder"},
 	{[]string{"canary"}, "--canary-encoder", "--canary-decoder"},
 	{[]string{"cohere"}, "--cohere-transcribe-encoder", "--cohere-transcribe-decoder"},
+}
+
+// onlineTransducerModelType returns the sherpa-onnx model_type hint for known
+// online transducer models so sherpa-onnx loads the model once instead of twice.
+func onlineTransducerModelType(dirName string) string {
+	if strings.Contains(dirName, "streaming-zipformer-en-kroko") {
+		return "zipformer2"
+	}
+	return ""
 }
 
 // nameMatchesFamily reports whether the model directory name or any of its .onnx
