@@ -364,13 +364,67 @@ func deepCopyMessages(messages []qgruntime.Message) []qgruntime.Message {
 // permission/usage/error/goal markers never rode the wire, so they stay out.
 func ReconstructContinuationMessages(events []Event) []qgruntime.Message {
 	filtered := make([]Event, 0, len(events))
+	seenCalls := map[string]bool{}
 	for _, event := range events {
 		switch event.Type {
-		case EventMessage, EventToolCall, EventToolResult, EventCompaction:
+		case EventMessage, EventCompaction:
 			filtered = append(filtered, event)
+		case EventToolCall:
+			if id := eventToolCallID(event.Payload); id != "" {
+				seenCalls[id] = true
+			}
+			filtered = append(filtered, event)
+		case EventToolResult:
+			// A compaction cut landing between a tool_call and its tool_result
+			// leaves a result with no preceding call in the rehydrated log;
+			// providers reject a dangling tool message, so skip orphans here.
+			if id := eventToolCallID(event.Payload); id != "" && seenCalls[id] {
+				filtered = append(filtered, event)
+			}
 		}
 	}
 	return mergeToolCallAssistants(CompactionMessages(filtered))
+}
+
+// LoadResumeContinuation resolves the structured provider history for a
+// resumed session, sharing the interactive TUI's /resume verdict:
+//   - ContExact: repairs and filters the fresh ContinuationSnapshot for
+//     effectiveModel/effectiveProvider, keeping the frozen system prompt,
+//     tool call/result wire, reasoning blocks, and loaded deferred tools.
+//   - Otherwise (no snapshot, unreadable snapshot, or stale log after a
+//     compaction/rewind/external write): reconstructs structured messages from
+//     prepared.ContextEvents (which already starts at the latest recorded
+//     compaction summary).
+func LoadResumeContinuation(prepared PreparedExec, effectiveModel, effectiveProvider, goalKey string) (messages []qgruntime.Message, loadedTools []string, exact bool) {
+	if prepared.Mode != ModeResume || prepared.Store == nil || strings.TrimSpace(prepared.Session.SessionID) == "" {
+		return nil, nil, false
+	}
+	sessionID := prepared.Session.SessionID
+	snap, snapErr := prepared.Store.ReadContinuation(sessionID)
+	fresh := false
+	if snapErr == nil && snap != nil {
+		fresh, _, _ = prepared.Store.CheckContinuationFresh(sessionID, snap)
+	}
+	goalMatch := snap != nil && snap.GoalKey == goalKey
+	if DecideResumeVerdict(snap, snapErr, fresh, goalMatch) == ContExact {
+		repaired := RepairOrphanToolCalls(snap.Messages)
+		fromModel := snap.ModelID
+		toModel := effectiveModel
+		if strings.TrimSpace(snap.Provider) != "" && strings.TrimSpace(effectiveProvider) != "" &&
+			!strings.EqualFold(strings.TrimSpace(snap.Provider), strings.TrimSpace(effectiveProvider)) {
+			fromModel = "provider-a"
+			toModel = "provider-b"
+		}
+		filtered := FilterContinuationForModel(repaired, fromModel, toModel)
+		if len(filtered) > 0 {
+			return filtered, append([]string(nil), snap.LoadedTools...), true
+		}
+	}
+	rebuilt := RepairOrphanToolCalls(ReconstructContinuationMessages(prepared.ContextEvents))
+	if len(rebuilt) == 0 {
+		return nil, nil, false
+	}
+	return rebuilt, nil, false
 }
 
 // mergeToolCallAssistants fuses call/result pairs back into the live wire
