@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -1110,5 +1111,300 @@ func TestComposerReleaseEndsDragEvenWhenSetupIntercepts(t *testing.T) {
 
 	if got := m.selectedComposerText(); got != "" {
 		t.Fatalf("selectedComposerText() after intercepted release + hover = %q, want empty (drag must be over)", got)
+	}
+}
+
+func overlayRowScreenY(t *testing.T, m model, overlay string, width int, needle string) (int, int) {
+	t.Helper()
+	rawLines := viewLines(overlay)
+	left, normLines, _ := normalizeOverlayBlock(rawLines, width)
+	rect := m.overlayMouseRect(len(rawLines), width)
+	for i, line := range normLines {
+		if strings.Contains(plainRender(t, line), needle) {
+			return left + 3, rect.y + i
+		}
+	}
+	t.Fatalf("needle %q not found in overlay:\n%s", needle, plainRender(t, overlay))
+	return 0, 0
+}
+
+func TestScrolledGenericPickerClickAndDoubleClickKeepScrollPosition(t *testing.T) {
+	m := mouseTestModel()
+	m.height = 24
+	m.mouseCapture = true
+	items := make([]pickerItem, 15)
+	for i := range items {
+		items[i] = pickerItem{Label: fmt.Sprintf("Estilo %02d", i), Value: fmt.Sprintf("style-%02d", i)}
+	}
+	m.picker = &commandPicker{
+		kind:     pickerSkill,
+		title:    "Skills",
+		items:    items,
+		allItems: append([]pickerItem{}, items...),
+		selected: 0,
+	}
+
+	width := m.chatColumnWidth()
+	x, y := overlayRowScreenY(t, m, m.pickerOverlay(width), width, "Estilo 06")
+	click := testMouseClick(tea.MouseLeft, x, y)
+
+	updated, _ := m.Update(click)
+	next := updated.(model)
+	if next.picker == nil || next.picker.selected != 6 {
+		t.Fatalf("picker selected after first click = %#v, want 6", next.picker)
+	}
+	_, afterY := overlayRowScreenY(t, next, next.pickerOverlay(width), width, "Estilo 06")
+	if afterY != y {
+		t.Fatalf("clicked row jumped from y=%d to y=%d after first click", y, afterY)
+	}
+
+	updated, _ = next.Update(click)
+	next = updated.(model)
+	if next.picker != nil {
+		t.Fatalf("second click at same position should activate Estilo 06 and close picker, got selected=%d", next.picker.selected)
+	}
+	if got := next.input.Value(); !strings.Contains(got, "style-06") {
+		t.Fatalf("double-click activated wrong item: input = %q, want style-06", got)
+	}
+
+	// Keyboard navigation keeps the 3-row anchor behavior unchanged.
+	m.picker.selected = 0
+	for range 6 {
+		u, _ := m.Update(testKey(tea.KeyDown))
+		m = u.(model)
+	}
+	if m.picker.selected != 6 {
+		t.Fatalf("keyboard selected = %d, want 6", m.picker.selected)
+	}
+	afterKey := plainRender(t, m.pickerOverlay(width))
+	if strings.Contains(afterKey, "Estilo 00") || !strings.Contains(afterKey, "Estilo 03") {
+		t.Fatalf("keyboard Down should still scroll with 3-row anchor:\n%s", afterKey)
+	}
+}
+
+func TestScrolledConfigPickerLowTerminalDoubleClickHitsClickedRow(t *testing.T) {
+	m := mouseTestModel()
+	m.width = 96
+	m.height = 18
+	m.mouseCapture = true
+	m.picker = m.newConfigPicker()
+	// Scroll down with keyboard first, then click the top visible row in the window.
+	for range 7 {
+		u, _ := m.Update(testKey(tea.KeyDown))
+		m = u.(model)
+	}
+	width := m.chatColumnWidth()
+	_, start, visible, _, _, _ := m.configPickerPlan(width, pickerShowsDetails(m.picker, width))
+	if len(visible) < 2 || start == 0 {
+		t.Fatalf("precondition: expected scrolled config window with >=2 visible rows, got start=%d len=%d", start, len(visible))
+	}
+	topItem := visible[0]
+	x, y := overlayRowScreenY(t, m, m.pickerOverlay(width), width, topItem.Label)
+	click := testMouseClick(tea.MouseLeft, x, y)
+
+	updated, _ := m.Update(click)
+	next := updated.(model)
+	if next.picker == nil || next.picker.selected != start {
+		t.Fatalf("first click selected = %v, want %d (%s)", next.picker, start, topItem.Label)
+	}
+	_, afterY := overlayRowScreenY(t, next, next.pickerOverlay(width), width, topItem.Label)
+	if afterY != y {
+		t.Fatalf("config row %q jumped from y=%d to y=%d after first click", topItem.Label, y, afterY)
+	}
+
+	beforeBrowser := m.browserControlEnabled
+	updated, _ = next.Update(click)
+	next = updated.(model)
+	if next.picker != nil && next.picker.kind == pickerConfig {
+		if next.picker.selected != start {
+			t.Fatalf("double-click shifted selection to %d instead of activating %d (%s)", next.picker.selected, start, topItem.Label)
+		}
+		if topItem.Value == configRowBrowser && next.browserControlEnabled == beforeBrowser {
+			t.Fatal("double-click on Controle do navegador did not toggle browserControlEnabled")
+		}
+	}
+}
+
+func TestScrolledModelPaletteLowTerminalDoubleClickHitsClickedRow(t *testing.T) {
+	m := mouseTestModel()
+	m.width = 96
+	m.height = 23 // count = min(8, 23-18) = 5 visible models
+	m.mouseCapture = true
+	items := make([]pickerItem, 10)
+	for i := range items {
+		id := fmt.Sprintf("model-%02d", i)
+		items[i] = pickerItem{Label: id, Value: id, Window: 200000, PriceIn: "R$ 1,00", PriceOut: "R$ 2,00", HasTools: true}
+	}
+	m.picker = &commandPicker{
+		kind:     pickerModel,
+		panel:    true,
+		items:    items,
+		allItems: append([]pickerItem{}, items...),
+		selected: 0,
+	}
+
+	width := m.chatColumnWidth()
+	x, y := overlayRowScreenY(t, m, m.pickerOverlay(width), width, "model-04")
+	click := testMouseClick(tea.MouseLeft, x, y)
+
+	updated, _ := m.Update(click)
+	next := updated.(model)
+	if next.picker == nil || next.picker.selected != 4 {
+		t.Fatalf("palette selected after first click = %#v, want 4", next.picker)
+	}
+	_, startAfter, _ := next.modelPalettePage()
+	if startAfter != 0 {
+		t.Fatalf("palette page start jumped to %d after mouse click, want 0", startAfter)
+	}
+
+	target, ok := next.selectModelPickerAtMouse(click)
+	if !ok || target.Index != 4 || target.Value != "model-04" {
+		t.Fatalf("second click at same position hit %#v (ok=%v), want model-04 index 4", target, ok)
+	}
+}
+
+func TestScrolledThemeAndFallbackModelPickerKeepScrollPositionOnClick(t *testing.T) {
+	for _, kind := range []pickerKind{pickerTheme, pickerModel} {
+		m := mouseTestModel()
+		m.width = 96
+		m.height = 24
+		m.mouseCapture = true
+		items := make([]pickerItem, 14)
+		for i := range items {
+			items[i] = pickerItem{Label: fmt.Sprintf("item-%02d", i), Value: fmt.Sprintf("item-%02d", i)}
+		}
+		m.picker = &commandPicker{
+			kind:     kind,
+			title:    "Test",
+			items:    items,
+			allItems: append([]pickerItem{}, items...),
+			selected: 0,
+		}
+		width := m.chatColumnWidth()
+		x, y := overlayRowScreenY(t, m, m.pickerOverlay(width), width, "item-07")
+		click := testMouseClick(tea.MouseLeft, x, y)
+
+		updated, _ := m.Update(click)
+		next := updated.(model)
+		if next.picker == nil || next.picker.selected != 7 {
+			t.Fatalf("kind=%v selected after first click = %#v, want 7", kind, next.picker)
+		}
+		_, afterY := overlayRowScreenY(t, next, next.pickerOverlay(width), width, "item-07")
+		if afterY != y {
+			t.Fatalf("kind=%v row jumped from y=%d to y=%d", kind, y, afterY)
+		}
+		target, ok := next.selectPickerAtMouse(click)
+		if !ok || target.Index != 7 {
+			t.Fatalf("kind=%v second click hit %#v (ok=%v), want index 7", kind, target, ok)
+		}
+	}
+}
+
+func TestScrolledSuggestionsDoubleClickHitsClickedRow(t *testing.T) {
+	m := mouseTestModel()
+	m.height = 20
+	m = typeRunes(t, m, "/")
+	if len(m.suggestions) <= suggestionPaletteMaxVisible {
+		t.Fatalf("precondition: need >%d suggestions, got %d", suggestionPaletteMaxVisible, len(m.suggestions))
+	}
+	wantName := m.suggestions[5].Name
+	wantLabel := strings.TrimPrefix(wantName, "/")
+	width := m.chatColumnWidth()
+	x, y := overlayRowScreenY(t, m, m.suggestionOverlay(width), width, wantLabel)
+	click := testMouseClick(tea.MouseLeft, x, y)
+
+	updated, _ := m.Update(click)
+	next := updated.(model)
+	if next.suggestionIdx != 5 {
+		t.Fatalf("suggestionIdx after first click = %d, want 5", next.suggestionIdx)
+	}
+	_, afterY := overlayRowScreenY(t, next, next.suggestionOverlay(width), width, wantLabel)
+	if afterY != y {
+		t.Fatalf("suggestion %q jumped from y=%d to y=%d after first click", wantLabel, y, afterY)
+	}
+
+	target, ok := next.selectSuggestionAtMouse(click)
+	if !ok || target.Index != 5 || target.Value != wantName {
+		t.Fatalf("second click hit %#v (ok=%v), want %q at index 5", target, ok, wantName)
+	}
+}
+
+func TestScrolledMCPManagerClickKeepsScrollPosition(t *testing.T) {
+	servers := map[string]config.MCPServerConfig{}
+	for i := range 10 {
+		servers[fmt.Sprintf("srv-%02d", i)] = config.MCPServerConfig{Type: "stdio", Command: "echo"}
+	}
+	m := newModel(context.Background(), Options{MCPConfig: config.MCPConfig{Servers: servers}})
+	m.altScreen = true
+	m.width = 120
+	m.height = 28
+	m.mouseCapture = true
+	m = m.openMCPManager()
+	items := m.mcpManagerItems()
+	if len(items) <= mcpManagerMaxVisible {
+		t.Fatalf("precondition: need >%d MCP items, got %d", mcpManagerMaxVisible, len(items))
+	}
+	wantName := items[7].Name
+	width := m.chatColumnWidth()
+	x, y := overlayRowScreenY(t, m, m.mcpManagerOverlay(width), width, wantName)
+	click := testMouseClick(tea.MouseLeft, x, y)
+
+	updated, _ := m.Update(click)
+	next := updated.(model)
+	if next.mcpManager == nil || next.mcpManager.selected != 7 {
+		t.Fatalf("mcpManager selected after first click = %#v, want 7", next.mcpManager)
+	}
+	_, afterY := overlayRowScreenY(t, next, next.mcpManagerOverlay(width), width, wantName)
+	if afterY != y {
+		t.Fatalf("MCP item %q jumped from y=%d to y=%d after first click", wantName, y, afterY)
+	}
+	target, ok := next.selectMCPManagerAtMouse(click)
+	if !ok || target.Index != 7 || target.Value != wantName {
+		t.Fatalf("second click hit %#v (ok=%v), want %q at index 7", target, ok, wantName)
+	}
+}
+
+func TestScrolledSetupModelLowTerminalDoubleClickHitsClickedRow(t *testing.T) {
+	m := setupMouseTestModel()
+	m.height = 17 // setupModelMaxVisible(17, 10) = 5
+	m.mouseCapture = true
+	m.setup.stage = setupStageModel
+	models := make([]providerWizardModel, 10)
+	for i := range models {
+		models[i] = providerWizardModel{ID: fmt.Sprintf("setup-model-%02d", i)}
+	}
+	m.setup.models = models
+	m.setup.modelForID = setupProviderDescriptor(m.setupProvider()).ID
+
+	var savedModel string
+	m.setupSave = func(sel SetupSelection) (SetupResult, error) {
+		savedModel = sel.Model
+		return SetupResult{}, nil
+	}
+
+	width := m.chatColumnWidth()
+	height := normalizedStartupHeight(m.height)
+	rowWidth := setupModelBlockWidth(width, m.setup.models)
+	top := setupContentTop(height, len(m.setupModelLines(width, height)), m.setup.err != "")
+	// Row 4 in the 5-row window (index 4, which is past anchor 3).
+	click := testMouseClick(tea.MouseLeft, maxInt(0, (width-rowWidth)/2)+2, top+4+4)
+
+	updated, _ := m.Update(click)
+	next := updated.(model)
+	if next.setup.modelIndex != 4 {
+		t.Fatalf("setup modelIndex after first click = %d, want 4", next.setup.modelIndex)
+	}
+	linesAfter := next.setupModelLines(width, height)
+	if !strings.Contains(plainRender(t, linesAfter[4+4]), "setup-model-04") {
+		t.Fatalf("setup model row 4 jumped after first click:\n%s", plainRender(t, strings.Join(linesAfter, "\n")))
+	}
+
+	updated, _ = next.Update(click)
+	next = updated.(model)
+	if next.setup.visible {
+		t.Fatal("second click on setup-model-04 should complete setup")
+	}
+	if savedModel != "setup-model-04" {
+		t.Fatalf("completed setup with model %q, want setup-model-04", savedModel)
 	}
 }

@@ -230,7 +230,7 @@ func (m model) modelPalettePage() (visible []pickerItem, start int, more int) {
 		return nil, 0, 0
 	}
 	count := minInt(total, maxInt(1, minInt(8, m.height-18)))
-	start = panelListStart(total, count, clampInt(p.selected, 0, total-1))
+	start = p.scroll.resolvePanel(total, count, clampInt(p.selected, 0, total-1))
 	visible = p.items[start : start+count]
 	more = total - (start + count)
 	return visible, start, more

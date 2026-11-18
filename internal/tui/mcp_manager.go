@@ -17,6 +17,7 @@ const (
 
 type mcpManagerState struct {
 	selected int
+	scroll   listScroll
 	query    string
 }
 
@@ -124,6 +125,7 @@ func (m model) handleMCPManagerKey(msg tea.KeyMsg) (model, tea.Cmd) {
 	case keyCtrl(msg, 'u'):
 		m.mcpManager.query = ""
 		m.mcpManager.selected = 0
+		m.mcpManager.scroll.unpin()
 	case keyText(msg) != "":
 		if !keyAlt(msg) {
 			m.appendMCPManagerQuery(keyRunes(msg))
@@ -172,6 +174,7 @@ func (m *model) appendMCPManagerQuery(runes []rune) {
 		m.mcpManager.query += string(r)
 	}
 	m.mcpManager.selected = 0
+	m.mcpManager.scroll.unpin()
 }
 
 func (m *model) deleteMCPManagerQueryRune() {
@@ -181,12 +184,14 @@ func (m *model) deleteMCPManagerQueryRune() {
 	runes := []rune(m.mcpManager.query)
 	m.mcpManager.query = string(runes[:len(runes)-1])
 	m.mcpManager.selected = 0
+	m.mcpManager.scroll.unpin()
 }
 
 func (m *model) moveMCPManager(delta int) {
 	if m.mcpManager == nil {
 		return
 	}
+	m.mcpManager.scroll.unpin()
 	count := len(m.mcpManagerItems())
 	if count == 0 {
 		m.mcpManager.selected = 0
@@ -419,7 +424,7 @@ func (m model) renderMCPManagerItemLines(width int, items []mcpManagerItem) ([]s
 		return []string{fillPaletteLine(qgTheme.faint.Render("  nenhuma ação de MCP"), width, transparentSurface)}, []int{-1}
 	}
 	maxVisible := minInt(mcpManagerMaxVisible, len(items))
-	start := selectableListStart(len(items), maxVisible, m.mcpManager.selected)
+	start := m.mcpManager.scroll.resolve(len(items), maxVisible, m.mcpManager.selected)
 	visible := items[start : start+maxVisible]
 	lines := make([]string, 0, len(visible))
 	itemRows := make([]int, 0, len(visible))

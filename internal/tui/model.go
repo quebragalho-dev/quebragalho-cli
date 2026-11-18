@@ -555,6 +555,7 @@ type model struct {
 	// filePaletteOpen does the same for a trailing "@token" file search.
 	suggestions        []commandSuggestion
 	suggestionIdx      int
+	suggestionScroll   listScroll
 	commandPaletteOpen bool
 	filePaletteOpen    bool
 	// suggestionsAreFiles is true when the overlay is showing "@file" matches
@@ -5285,6 +5286,7 @@ func (m model) choosePicker() (tea.Model, tea.Cmd) {
 	case pickerSTTDownload:
 		return m.handleSTTDownloadSelection(item.Value)
 	case pickerConfig:
+		m.picker = picker
 		return m.chooseConfigRow(item)
 	case pickerTheme:
 		// Selection is applied only after Enter. Moving through the picker renders a

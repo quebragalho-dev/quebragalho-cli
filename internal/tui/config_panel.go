@@ -107,8 +107,10 @@ func (m model) configMCPValue() string {
 func (m model) refreshConfigPicker() model {
 	query := ""
 	selected := ""
+	var scroll listScroll
 	if m.picker != nil && m.picker.kind == pickerConfig {
 		query = m.picker.query
+		scroll = m.picker.scroll
 		if item, ok := m.picker.current(); ok {
 			selected = item.Value
 		}
@@ -117,6 +119,7 @@ func (m model) refreshConfigPicker() model {
 	m.picker.query = query
 	m.picker.applyQuery()
 	m.selectPickerValue(selected)
+	m.picker.scroll = scroll
 	return m
 }
 
