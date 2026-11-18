@@ -69,8 +69,12 @@ func TestFindSherpaCAPILibrary(t *testing.T) {
 	if err := os.WriteFile(libInLib, []byte("lib"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := FindSherpaCAPILibrary(binPath); got != libInLib {
-		t.Fatalf("FindSherpaCAPILibrary(../lib) = %q, want %q", got, libInLib)
+	wantInLib, err := filepath.EvalSymlinks(libInLib)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := FindSherpaCAPILibrary(binPath); got != wantInLib {
+		t.Fatalf("FindSherpaCAPILibrary(../lib) = %q, want %q", got, wantInLib)
 	}
 
 	// Sibling in bin/ takes precedence (Windows layout).
@@ -78,8 +82,12 @@ func TestFindSherpaCAPILibrary(t *testing.T) {
 	if err := os.WriteFile(libInBin, []byte("lib"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := FindSherpaCAPILibrary(binPath); got != libInBin {
-		t.Fatalf("FindSherpaCAPILibrary(bin) = %q, want %q", got, libInBin)
+	wantInBin, err := filepath.EvalSymlinks(libInBin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := FindSherpaCAPILibrary(binPath); got != wantInBin {
+		t.Fatalf("FindSherpaCAPILibrary(bin) = %q, want %q", got, wantInBin)
 	}
 }
 
