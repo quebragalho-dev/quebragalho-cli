@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	tea "charm.land/bubbletea/v2"
 	"context"
 	"fmt"
 	"image"
@@ -215,18 +216,21 @@ func (m *model) discardPendingImageTemps() {
 }
 
 // attachClipboardFiles attaches files copied in the OS clipboard (a
-// Finder/Explorer/file-manager copy) the same way a drag-drop does: images
-// and PDFs stage as attachments with the preview chips that already exist.
-// Video files are classified by media.IsVideoPath (single detector) and
-// refused with a notice; anything else is ignored. All user-facing text is
-// in Portuguese.
-func (m model) attachClipboardFiles(paths []string) model {
+// Finder/Explorer/file-manager copy) the same way a drag-drop does: images,
+// PDFs, vídeos e GIFs animados viram anexos com as prévias que já existem;
+// qualquer outra coisa é ignorada. All user-facing text is in Portuguese.
+func (m model) attachClipboardFiles(paths []string) (model, tea.Cmd) {
 	attached := 0
 	videoFailed := false
+	var cmds []tea.Cmd
 	for _, p := range paths {
 		if media.IsVideoPath(p) || media.IsAnimatedGIFFile(p, m.cwd) {
 			before := len(m.pendingImages)
-			m = m.handleVideoAttach(p)
+			var cmd tea.Cmd
+			m, cmd = m.handleVideoAttach(p)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 			if len(m.pendingImages) > before {
 				attached++
 			} else {
@@ -238,19 +242,27 @@ func (m model) attachClipboardFiles(paths []string) model {
 		if _, ok := droppedAttachmentPath(p, m.cwd); !ok {
 			continue
 		}
-		m = m.handleImageCommand(p)
+		var cmd tea.Cmd
+		m, cmd = m.handleImageCommand(p)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		if len(m.pendingImages)+len(m.pendingDocuments) > before {
 			attached++
 		}
 	}
 	switch {
 	case attached > 0:
-		return m
+		// chips ([Image #N]/[Doc #N]) confirmam, como no arrastar
 	case videoFailed:
-		return m
+		// handleVideoAttach já explicou o aviso em português
 	default:
-		return m.appendImageNotice("Nenhum arquivo copiado pôde ser anexado — o qg anexa imagens, PDFs e vídeos.")
+		m = m.appendImageNotice("Nenhum arquivo copiado pôde ser anexado — o qg anexa imagens, PDFs e vídeos.")
 	}
+	if len(cmds) == 0 {
+		return m, nil
+	}
+	return m, tea.Batch(cmds...)
 }
 
 // handleImageCommand processes "/image <path>" and "/image clear". A bare
@@ -258,11 +270,11 @@ func (m model) attachClipboardFiles(paths []string) model {
 // attaches; pages rasterize to images only for vision models with a rasterizer).
 // Image files attach only to vision models. Attachment failures (missing file,
 // unsupported type, oversize) surface as an inline notice and attach nothing.
-func (m model) handleImageCommand(arg string) model {
+func (m model) handleImageCommand(arg string) (model, tea.Cmd) {
 	trimmed := strings.TrimSpace(arg)
 	switch {
 	case trimmed == "":
-		return m.appendImageNotice("Usage: /image <path>  (image or PDF; or /image clear)")
+		return m.appendImageNotice("Usage: /image <path>  (image or PDF; or /image clear)"), nil
 	case strings.EqualFold(trimmed, "clear"):
 		m.discardPendingImageTemps()
 		m.pendingImages = nil
@@ -270,7 +282,7 @@ func (m model) handleImageCommand(arg string) model {
 		m.pendingImageThumbnails = nil
 		m.pendingDocuments = nil
 		m.pendingVideoInfos = nil
-		return m.appendImageNotice("Cleared pending attachments.")
+		return m.appendImageNotice("Cleared pending attachments."), nil
 	}
 
 	// Vídeo e GIF animado viram quadros (handleVideoAttach, isolado para
@@ -286,24 +298,24 @@ func (m model) handleImageCommand(arg string) model {
 	// extension still reaches the document path rather than the vision-only image
 	// path. The cheap header sniff runs before the vision gate.
 	if imageinput.IsProbablyDocumentPath(trimmed) || imageinput.LooksLikeDocumentFile(trimmed, m.cwd) {
-		return m.handleDocumentAttach(trimmed)
+		return m.handleDocumentAttach(trimmed), nil
 	}
 
 	if !m.modelSupportsVisionTUI() {
 		name := displayValue(m.modelName, "o modelo atual")
-		return m.appendImageNotice("O modelo " + name + " não suporta imagens; anexo recusado.")
+		return m.appendImageNotice("O modelo " + name + " não suporta imagens; anexo recusado."), nil
 	}
 
 	block, err := imageinput.LoadFile(trimmed, m.cwd)
 	if err != nil {
-		return m.appendImageNotice(err.Error())
+		return m.appendImageNotice(err.Error()), nil
 	}
 
 	m.appendPendingImage(block, filepath.Base(trimmed), "")
 	m.refreshPendingImageThumbnail()
 	// No "attached" system message: the composer attachment chip ([Image #N]) is
 	// the confirmation, matching the compact attach UX.
-	return m
+	return m, nil
 }
 
 // pendingDocument is a PDF staged by /image for the next user turn: its extracted
@@ -349,38 +361,55 @@ type pendingVideoInfo struct {
 	frames int
 }
 
+// videoFramesMsg carries a finished background frame extraction: on success
+// the frames stage as image attachments with their context line.
+type videoFramesMsg struct {
+	label    string
+	frames   []media.Frame
+	duration float64
+	err      error
+}
+
+// extractVideoFramesCmd runs the ffmpeg extraction off the TUI thread: even a
+// short clip blocks the UI for seconds, and a long one for over ten.
+func extractVideoFramesCmd(path, cwd, ffmpegPath, ffprobePath string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), media.VideoAttachTimeout)
+		defer cancel()
+		frames, duration, err := media.ExtractAttachmentFrames(ctx, ffmpegPath, ffprobePath, path, cwd, media.ExtractOptions{})
+		return videoFramesMsg{label: filepath.Base(path), frames: frames, duration: duration, err: err}
+	}
+}
+
 // handleVideoAttach stages a video file (or animated GIF) as image frames for
 // the next user turn, with a context line (duration, frame count, instants).
 // Single-frame GIFs never reach here: they follow the plain image path.
-// Failure (no vision, no ffmpeg, oversize, undecodable) surfaces an inline
-// notice in Portuguese and attaches nothing.
-func (m model) handleVideoAttach(path string) model {
+// Videos extract in the background (a ffmpeg pass takes seconds); GIFs decode
+// synchronously via stdlib. Failure (no vision, no ffmpeg, oversize,
+// undecodable) surfaces an inline notice in Portuguese and attaches nothing.
+func (m model) handleVideoAttach(path string) (model, tea.Cmd) {
 	if !m.modelSupportsVisionTUI() {
-		name := displayValue(m.modelName, "o modelo atual")
-		return m.appendImageNotice("O modelo " + name + " não suporta imagens; anexo de vídeo recusado.")
+		return m.appendImageNotice("O modelo " + displayValue(m.modelName, "o modelo atual") + " não suporta imagens; anexo de vídeo recusado."), nil
 	}
 	label := filepath.Base(path)
-	var frames []media.Frame
-	var duration float64
 	if media.IsVideoPath(path) {
 		ffmpegPath, ffprobePath, ok := media.ResolveFFmpeg()
 		if !ok {
-			return m.appendImageNotice("ffmpeg não encontrado para extrair os quadros do vídeo. Baixe com: qg ffmpeg baixar (download único, ~115–170 MB conforme a plataforma). Ou instale manualmente: brew install ffmpeg (macOS), winget install Gyan.FFmpeg (Windows) ou sudo apt install ffmpeg (Linux).")
+			return m.appendImageNotice("ffmpeg não encontrado para extrair os quadros do vídeo. Baixe com: qg ffmpeg baixar (download único, ~115–170 MB conforme a plataforma). Ou instale manualmente: brew install ffmpeg (macOS), winget install Gyan.FFmpeg (Windows) ou sudo apt install ffmpeg (Linux)."), nil
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), media.VideoAttachTimeout)
-		defer cancel()
-		extracted, extractedDuration, err := media.ExtractAttachmentFrames(ctx, ffmpegPath, ffprobePath, path, m.cwd, media.ExtractOptions{})
-		if err != nil {
-			return m.appendImageNotice(err.Error())
-		}
-		frames, duration = extracted, extractedDuration
-	} else {
-		extracted, extractedDuration, err := media.ExtractAttachmentFrames(context.Background(), "", "", path, m.cwd, media.ExtractOptions{})
-		if err != nil {
-			return m.appendImageNotice(err.Error())
-		}
-		frames, duration = extracted, extractedDuration
+		m = m.showTransientNoticeInline("Extraindo quadros de "+label+"…", transientNoticeInfo)
+		return m, extractVideoFramesCmd(path, m.cwd, ffmpegPath, ffprobePath)
 	}
+	frames, duration, err := media.ExtractAttachmentFrames(context.Background(), "", "", path, m.cwd, media.ExtractOptions{})
+	if err != nil {
+		return m.appendImageNotice(err.Error()), nil
+	}
+	return m.stageVideoFrames(label, frames, duration), nil
+}
+
+// stageVideoFrames stages extracted frames as pending images with their
+// context line, refreshing the first-frame preview.
+func (m model) stageVideoFrames(label string, frames []media.Frame, duration float64) model {
 	for _, frame := range frames {
 		m.appendPendingImage(qgruntime.ImageBlock{MediaType: "image/jpeg", Data: frame.Data}, label, "")
 	}
@@ -391,6 +420,18 @@ func (m model) handleVideoAttach(path string) model {
 	})
 	m.refreshPendingImageThumbnail()
 	return m
+}
+
+// consumePendingVideoPreamble returns the staged video context lines for the
+// prompt preamble, or "" when the active model cannot receive them (the frames
+// are dropped with a notice by the submit path, so the context line must not
+// go alone). It always clears the pending video infos.
+func (m *model) consumePendingVideoPreamble() string {
+	if !m.modelSupportsVisionTUI() {
+		m.pendingVideoInfos = nil
+		return ""
+	}
+	return m.consumePendingVideos()
 }
 
 // consumePendingVideos returns the staged video context lines formatted as a

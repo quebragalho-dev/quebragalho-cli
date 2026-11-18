@@ -1985,9 +1985,18 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m = m.attachClipboardImage(msg.data, msg.mediaType)
 		}
 		if len(msg.files) > 0 {
-			m = m.attachClipboardFiles(msg.files)
+			var attachCmd tea.Cmd
+			m, attachCmd = m.attachClipboardFiles(msg.files)
+			if attachCmd != nil {
+				return m, attachCmd
+			}
 		}
 		return m, nil
+	case videoFramesMsg:
+		if msg.err != nil {
+			return m.appendImageNotice(msg.err.Error()), nil
+		}
+		return m.stageVideoFrames(msg.label, msg.frames, msg.duration), nil
 	case tea.PasteMsg:
 		// While attached to a live terminal, a paste forwards verbatim to the
 		// PTY stdin — never into the composer or transcript.
@@ -5413,10 +5422,11 @@ func (m model) handleSubmit() (tea.Model, tea.Cmd) {
 	// A drag-dropped image/PDF path that reached the composer (e.g. inserted as
 	// text) attaches instead of being parsed as an unknown "/…" command.
 	if path, ok := droppedAttachmentPath(input, m.cwd); ok {
-		m = m.handleImageCommand(path)
+		var attachCmd tea.Cmd
+		m, attachCmd = m.handleImageCommand(path)
 		m.clearComposer()
 		m.clearSuggestions()
-		return m, nil
+		return m, attachCmd
 	}
 	command := parseCommand(input)
 	// A pending /clear or /quit leave-confirmation is armed for the immediately-next
@@ -6069,8 +6079,8 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		// status card, "reset" clears, anything else starts a setup turn.
 		return m.handleStatuslineCommand(command.text)
 	case commandImage:
-		m = m.handleImageCommand(command.text)
-		return m, nil
+		next, cmd := m.handleImageCommand(command.text)
+		return next, cmd
 	case commandAddDir:
 		m = m.handleAddDirCommand(command.text)
 		return m, nil
@@ -6347,7 +6357,7 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 	// visible transcript above keeps the user's clean prompt; the agent (and the
 	// recorded session, for resume fidelity) sees the document text first.
 	if peer == nil {
-		if preamble := m.consumePendingVideos(); preamble != "" {
+		if preamble := m.consumePendingVideoPreamble(); preamble != "" {
 			prompt = preamble + prompt
 		}
 		if preamble := m.consumePendingDocuments(); preamble != "" {

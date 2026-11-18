@@ -62,7 +62,7 @@ func TestCtrlVPastesClipboardFilesLikeDragDrop(t *testing.T) {
 	}
 }
 
-// Arquivo de vídeo copiado no Finder/Explorer anexa quadros, igual ao
+// Arquivo de vídeo copiado no Finder/Explorer anexa como quadros, igual ao
 // arrastar: precisa do ffmpeg no PATH (falso aqui).
 func TestCtrlVPastesVideoAsFrames(t *testing.T) {
 	dir := t.TempDir()
@@ -72,7 +72,7 @@ func TestCtrlVPastesVideoAsFrames(t *testing.T) {
 	writeFakeFFmpegTUI(t, dir, "ffmpeg")
 	writeFakeFFmpegTUI(t, dir, "ffprobe")
 	clip := filepath.Join(dir, "clip.mp4")
-	if err := os.WriteFile(clip, []byte("fake-video"), 0o644); err != nil {
+	if err := os.WriteFile(clip, []byte("fake-vídeo"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	stubClipboardContent(t, clipboardStub{files: []string{clip}})
@@ -80,8 +80,14 @@ func TestCtrlVPastesVideoAsFrames(t *testing.T) {
 	m := newModel(context.Background(), Options{Cwd: dir, ModelName: "muse-spark-1.3-contributor"})
 	updated, cmd := m.Update(testKeyCtrl('v'))
 	msg := execCmd(cmd)
-	updated2, _ := updated.(model).Update(msg.(clipboardImageMsg))
+	updated2, attachCmd := updated.(model).Update(msg.(clipboardImageMsg))
 	got := updated2.(model)
+	if attachCmd != nil {
+		if vmsg, ok := execCmd(attachCmd).(videoFramesMsg); ok {
+			finished, _ := got.Update(vmsg)
+			got = finished.(model)
+		}
+	}
 
 	if len(got.pendingImages) == 0 {
 		t.Fatalf("vídeo colado deveria anexar quadros, aviso: %q", lastTranscriptText(got))
@@ -102,8 +108,11 @@ func TestCtrlVPastesAnimatedGIFAsFrames(t *testing.T) {
 	m := newModel(context.Background(), Options{Cwd: dir, ModelName: "muse-spark-1.3-contributor"})
 	updated, cmd := m.Update(testKeyCtrl('v'))
 	msg := execCmd(cmd)
-	updated2, _ := updated.(model).Update(msg.(clipboardImageMsg))
+	updated2, attachCmd := updated.(model).Update(msg.(clipboardImageMsg))
 	got := updated2.(model)
+	if attachCmd != nil {
+		t.Fatalf("GIF animado deveria anexar de forma síncrona, veio cmd: %T", attachCmd)
+	}
 
 	if len(got.pendingImages) == 0 {
 		t.Fatalf("GIF animado colado deveria anexar quadros, aviso: %q", lastTranscriptText(got))

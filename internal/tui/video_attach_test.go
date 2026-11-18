@@ -81,6 +81,22 @@ func videoAttachModel(t *testing.T, root string) model {
 	return newModel(context.Background(), Options{Cwd: root, ModelName: "muse-spark-1.3-contributor"})
 }
 
+// attachVideoAndFinish roda /image num vídeo e espera a extração assíncrona
+// terminar, como o Update faria com o tea.Cmd devolvido.
+func attachVideoAndFinish(t *testing.T, m model, path string) model {
+	t.Helper()
+	next, cmd := m.handleImageCommand(path)
+	if cmd == nil {
+		t.Fatal("anexo de vídeo deveria extrair em background (tea.Cmd)")
+	}
+	msg, ok := execCmd(cmd).(videoFramesMsg)
+	if !ok {
+		t.Fatalf("esperava videoFramesMsg, veio %T", msg)
+	}
+	updated, _ := next.Update(msg)
+	return updated.(model)
+}
+
 // Anexar vídeo com ffmpeg disponível vira quadros + linha de contexto.
 func TestVideoAttachStagesFramesWithContextLine(t *testing.T) {
 	root := t.TempDir()
@@ -95,7 +111,7 @@ func TestVideoAttachStagesFramesWithContextLine(t *testing.T) {
 	}
 
 	m := videoAttachModel(t, root)
-	next := m.handleImageCommand(video)
+	next := attachVideoAndFinish(t, m, video)
 	if len(next.pendingImages) != 8 {
 		t.Fatalf("quadros anexados = %d, want 8 (padrão)", len(next.pendingImages))
 	}
@@ -117,7 +133,10 @@ func TestVideoAttachStagesFramesWithContextLine(t *testing.T) {
 func TestVideoAttachRefusesWithoutVision(t *testing.T) {
 	root := t.TempDir()
 	m := newModel(context.Background(), Options{Cwd: root, ModelName: "totally-unknown-custom"})
-	next := m.handleImageCommand(filepath.Join(root, "filme.mp4"))
+	next, cmd := m.handleImageCommand(filepath.Join(root, "filme.mp4"))
+	if cmd != nil {
+		t.Fatal("recusa não deveria agendar extração")
+	}
 	if len(next.pendingImages) != 0 {
 		t.Fatal("sem visão, nada deveria anexar")
 	}
@@ -138,7 +157,10 @@ func TestVideoAttachWithoutFFmpegExplainsInstall(t *testing.T) {
 	}
 
 	m := videoAttachModel(t, root)
-	next := m.handleImageCommand(video)
+	next, cmd := m.handleImageCommand(video)
+	if cmd != nil {
+		t.Fatal("sem ffmpeg, nada deveria ser agendado")
+	}
 	if len(next.pendingImages) != 0 {
 		t.Fatal("sem ffmpeg, nada deveria anexar")
 	}
@@ -158,7 +180,10 @@ func TestAnimatedGIFAttachesFramesWithoutFFmpeg(t *testing.T) {
 	gifPath := writeTinyGIF(t, root, "animado.gif", 5)
 
 	m := videoAttachModel(t, root)
-	next := m.handleImageCommand(gifPath)
+	next, cmd := m.handleImageCommand(gifPath)
+	if cmd != nil {
+		t.Fatal("GIF deveria anexar de forma síncrona")
+	}
 	if len(next.pendingImages) == 0 {
 		t.Fatalf("GIF animado deveria anexar quadros, aviso: %q", lastTranscriptText(next))
 	}
@@ -173,7 +198,10 @@ func TestSingleFrameGIFStaysImage(t *testing.T) {
 	gifPath := writeTinyGIF(t, root, "estatico.gif", 1)
 
 	m := videoAttachModel(t, root)
-	next := m.handleImageCommand(gifPath)
+	next, cmd := m.handleImageCommand(gifPath)
+	if cmd != nil {
+		t.Fatal("GIF deveria anexar de forma síncrona")
+	}
 	if len(next.pendingImages) != 1 {
 		t.Fatalf("GIF de 1 quadro deveria anexar 1 imagem, foi %d (%q)", len(next.pendingImages), lastTranscriptText(next))
 	}
@@ -223,7 +251,7 @@ func TestVideoAttachKeepsTempsInLockstep(t *testing.T) {
 	if err := os.WriteFile(video, []byte("fake-video-bytes"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	next := videoAttachModel(t, root).handleImageCommand(video)
+	next := attachVideoAndFinish(t, videoAttachModel(t, root), video)
 	if len(next.pendingImages) == 0 {
 		t.Fatalf("setup: nada anexado (%q)", lastTranscriptText(next))
 	}
@@ -238,6 +266,25 @@ func TestVideoAttachKeepsTempsInLockstep(t *testing.T) {
 }
 
 // Remover anexo tira o vídeo inteiro (todos os quadros) de uma vez.
+// Sem visão no envio, a linha de contexto não vai sozinha: o drop dos
+// quadros leva a infos junto.
+func TestVideoPreambleDroppedWithoutVision(t *testing.T) {
+	m := newModel(context.Background(), Options{Cwd: t.TempDir(), ModelName: "totally-unknown-custom"})
+	m.pendingVideoInfos = []pendingVideoInfo{{label: "a.mov", text: "Attached video: a.mov", frames: 2}}
+	if got := m.consumePendingVideoPreamble(); got != "" {
+		t.Fatalf("preâmbulo sem visão deveria ser vazio, foi %q", got)
+	}
+	if len(m.pendingVideoInfos) != 0 {
+		t.Fatal("infos deveriam ser descartadas junto com os quadros")
+	}
+
+	vision := newModel(context.Background(), Options{Cwd: t.TempDir(), ModelName: "muse-spark-1.3-contributor"})
+	vision.pendingVideoInfos = []pendingVideoInfo{{label: "a.mov", text: "Attached video: a.mov", frames: 2}}
+	if got := vision.consumePendingVideoPreamble(); got != "Attached video: a.mov\n" {
+		t.Fatalf("preâmbulo com visão = %q", got)
+	}
+}
+
 func TestRemoveLastAttachmentDropsWholeVideo(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("PATH", root)
@@ -251,7 +298,7 @@ func TestRemoveLastAttachmentDropsWholeVideo(t *testing.T) {
 	}
 
 	m := videoAttachModel(t, root)
-	staged := m.handleImageCommand(video)
+	staged := attachVideoAndFinish(t, m, video)
 	if len(staged.pendingImages) == 0 {
 		t.Fatalf("setup: nada anexado (%q)", lastTranscriptText(staged))
 	}
