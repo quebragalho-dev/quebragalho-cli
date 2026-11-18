@@ -974,7 +974,7 @@ func (m model) setCompactStatusRow(text string) model {
 // receipt row goes to the live transcript too, so the live view matches
 // the resumed one. Must run on the Update loop, never in runCompact's
 // goroutine.
-func (m model) recordCompactionUsage(modelID string, event qgruntime.Usage) model {
+func (m model) recordCompactionUsage(modelID string, event qgruntime.Usage) (model, bool) {
 	callModelID := strings.TrimSpace(event.ModelID)
 	if callModelID == "" {
 		callModelID = strings.TrimSpace(modelID)
@@ -983,7 +983,7 @@ func (m model) recordCompactionUsage(modelID string, event qgruntime.Usage) mode
 		callModelID = strings.TrimSpace(m.modelName)
 	}
 	if callModelID == "" {
-		return m
+		return m, false
 	}
 	event.Summarizer = true
 	var info qgaccount.ModelInfo
@@ -1010,7 +1010,11 @@ func (m model) recordCompactionUsage(modelID string, event qgruntime.Usage) mode
 	if err != nil {
 		m.transcript = appendTranscriptRow(m.transcript, transcriptRow{kind: rowError, text: "erro ao gravar a sessão: " + err.Error()})
 	}
-	return m
+	var goalChanged bool
+	if normalized, _, normErr := usage.Normalize(event); normErr == nil && normalized.TotalTokens > 0 {
+		m, goalChanged = m.accountGoalTokens(normalized.TotalTokens)
+	}
+	return m, goalChanged
 }
 
 func (m model) recordUsageEvent(modelID string, event qgruntime.Usage, receipt transcriptRow) (model, []transcriptRow) {

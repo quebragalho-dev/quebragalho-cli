@@ -3098,6 +3098,17 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.sessionEvents = append(m.sessionEvents, msg.flushedEvents...)
 					m.foldFlushedSessionMetadata(msg.flushedEvents)
 					m, flushRows = m.appendSessionEvents(events)
+					if msg.goalAware {
+						cancelledTokens := 0
+						for _, ev := range msg.usageEvents {
+							if normalized, _, normErr := usage.Normalize(ev); normErr == nil {
+								cancelledTokens += normalized.TotalTokens
+							}
+						}
+						if cancelledTokens > 0 {
+							m, _ = m.accountGoalTokens(cancelledTokens)
+						}
+					}
 				} else {
 					flushRows = m.appendSessionEventsTo(flushSessionID, events)
 				}
@@ -3395,7 +3406,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// not touch model state: record its usage here, through the same
 		// tracker and provider_usage path as agent turns.
 		if msg.hasCompactionUsage && msg.compactionUsage.TotalTokens() > 0 {
-			m = m.recordCompactionUsage(msg.compactionModel, msg.compactionUsage)
+			var goalChanged bool
+			m, goalChanged = m.recordCompactionUsage(msg.compactionModel, msg.compactionUsage)
+			if goalChanged && msg.hasSessionSnapshot {
+				m = m.rewriteSnapshotFromEvents()
+			}
 		}
 		m = m.setCompactStatusRow(m.compactText(true))
 		return m.launchParkedSendNowAfterCompaction()
