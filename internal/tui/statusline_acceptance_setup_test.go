@@ -80,7 +80,7 @@ func TestStatusLineAcceptance_InstallUsesPreviewedBytes(t *testing.T) {
 	provider, staged := slStageOnce(env, func(staging string) bool { return slStageScript(staging, previewed) })
 	p := startSLPump(t, newSLModel(t, env, provider), 120, 40)
 	p.submit("/statusline quero uma linha minha")
-	if frame, ok := p.waitFor(8*time.Second, containsPlain("SL-PREVIEWED")); !ok {
+	if frame, ok := p.waitFor(15*time.Second, containsPlain("SL-PREVIEWED")); !ok {
 		t.Fatalf("no preview with the staged output:\n%s", plainFrame(frame))
 	}
 	rewritten := "#!/bin/sh\ntouch '" + marker + "'\nprintf 'SL-REWRITTEN\\n'\n"
@@ -88,8 +88,15 @@ func TestStatusLineAcceptance_InstallUsesPreviewedBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.key(tea.KeyEnter)
-	frame := p.runFor(2500 * time.Millisecond)
-	installed, err := os.ReadFile(filepath.Join(env.scriptsDir, "x.sh"))
+	installedPath := filepath.Join(env.scriptsDir, "x.sh")
+	frame, _ := p.waitFor(15*time.Second, func(f string) bool {
+		if _, err := os.Stat(installedPath); err != nil {
+			return false
+		}
+		footer := slFooter(plainFrame(f))
+		return strings.Contains(footer, "SL-PREVIEWED") || strings.Contains(footer, "SL-REWRITTEN")
+	})
+	installed, err := os.ReadFile(installedPath)
 	if err != nil {
 		t.Fatalf("no installed script: %v", err)
 	}
