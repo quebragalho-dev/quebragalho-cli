@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -428,18 +427,12 @@ func TestStatuslineCommandKeepsOutputOnWaitDelay(t *testing.T) {
 	if grandchild == 0 {
 		t.Fatal("grandchild never recorded its pid")
 	}
-	if runtime.GOOS == "windows" {
-		// Windows has no process groups: once the shell has exited, the
-		// tree kill cannot find its orphan (execution.KillProcessGroup).
-		// The kept output above is what this test can assert there.
-		return
-	}
 	deadline := time.Now().Add(5 * time.Second)
 	for statuslineTestProcessAlive(grandchild) && time.Now().Before(deadline) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	if statuslineTestProcessAlive(grandchild) {
-		t.Fatalf("grandchild pid %d still alive: the group kill did not run", grandchild)
+		t.Fatalf("grandchild pid %d still alive: the group/job kill did not run", grandchild)
 	}
 }
 
@@ -456,32 +449,6 @@ func statuslineTestWaitPID(t *testing.T, path string) int {
 		time.Sleep(50 * time.Millisecond)
 	}
 	return 0
-}
-
-// statuslineTestProcessAlive reports whether pid still runs (zombies count
-// as gone: the group kill reaps through init).
-func statuslineTestProcessAlive(pid int) bool {
-	if pid <= 1 {
-		return false
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	if err := proc.Signal(syscall.Signal(0)); err != nil {
-		return false
-	}
-	return !statuslineTestProcessZombie(pid)
-}
-
-// statuslineTestProcessZombie reports a zombie state via ps, mirroring the
-// execution package's reap-aware check without importing test-only helpers.
-func statuslineTestProcessZombie(pid int) bool {
-	out, err := exec.Command("ps", "-o", "stat=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
-		return true
-	}
-	return strings.HasPrefix(strings.TrimSpace(string(out)), "Z")
 }
 
 // Unbounded output is capped in memory: the buffer keeps exactly the 64 KiB
@@ -537,8 +504,8 @@ func leakHelperCommand(pidFile string) []string {
 }
 
 // reapStatuslineTestHelper kills the grandchild recorded in pidFile when the
-// test ends. On Windows an orphaned grandchild survives the tree kill and,
-// being a copy of the test binary, keeps go test from deleting that binary.
+// test ends as a safety net so a failing run does not leak a copy of the test
+// binary (which on Windows would keep go test from removing the binary).
 func reapStatuslineTestHelper(t *testing.T, pidFile string) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -635,6 +602,36 @@ func TestStatuslineSleepHelper(t *testing.T) {
 		grandchild.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
 		grandchild.Stdout = os.Stdout
 		if err := grandchild.Start(); err != nil {
+			os.Exit(2)
+		}
+		os.Stdout.WriteString(args[2] + "\n")
+		os.Exit(0)
+	case "leakdetached":
+		if len(args) < 3 {
+			os.Exit(2)
+		}
+		// Spawn a grandchild with no inherited stdio pipes (so cmd.Wait returns
+		// nil immediately when this parent exits), wait until it records its
+		// PID, then print output and exit 0.
+		grandchild := exec.Command(os.Args[0],
+			"-test.run=TestStatuslineSleepHelper", "--", "holdpid", args[1], "30s")
+		grandchild.Env = []string{"GO_WANT_HELPER_PROCESS=1"}
+		if err := grandchild.Start(); err != nil {
+			os.Exit(2)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		ready := false
+		for time.Now().Before(deadline) {
+			if raw, err := os.ReadFile(args[1]); err == nil {
+				if pid, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && pid > 1 {
+					ready = true
+					break
+				}
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+		if !ready {
+			_ = grandchild.Process.Kill()
 			os.Exit(2)
 		}
 		os.Stdout.WriteString(args[2] + "\n")

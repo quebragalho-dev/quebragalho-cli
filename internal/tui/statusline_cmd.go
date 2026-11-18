@@ -15,7 +15,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/quebragalho-dev/quebragalho-cli/internal/execution"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 )
 
@@ -319,7 +318,7 @@ func execStatuslineRun(ctx context.Context, command, stdin string, env []string,
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := statuslineShellCommand(runCtx, command, stdin, env)
-	statuslineHardenCmd(cmd)
+	proc := statuslineHardenCmd(cmd)
 	// The pipe and its copier belong to os/exec: on Cancel it closes the
 	// parent ends after WaitDelay even when an escaped grandchild (own group)
 	// still holds them open. A self-owned io.Copy here would never reach
@@ -332,6 +331,8 @@ func execStatuslineRun(ctx context.Context, command, stdin string, env []string,
 	if err := cmd.Start(); err != nil {
 		return statuslineCmdMsg{errNote: "statusline: comando falhou (erro de execução)"}
 	}
+	proc.afterStart()
+	defer proc.close()
 	waitErr := cmd.Wait()
 	text := strings.TrimRight(string(kept.bytes), "\n")
 	switch {
@@ -345,11 +346,9 @@ func execStatuslineRun(ctx context.Context, command, stdin string, env []string,
 		// A failed Wait can leave backgrounded children behind: a nonzero
 		// exit returns an *ExitError with the group still alive, and an
 		// orphaned grandchild only unblocks Wait via WaitDelay. Kill the
-		// group on every error return so no orphan survives per refresh;
+		// group/job on every error return so no orphan survives per refresh;
 		// the output already received is still good, so keep it.
-		if cmd.Process != nil {
-			_ = execution.KillProcessGroup(cmd.Process.Pid)
-		}
+		proc.killOnFailure()
 		if errors.Is(waitErr, exec.ErrWaitDelay) && text != "" {
 			return statuslineCmdMsg{lines: sanitizeStatuslineOutput(text)}
 		}
@@ -380,28 +379,6 @@ func (w *cappedStatuslineBuffer) Write(p []byte) (int, error) {
 		w.bytes = append(w.bytes, p[:min(len(p), w.cap-len(w.bytes))]...)
 	}
 	return len(p), nil
-}
-
-// statuslineHardenCmd makes one statusline run killable as a single unit, so
-// a timeout cannot leak backgrounded children: the child leads its own
-// process group (Unix) and Cancel signals the whole tree (taskkill /T on
-// Windows), mirroring tools.hardenProcessLifetime. WaitDelay is the backstop
-// because the pipe and its copier belong to os/exec (cmd.Stdout above): after
-// Cancel it closes the parent ends after the grace period even when an
-// escaped grandchild in its own group still holds them open.
-func statuslineHardenCmd(cmd *exec.Cmd) {
-	execution.ConfigureProcessGroup(cmd)
-	cmd.WaitDelay = statuslineTreeKillGrace
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return nil
-		}
-		// Launch-time invariant (ConfigureProcessGroup above), not
-		// rediscovery: the leader may already have exited while a
-		// grandchild holds the pipes, and rediscovery then misses the
-		// group it configured.
-		return execution.KillProcessGroup(cmd.Process.Pid)
-	}
 }
 
 // statuslineSanitizeWidth bounds cached command lines in memory; the render
