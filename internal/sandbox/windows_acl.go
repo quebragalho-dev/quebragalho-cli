@@ -62,6 +62,22 @@ func BuildWindowsACLPlan(config WindowsSandboxCommandConfig) (WindowsACLPlan, er
 			Path:       capability.Root,
 			Capability: capability.SID,
 		})
+		for _, path := range capability.MaterializedWriteDenyPaths {
+			// Protected metadata (.qg, .agents) denies materialize: a deny ACE
+			// cannot attach to a path that does not exist, and the apply skips
+			// missing non-materialized targets, so without this an isolated
+			// command creates the directory itself and writes inside it.
+			// Operator-named subpaths below deliberately keep the old
+			// behaviour: creating arbitrary operator paths during (possibly
+			// elevated) setup would be host mutation, not confinement.
+			entries = append(entries, WindowsACLEntry{
+				Action:      WindowsACLDenyWrite,
+				Path:        path,
+				Capability:  capability.SID,
+				Anchor:      capability.Root,
+				Materialize: true,
+			})
+		}
 		for _, path := range capability.ProtectedWriteDenyPaths {
 			// ANCHORED ONLY WHERE THE ANCHOR IS TRUE. Most of these are derived
 			// from the root and sit under it, and holding those inside it is the
@@ -114,10 +130,30 @@ func BuildWindowsACLPlan(config WindowsSandboxCommandConfig) (WindowsACLPlan, er
 	return WindowsACLPlan{Entries: dedupeWindowsACLEntries(entries)}, nil
 }
 
+// windowsSandboxOwnedMetadataName reports whether a protected metadata directory
+// is owned by the sandbox itself (.qg, .agents) rather than merely guarded.
+// Only owned names materialize their deny target: creating an arbitrary guarded
+// name (for example an empty .git) during setup would change tool behaviour on
+// the host, while an empty .qg or .agents directory is indistinguishable from
+// an absent one to every consumer.
+func windowsSandboxOwnedMetadataName(name string) bool {
+	for _, owned := range sandboxFullyProtectedMetadataNames {
+		if strings.EqualFold(strings.TrimSpace(name), owned) {
+			return true
+		}
+	}
+	return false
+}
+
 type windowsWriteRootCapability struct {
 	Root                    string
 	SID                     string
 	ProtectedWriteDenyPaths []string
+	// MaterializedWriteDenyPaths are denies derived from ProtectedMetadataNames
+	// (.qg, .agents). Unlike operator-named ReadOnlySubpaths (which keep
+	// ProtectedWriteDenyPaths), these materialize their target so the deny
+	// holds whether or not the directory existed before setup.
+	MaterializedWriteDenyPaths []string
 }
 
 func windowsWriteRootCapabilities(config WindowsSandboxCommandConfig) ([]windowsWriteRootCapability, error) {
@@ -131,21 +167,27 @@ func windowsWriteRootCapabilities(config WindowsSandboxCommandConfig) ([]windows
 		if err != nil {
 			return nil, err
 		}
-		protected := make([]string, 0, len(root.ProtectedMetadataNames)+len(root.ReadOnlySubpaths))
+		protected := make([]string, 0, len(root.ReadOnlySubpaths))
 		for _, subpath := range root.ReadOnlySubpaths {
 			if trimmed := strings.TrimSpace(subpath); trimmed != "" {
 				protected = append(protected, trimmed)
 			}
 		}
+		materialized := make([]string, 0, len(root.ProtectedMetadataNames))
 		for _, name := range root.ProtectedMetadataNames {
 			if trimmed := strings.TrimSpace(name); trimmed != "" {
-				protected = append(protected, filepath.Join(rootPath, trimmed))
+				if windowsSandboxOwnedMetadataName(trimmed) {
+					materialized = append(materialized, filepath.Join(rootPath, trimmed))
+				} else {
+					protected = append(protected, filepath.Join(rootPath, trimmed))
+				}
 			}
 		}
 		out = append(out, windowsWriteRootCapability{
-			Root:                    rootPath,
-			SID:                     sid,
-			ProtectedWriteDenyPaths: protected,
+			Root:                       rootPath,
+			SID:                        sid,
+			ProtectedWriteDenyPaths:    protected,
+			MaterializedWriteDenyPaths: materialized,
 		})
 	}
 	return out, nil
@@ -214,7 +256,7 @@ func planWindowsDenyReadPaths(paths []string) []string {
 
 func dedupeWindowsACLEntries(entries []WindowsACLEntry) []WindowsACLEntry {
 	out := make([]WindowsACLEntry, 0, len(entries))
-	seen := map[string]struct{}{}
+	seen := map[string]int{}
 	for _, entry := range entries {
 		if entry.Action == "" || strings.TrimSpace(entry.Path) == "" || strings.TrimSpace(entry.Capability) == "" {
 			continue
@@ -224,10 +266,14 @@ func dedupeWindowsACLEntries(entries []WindowsACLEntry) []WindowsACLEntry {
 		// collapsing them could silently promote a deliberately non-inherited
 		// shared-path deny into an inheritable one (or vice versa).
 		key := string(entry.Action) + "\x00" + windowsCapabilityPathKey(entry.Path) + "\x00" + strings.ToLower(entry.Capability) + "\x00" + fmt.Sprintf("%t", entry.NoInherit)
-		if _, ok := seen[key]; ok {
+		if index, ok := seen[key]; ok {
+			// The same deny can reach the plan twice (operator-named and
+			// metadata-derived). Keep the stronger shape: a duplicate must
+			// never disarm materialization the metadata deny relies on.
+			out[index].Materialize = out[index].Materialize || entry.Materialize
 			continue
 		}
-		seen[key] = struct{}{}
+		seen[key] = len(out)
 		out = append(out, entry)
 	}
 	return out

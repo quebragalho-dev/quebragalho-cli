@@ -48,7 +48,10 @@ func TestBuildWindowsACLPlanForWorkspaceWriteProfile(t *testing.T) {
 	assertWindowsACLEntry(t, plan, WindowsACLAllowWrite, `D:\cache`, cacheSID, false)
 	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\vendor`, workspaceSID, false)
 	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\.git`, workspaceSID, false)
-	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\.qg`, workspaceSID, false)
+	// .qg is sandbox-owned metadata: its deny materializes so the directory
+	// cannot be created-and-owned by an isolated command first. .git above
+	// only guards (it is not sandbox-owned), so it keeps the old behaviour.
+	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\.qg`, workspaceSID, true)
 	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\secret-write`, workspaceSID, false)
 	assertWindowsACLEntry(t, plan, WindowsACLDenyWrite, `C:\workspace\secret-write`, cacheSID, false)
 	assertWindowsACLEntry(t, plan, WindowsACLDenyRead, `C:\workspace\secret-read`, workspaceSID, true)
@@ -352,5 +355,90 @@ func TestBuildWindowsACLPlanLeavesAnOutOfRootSubpathUnanchored(t *testing.T) {
 	}
 	if outsideAnchor != "" {
 		t.Errorf("out-of-root subpath carries anchor %q, want none: the apply would refuse a config that works today", outsideAnchor)
+	}
+}
+
+// A DENY ACE ON A PATH THAT DOES NOT EXIST YET DENIES NOTHING.
+//
+// The apply skips a missing target whose group carries no Materialize flag, so
+// a deny-write entry for <root>/.qg or <root>/.agents protects only a directory
+// somebody else created first. An isolated command can then create the directory
+// itself (creating a child of a granted write root is allowed) and write inside
+// it, inheriting the parent's capability allow ACE. The metadata-derived denies
+// must therefore materialize their targets: create the directory when it is
+// missing and stamp the inheritable deny on it, so the metadata stays
+// unwritable whether it existed before setup or not. Operator-named
+// ReadOnlySubpaths keep the old behaviour: creating arbitrary operator paths as
+// elevated setup would be host mutation, not confinement.
+func TestBuildWindowsACLPlanMaterializesProtectedMetadataWriteDenies(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	qgDir := filepath.Join(workspace, ".qg")
+	agentsDir := filepath.Join(workspace, ".agents")
+	vendorDir := filepath.Join(workspace, "vendor")
+	plan, err := BuildWindowsACLPlan(WindowsSandboxCommandConfig{
+		SandboxHome:    home,
+		WorkspaceRoots: []string{workspace},
+		PermissionProfile: PermissionProfile{
+			FileSystem: FileSystemPolicy{
+				Kind: FileSystemRestricted,
+				WriteRoots: []WritableRoot{{
+					Root:                   workspace,
+					ReadOnlySubpaths:       []string{vendorDir},
+					ProtectedMetadataNames: []string{".qg", ".agents"},
+				}},
+			},
+			Network: NetworkPolicy{Mode: NetworkDeny},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildWindowsACLPlan: %v", err)
+	}
+
+	byPath := map[string]WindowsACLEntry{}
+	for _, entry := range plan.Entries {
+		if entry.Action != WindowsACLDenyWrite {
+			continue
+		}
+		byPath[strings.ToLower(entry.Path)] = entry
+	}
+	for _, metadata := range []string{qgDir, agentsDir} {
+		entry, present := byPath[strings.ToLower(metadata)]
+		if !present {
+			t.Fatalf("SETUP INVALID: the plan has no deny-write entry for %s", metadata)
+		}
+		if !entry.Materialize {
+			t.Errorf("deny-write for protected metadata %s must materialize its target, or an isolated command creates and owns it first", metadata)
+		}
+		if entry.Anchor != workspace {
+			t.Errorf("deny-write for protected metadata %s carries anchor %q, want the write root it came from", metadata, entry.Anchor)
+		}
+	}
+	vendor, present := byPath[strings.ToLower(vendorDir)]
+	if !present {
+		t.Fatal("SETUP INVALID: the plan has no deny-write entry for the operator-named subpath")
+	}
+	if vendor.Materialize {
+		t.Errorf("operator-named subpath %s must not materialize: creating arbitrary operator paths during setup is host mutation", vendorDir)
+	}
+}
+
+// A DEDUPED DENY MUST NOT LOSE ITS MATERIALIZE FLAG.
+//
+// The same path can reach the plan twice: once operator-named (no materialize)
+// and once metadata-derived (materialize). Collapsing the pair must keep the
+// stronger shape, or whichever entry the dedupe sees first silently decides
+// whether the deny survives a missing target.
+func TestDedupeWindowsACLEntriesMergesMaterializeOnDuplicateDenyPaths(t *testing.T) {
+	entries := []WindowsACLEntry{
+		{Action: WindowsACLDenyWrite, Path: `C:\workspace\.qg`, Capability: "S-1-5-21-1"},
+		{Action: WindowsACLDenyWrite, Path: `C:\workspace\.qg`, Capability: "S-1-5-21-1", Materialize: true},
+	}
+	out := dedupeWindowsACLEntries(entries)
+	if len(out) != 1 {
+		t.Fatalf("dedupe = %#v, want a single merged entry", out)
+	}
+	if !out[0].Materialize {
+		t.Fatalf("deduped entry = %#v, want Materialize kept: the operator-named duplicate must not disarm the metadata deny", out[0])
 	}
 }

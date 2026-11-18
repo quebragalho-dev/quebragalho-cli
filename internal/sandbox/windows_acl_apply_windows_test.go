@@ -561,3 +561,149 @@ func TestWindowsACLDenyWriteMigratesCombinedLegacyReadWriteDeny(t *testing.T) {
 		t.Fatalf("second apply changed ACE count: %d vs %d", dacl2.AceCount, dacl.AceCount)
 	}
 }
+
+// dirDeniesWriteSID reports whether path's DACL has an inheritable DENY ACE for
+// wantSID whose mask covers the DenyWrite shape.
+func dirDeniesWriteSID(t *testing.T, path, wantSID string) bool {
+	t.Helper()
+	want, err := windows.StringToSid(wantSID)
+	if err != nil {
+		t.Fatalf("StringToSid %q: %v", wantSID, err)
+	}
+	sd, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.DACL_SECURITY_INFORMATION)
+	if err != nil {
+		t.Fatalf("GetNamedSecurityInfo %s: %v", path, err)
+	}
+	dacl, _, err := sd.DACL()
+	if err != nil {
+		t.Fatalf("DACL %s: %v", path, err)
+	}
+	if dacl == nil {
+		return false
+	}
+	_, writeMask, err := windowsACLAccess(WindowsACLDenyWrite)
+	if err != nil {
+		t.Fatalf("windowsACLAccess DenyWrite: %v", err)
+	}
+	for index := uint16(0); index < dacl.AceCount; index++ {
+		var ace *windows.ACCESS_ALLOWED_ACE
+		if err := windows.GetAce(dacl, uint32(index), &ace); err != nil {
+			t.Fatalf("GetAce %d of %s: %v", index, path, err)
+		}
+		if ace.Header.AceType != windows.ACCESS_DENIED_ACE_TYPE && ace.Header.AceType != windowsAccessDeniedObjectAceType {
+			continue
+		}
+		sid, ok := windowsAceSID(ace)
+		if !ok || !sid.Equals(want) {
+			continue
+		}
+		if ace.Mask&writeMask != writeMask {
+			continue
+		}
+		if ace.Header.AceFlags&(windows.OBJECT_INHERIT_ACE|windows.CONTAINER_INHERIT_ACE) != windows.OBJECT_INHERIT_ACE|windows.CONTAINER_INHERIT_ACE {
+			t.Fatalf("deny-write ACE on %s is not inheritable (flags %#x): children created later would escape the deny", path, ace.Header.AceFlags)
+		}
+		return true
+	}
+	return false
+}
+
+// A MISSING .qg OR .agents DIRECTORY MUST COME BACK DENIED, NOT ABSENT.
+//
+// Drives the real plan builder (not a hand-made group): the metadata-derived
+// deny entries carry Materialize, so the apply creates the directory and stamps
+// the inheritable capability deny on it. Before the fix the apply skipped the
+// missing target and the isolated command created the directory itself —
+// inheriting the parent's allow ACE and writing inside it freely.
+func TestWindowsApplyDeniesWriteToMissingProtectedMetadataDirs(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	plan, err := BuildWindowsACLPlan(WindowsSandboxCommandConfig{
+		SandboxHome:    home,
+		WorkspaceRoots: []string{workspace},
+		PermissionProfile: PermissionProfile{
+			FileSystem: FileSystemPolicy{
+				Kind: FileSystemRestricted,
+				WriteRoots: []WritableRoot{{
+					Root:                   workspace,
+					ProtectedMetadataNames: []string{".qg", ".agents"},
+				}},
+			},
+			Network: NetworkPolicy{Mode: NetworkDeny},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildWindowsACLPlan: %v", err)
+	}
+	sid, err := WindowsWorkspaceCapabilitySID(home, workspace)
+	if err != nil {
+		t.Fatalf("WindowsWorkspaceCapabilitySID: %v", err)
+	}
+	rollback, err := applyWindowsACLPlan(plan)
+	if err != nil {
+		t.Fatalf("applyWindowsACLPlan: %v", err)
+	}
+	t.Cleanup(func() { _ = rollback() })
+	for _, name := range []string{".qg", ".agents"} {
+		dir := filepath.Join(workspace, name)
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			t.Fatalf("protected metadata dir %s was not materialized: %v", dir, err)
+		}
+		if !dirDeniesWriteSID(t, dir, sid) {
+			t.Errorf("materialized %s carries no inheritable deny-write ACE for the workspace capability SID: an isolated command could write inside it", dir)
+		}
+	}
+}
+
+// AN EXISTING .qg DIRECTORY KEEPS ITS DENY, AND ROLLBACK REMOVES ONLY WHAT THE
+// APPLY CREATED.
+func TestWindowsApplyKeepsDenyOnExistingProtectedMetadataDir(t *testing.T) {
+	home := t.TempDir()
+	workspace := t.TempDir()
+	existing := filepath.Join(workspace, ".qg")
+	if err := os.Mkdir(existing, 0o700); err != nil {
+		t.Fatalf("mkdir .qg: %v", err)
+	}
+	sentinel := filepath.Join(workspace, "sentinel.txt")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
+		t.Fatalf("write sentinel: %v", err)
+	}
+	plan, err := BuildWindowsACLPlan(WindowsSandboxCommandConfig{
+		SandboxHome:    home,
+		WorkspaceRoots: []string{workspace},
+		PermissionProfile: PermissionProfile{
+			FileSystem: FileSystemPolicy{
+				Kind: FileSystemRestricted,
+				WriteRoots: []WritableRoot{{
+					Root:                   workspace,
+					ProtectedMetadataNames: []string{".qg"},
+				}},
+			},
+			Network: NetworkPolicy{Mode: NetworkDeny},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildWindowsACLPlan: %v", err)
+	}
+	sid, err := WindowsWorkspaceCapabilitySID(home, workspace)
+	if err != nil {
+		t.Fatalf("WindowsWorkspaceCapabilitySID: %v", err)
+	}
+	rollback, err := applyWindowsACLPlan(plan)
+	if err != nil {
+		t.Fatalf("applyWindowsACLPlan: %v", err)
+	}
+	defer func() { _ = rollback() }()
+	if !dirDeniesWriteSID(t, existing, sid) {
+		t.Fatalf("existing .qg carries no deny-write ACE for the workspace capability SID")
+	}
+	if err := rollback(); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	if _, err := os.Stat(existing); err != nil {
+		t.Errorf("rollback removed a pre-existing .qg directory: %v", err)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Errorf("rollback disturbed the workspace: %v", err)
+	}
+}
