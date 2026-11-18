@@ -5422,6 +5422,9 @@ func (m model) promptGuard() (model, bool) {
 	if m.exiting {
 		return m, false
 	}
+	if blocked, stopped := m.blockWhileExtracting(); stopped {
+		return blocked, false
+	}
 	if m.compactInFlight {
 		return m.appendSystemNotice("Compact\nstatus: warning\nCompactação em andamento. Sua próxima mensagem vai usar o contexto compactado quando ela terminar."), false
 	}
@@ -5606,6 +5609,14 @@ func isCommonPrompt(text string, specialists []agent.SpecialistInfo, installed [
 // when nothing common is pending (callers fall back to Enter or a notice).
 func (m model) sendNow(draft string) (model, tea.Cmd, bool) {
 	draft = strings.TrimSpace(draft)
+	if !m.pending {
+		// Idle send would launch a text-only turn the frames would then
+		// silently follow; hold it with the draft intact instead. ok=true
+		// means handled (blocked), so callers don't add their own notice.
+		if blocked, stopped := m.blockWhileExtracting(); stopped {
+			return blocked, nil, true
+		}
+	}
 	if m.hasParkedSendNow() {
 		// The window: the parked batch launches first — only the draft
 		// joins it; the FIFO is untouched and drains behind it afterwards.
@@ -6669,6 +6680,9 @@ func (m model) launchParkedSendNowAfterCompaction() (model, tea.Cmd) {
 
 func (m model) launchQueuedMessageIfReady() (model, tea.Cmd) {
 	if m.pending || m.exiting || m.pendingPermission != nil || m.pendingAskUser != nil || m.pendingSpecReview != nil {
+		return m, nil
+	}
+	if _, _, busy := m.newestPendingVideoExtraction(); busy {
 		return m, nil
 	}
 	// A turn that ended before the agent consumed the operator's interleaves

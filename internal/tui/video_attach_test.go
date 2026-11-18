@@ -373,3 +373,81 @@ func TestBackspaceDuringExtractionCancelsIt(t *testing.T) {
 		t.Fatal("quadros tardios deveriam ser descartados após cancelar")
 	}
 }
+
+// Com extração em andamento, Enter não envia: mantém o rascunho e avisa.
+func TestSubmitWaitsForInFlightVideoExtraction(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", root)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("FAKE_FFMPEG_LOG", filepath.Join(root, "argv.log"))
+	writeFakeFFmpegTUI(t, root, "ffmpeg")
+	writeFakeFFmpegTUI(t, root, "ffprobe")
+	video := filepath.Join(root, "clip.mp4")
+	if err := os.WriteFile(video, []byte("fake-video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := videoAttachModel(t, root)
+	attached, _ := m.handleImageCommand(video)
+	if _, _, busy := attached.newestPendingVideoExtraction(); !busy {
+		t.Fatal("setup: extração deveria estar em andamento")
+	}
+	attached.input.SetValue("o que mostra o vídeo?")
+	submitted, cmd := attached.handleSubmit()
+	if cmd != nil {
+		t.Fatal("submit durante extração não deveria despachar turno")
+	}
+	sub := submitted.(model)
+	if got := sub.composerValue(); got != "o que mostra o vídeo?" {
+		t.Fatalf("rascunho deveria ser mantido, foi %q", got)
+	}
+	if notice := lastTranscriptText(sub); !strings.Contains(notice, "Aguarde: extraindo quadros de") {
+		t.Fatalf("aviso de espera ausente, veio: %q", notice)
+	}
+}
+
+// Ctrl+Enter (sendNow) com extração em andamento não despacha.
+func TestSendNowWaitsForInFlightVideoExtraction(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", root)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("FAKE_FFMPEG_LOG", filepath.Join(root, "argv.log"))
+	writeFakeFFmpegTUI(t, root, "ffmpeg")
+	writeFakeFFmpegTUI(t, root, "ffprobe")
+	video := filepath.Join(root, "clip.mp4")
+	if err := os.WriteFile(video, []byte("fake-video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := videoAttachModel(t, root)
+	attached, _ := m.handleImageCommand(video)
+	next, cmd, _ := attached.sendNow("descreva")
+	if cmd != nil {
+		t.Fatal("sendNow durante extração não deveria despachar turno")
+	}
+	if notice := lastTranscriptText(next); !strings.Contains(notice, "Aguarde: extraindo quadros de") {
+		t.Fatalf("aviso de espera ausente, veio: %q", notice)
+	}
+}
+
+// Fila automática não drena enquanto extrai: a mensagem espera pelos quadros.
+func TestQueuedDrainWaitsForInFlightVideoExtraction(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", root)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("FAKE_FFMPEG_LOG", filepath.Join(root, "argv.log"))
+	writeFakeFFmpegTUI(t, root, "ffmpeg")
+	writeFakeFFmpegTUI(t, root, "ffprobe")
+	video := filepath.Join(root, "clip.mp4")
+	if err := os.WriteFile(video, []byte("fake-video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := videoAttachModel(t, root)
+	attached, _ := m.handleImageCommand(video)
+	attached.queuedMessages = []string{"pergunta na fila"}
+	next, cmd := attached.launchQueuedMessageIfReady()
+	if cmd != nil {
+		t.Fatal("dreno automático não deveria despachar durante a extração")
+	}
+	if len(next.queuedMessages) != 1 {
+		t.Fatal("fila deveria ser mantida intacta")
+	}
+}

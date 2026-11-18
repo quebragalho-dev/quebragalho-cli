@@ -354,6 +354,19 @@ func (m model) handleDocumentAttach(path string) model {
 	return m
 }
 
+// blockWhileExtracting stops a new turn while frames extract, keeping the
+// draft and queue untouched and telling the user to wait for the frames.
+func (m model) blockWhileExtracting() (model, bool) {
+	if _, ext, ok := m.newestPendingVideoExtraction(); ok {
+		return m.appendSystemNotice(extractWaitNotice(ext.label)), true
+	}
+	return m, false
+}
+
+func extractWaitNotice(label string) string {
+	return "Aguarde: extraindo quadros de " + label + "…"
+}
+
 // pendingVideoInfo is a staged video attachment: its frames ride pendingImages
 // like ordinary images, and text names the video plus when each frame was
 // taken so the model can attribute them.
