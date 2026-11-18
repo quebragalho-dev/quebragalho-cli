@@ -150,7 +150,7 @@ func TestHandoffChar_SetStatusDuringHandoffRefused(t *testing.T) {
 	if _, err := c.BeginHandoff("t"); err != nil {
 		t.Fatalf("BeginHandoff: %v", err)
 	}
-	for _, target := range []TaskStatus{StatusPending, StatusRunning, StatusDone, StatusFailed} {
+	for _, target := range []TaskStatus{StatusPending, StatusRunning, StatusDone, StatusFailed, StatusHandedOff} {
 		if err := c.SetStatus("t", target); err == nil {
 			t.Fatalf("SetStatus(%v) durante handoff deve ser recusado", target)
 		}
