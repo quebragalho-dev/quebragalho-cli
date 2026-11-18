@@ -2,7 +2,6 @@ package tui
 
 import (
 	"bytes"
-	tea "charm.land/bubbletea/v2"
 	"context"
 	"fmt"
 	"image"
@@ -13,6 +12,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/imageinput"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/media"
