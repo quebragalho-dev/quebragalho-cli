@@ -38,15 +38,67 @@ func TestBuiltinSkillsIncludesComputerUse(t *testing.T) {
 	}
 }
 
+func TestBuiltinSkillsIncludesBrowserUse(t *testing.T) {
+	builtins := BuiltinSkills()
+	var found *Skill
+	for i := range builtins {
+		if builtins[i].Name == "browser-use" {
+			found = &builtins[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("BuiltinSkills() missing browser-use: %#v", builtins)
+	}
+	if strings.TrimSpace(found.Description) == "" {
+		t.Fatal("browser-use Description is empty")
+	}
+	for _, want := range []string{
+		"browser_open",
+		"browser_snapshot",
+		"browser_click",
+		"browser_type",
+		"browser_press",
+		"browser_action",
+		"browser_install",
+		"capture_artifact",
+		"browser_screenshot",
+		"headed",
+		`command="skills"`,
+		`args=["get","core"]`,
+		"localControl.browser.enabled=true",
+	} {
+		if !strings.Contains(found.Content, want) {
+			t.Errorf("browser-use content missing %q:\n%s", want, found.Content)
+		}
+	}
+}
+
 func TestMergeBuiltinsUserSkillShadowsBuiltin(t *testing.T) {
 	merged := MergeBuiltins(nil)
-	if len(merged) == 0 || merged[0].Name != "computer-use" {
-		t.Fatalf("MergeBuiltins(nil) = %#v, want computer-use", merged)
+	var hasBrowser, hasComputer bool
+	for _, skill := range merged {
+		switch skill.Name {
+		case "browser-use":
+			hasBrowser = true
+		case "computer-use":
+			hasComputer = true
+		}
+	}
+	if !hasBrowser || !hasComputer {
+		t.Fatalf("MergeBuiltins(nil) = %#v, want browser-use and computer-use", merged)
 	}
 
 	custom := []Skill{{Name: "computer-use", Description: "custom", Content: "custom body", Path: "/tmp/SKILL.md"}}
 	merged = MergeBuiltins(custom)
-	if len(merged) != 1 || merged[0].Content != "custom body" {
+	var shadowed *Skill
+	for i := range merged {
+		if merged[i].Name == "computer-use" {
+			shadowed = &merged[i]
+			break
+		}
+	}
+	if shadowed == nil || shadowed.Content != "custom body" {
 		t.Fatalf("user skill should shadow built-in, got %#v", merged)
 	}
 }

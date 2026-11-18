@@ -34,6 +34,10 @@ func (m model) handleSkillCommand(raw string) (model, tea.Cmd, bool) {
 		m = m.appendComputerUseDisabledNotice()
 		return m, nil, true
 	}
+	if skillSlashName(skill.Name) == "browser-use" && !m.browserControlEnabled {
+		m = m.appendBrowserUseDisabledNotice()
+		return m, nil, true
+	}
 	if strings.TrimSpace(skill.Content) == "" {
 		// The name matched a real skill, so falling through to "unknown command"
 		// would mislead; surface the actual problem instead.
@@ -165,6 +169,10 @@ func (m model) invokeSkillByName(name string) (model, tea.Cmd) {
 			m = m.appendComputerUseDisabledNotice()
 			return m, nil
 		}
+		if skillSlashName(skill.Name) == "browser-use" && !m.browserControlEnabled {
+			m = m.appendBrowserUseDisabledNotice()
+			return m, nil
+		}
 		body := strings.TrimSpace(skill.Content)
 		if body == "" {
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{
@@ -215,6 +223,12 @@ func (m model) lookupSkillCommand(name string) (skills.Skill, bool) {
 func (m model) appendComputerUseDisabledNotice() model {
 	return m.appendSystemNotice(
 		"Controle do computador está desligado. Ligue em /config → Controle do computador (ou defina localControl.desktop.enabled=true na configuração) para usar /computer-use.",
+	)
+}
+
+func (m model) appendBrowserUseDisabledNotice() model {
+	return m.appendSystemNotice(
+		"Controle do navegador está desligado. Ligue em /config → Controle do navegador (ou defina localControl.browser.enabled=true na configuração) para usar /browser-use.",
 	)
 }
 
