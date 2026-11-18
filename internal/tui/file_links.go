@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -224,35 +225,13 @@ func findFileLinks(line string, cwd string) []fileLinkSpan {
 	// joined candidate exists (longest match wins), with trailing sentence
 	// punctuation trimmed. Chunks carrying an opening boundary char stop the
 	// expansion so `[see` never glues onto a path.
-	type chunk struct {
-		start int
-		end   int
-		text  string
-	}
-	var chunks []chunk
-	for index := 0; index < len(line); {
-		r, size := utf8.DecodeRuneInString(line[index:])
-		if unicode.IsSpace(r) {
-			index += size
-			continue
-		}
-		start := index
-		for index < len(line) {
-			r, size := utf8.DecodeRuneInString(line[index:])
-			if unicode.IsSpace(r) {
-				break
-			}
-			index += size
-		}
-		chunks = append(chunks, chunk{start: start, end: index, text: line[start:index]})
-	}
+	chunks := splitLinkChunks(line)
 	// Try longest-first: prepend previous chunks (up to a cap) and keep the
 	// longest candidate that exists. A failed probe never stops the search —
 	// only the anchor itself must exist for the span to fall back to it — so
 	// "nota: arquivo.txt" still links arquivo.txt while a spaced name links
 	// whole. Expansion stops past a chunk with a leading boundary char:
 	// prose on the other side of a bracket or quote is never part of the path.
-	const maxLinkRunes = 200
 	const maxLinkChunks = 12
 	for end := range chunks {
 		anchor := stripLinkPunctuation(chunks[end].text)
@@ -308,6 +287,60 @@ func findFileLinks(line string, cwd string) []fileLinkSpan {
 	return spans
 }
 
+// maxLinkRunes caps a single link candidate: paths longer than this are not
+// attempted, bounding the stat probes on hostile input.
+const maxLinkRunes = 200
+
+// linkChunk is one whitespace-delimited token with byte offsets into its line.
+type linkChunk struct {
+	start int
+	end   int
+	text  string
+}
+
+// splitLinkChunks splits a plain line into whitespace-delimited chunks,
+// shared by the single-row scanner and the cross-row joiner.
+func splitLinkChunks(line string) []linkChunk {
+	var chunks []linkChunk
+	for index := 0; index < len(line); {
+		r, size := utf8.DecodeRuneInString(line[index:])
+		if unicode.IsSpace(r) {
+			index += size
+			continue
+		}
+		start := index
+		for index < len(line) {
+			r, size := utf8.DecodeRuneInString(line[index:])
+			if unicode.IsSpace(r) {
+				break
+			}
+			index += size
+		}
+		chunks = append(chunks, linkChunk{start: start, end: index, text: line[start:index]})
+	}
+	return chunks
+}
+
+// stripGutterPrefix drops wrap continuation markers (indentation and the
+// tool-body tree gutter) so a middle piece splices cleanly. Only leading
+// whitespace and box-drawing bars go: real path text never starts with those.
+func stripGutterPrefix(s string) string {
+	for {
+		trimmed := strings.TrimLeft(s, " \t")
+		stripped := trimmed
+		for _, bar := range []string{"\u2502", "\u2503", "|"} {
+			if rest, found := strings.CutPrefix(stripped, bar); found {
+				stripped = rest
+				break
+			}
+		}
+		if stripped == trimmed {
+			return trimmed
+		}
+		s = stripped
+	}
+}
+
 // stripLinkPunctuation trims sentence punctuation glued to a chunk's edges
 // ("foto.png.", "(saída:" ...) without touching drive letters or extensions.
 func stripLinkPunctuation(chunk string) string {
@@ -333,16 +366,22 @@ func stripLinkBoundaryPrefix(chunk string) string {
 // tracking truncateStyledLine uses, so truncation after linkifying stays
 // balanced too.
 func linkifyStyledLine(styled string, cwd string) string {
-	var plain []rune
-	var byteOffsets []int
-	inLink := false
+	plain, byteOffsets, inLink := scanStyledRow(styled)
+	return spliceLinkSpans(styled, plain, byteOffsets, inLink, findFileLinks(string(plain), cwd))
+}
+
+// scanStyledRow walks one styled row, returning its printable runes, the
+// styled byte offset of each rune, and whether the rune sits inside an
+// existing OSC 8 link.
+func scanStyledRow(styled string) (plain []rune, byteOffsets []int, inLink []bool) {
+	link := false
 	for index := 0; index < len(styled); {
 		if styled[index] == '\x1b' {
 			end := ansiSequenceEnd(styled, index)
 			if end > index {
 				sequence := styled[index:end]
 				if strings.HasPrefix(sequence, "\x1b]8;") {
-					inLink = sequence != "\x1b]8;;\x1b\\" && sequence != "\x1b]8;;\a"
+					link = sequence != "\x1b]8;;\x1b\\" && sequence != "\x1b]8;;\a"
 				}
 				index = end
 				continue
@@ -352,103 +391,473 @@ func linkifyStyledLine(styled string, cwd string) string {
 		if r == utf8.RuneError && size == 0 {
 			break
 		}
-		if !inLink {
-			plain = append(plain, r)
-			byteOffsets = append(byteOffsets, index)
-		} else {
-			// Inside an existing link: keep the rune out of linkable runs so
-			// the visible text is never wrapped a second time. Track it with
-			// a sentinel run boundary instead.
-			plain = append(plain, '\x00')
-			byteOffsets = append(byteOffsets, -1)
-		}
+		plain = append(plain, r)
+		byteOffsets = append(byteOffsets, index)
+		inLink = append(inLink, link)
 		index += size
 	}
-	type plainRun struct{ start, end int }
-	var runs []plainRun
-	runStart := -1
-	for i, r := range plain {
-		if r == '\x00' {
-			if runStart >= 0 {
-				runs = append(runs, plainRun{runStart, i})
-				runStart = -1
-			}
-			continue
-		}
-		if runStart < 0 {
-			runStart = i
-		}
-	}
-	if runStart >= 0 {
-		runs = append(runs, plainRun{runStart, len(plain)})
-	}
+	return plain, byteOffsets, inLink
+}
+
+// spliceLinkSpans wraps spans with OSC 8 hyperlinks. Span offsets are byte
+// offsets into string(plain). Spans touching already-linked text or with
+// non-rune-boundary offsets are skipped, so nested or corrupt links are
+// impossible; the rest splice from the end so offsets stay valid.
+func spliceLinkSpans(styled string, plain []rune, byteOffsets []int, inLink []bool, spans []fileLinkSpan) string {
 	type splice struct {
 		at  int
 		url string
 		end bool
 	}
-	var splices []splice
-	for _, run := range runs {
-		runText := string(plain[run.start:run.end])
-		for _, span := range findFileLinksInRun(runText, cwd) {
-			byteStart := byteOffsets[run.start+span.start]
-			byteEnd := byteOffsets[run.start+span.end-1]
-			// End offset: byte offset just past the last rune of the span.
-			lastRuneStart := byteEnd
-			_, size := utf8.DecodeRuneInString(styled[lastRuneStart:])
-			splices = append(splices,
-				splice{at: byteStart, url: fileLinkURL(span.abs)},
-				splice{at: lastRuneStart + size, end: true},
-			)
+	// Plain byte offset of each rune.
+	plainBytes := make([]int, len(plain)+1)
+	for i, r := range plain {
+		plainBytes[i+1] = plainBytes[i] + utf8.RuneLen(r)
+	}
+	type positioned struct {
+		byteStart int
+		byteEnd   int
+		url       string
+	}
+	var positionedSpans []positioned
+	for _, span := range spans {
+		rs, re, ok := runeRangeForByteRange(plainBytes, span.start, span.end)
+		if !ok {
+			continue
 		}
+		blocked := false
+		for _, linked := range inLink[rs:re] {
+			if linked {
+				blocked = true
+				break
+			}
+		}
+		if blocked {
+			continue
+		}
+		abs, ok := spanAbs(span)
+		if !ok {
+			continue
+		}
+		lastStart := byteOffsets[re-1]
+		_, size := utf8.DecodeRuneInString(styled[lastStart:])
+		positionedSpans = append(positionedSpans, positioned{
+			byteStart: byteOffsets[rs],
+			byteEnd:   lastStart + size,
+			url:       fileLinkURL(abs),
+		})
 	}
-	if len(splices) == 0 {
-		return styled
-	}
-	// Splice from the end so earlier offsets stay valid.
-	for i, j := 0, len(splices)-1; i < j; i, j = i+1, j-1 {
-		splices[i], splices[j] = splices[j], splices[i]
+	// Descending by start; overlapping spans cannot occur (the detector emits
+	// disjoint ranges and multis suppress covered singles), but later, wider
+	// spans win on contact to keep the output well-formed.
+	sort.Slice(positionedSpans, func(i, j int) bool { return positionedSpans[i].byteStart > positionedSpans[j].byteStart })
+	accepted := positionedSpans[:0]
+	for _, span := range positionedSpans {
+		overlap := false
+		for _, kept := range accepted {
+			if span.byteStart < kept.byteEnd && kept.byteStart < span.byteEnd {
+				overlap = true
+				break
+			}
+		}
+		if !overlap {
+			accepted = append(accepted, span)
+		}
 	}
 	out := styled
-	for _, splice := range splices {
-		if splice.end {
-			out = out[:splice.at] + "\x1b]8;;\x1b\\" + out[splice.at:]
-		} else {
-			out = out[:splice.at] + "\x1b]8;;" + splice.url + "\x1b\\" + out[splice.at:]
+	for _, span := range accepted {
+		out = out[:span.byteEnd] + "\x1b]8;;\x1b\\" + out[span.byteEnd:]
+		out = out[:span.byteStart] + "\x1b]8;;" + span.url + "\x1b\\" + out[span.byteStart:]
+	}
+	return out
+}
+
+// runeRangeForByteRange maps plain-byte offsets back to rune indices with
+// exact boundary matches; anything else is rejected rather than sliced
+// mid-rune.
+func runeRangeForByteRange(plainBytes []int, start, end int) (int, int, bool) {
+	rs, re := -1, -1
+	for i, off := range plainBytes {
+		if off == start {
+			rs = i
+		}
+		if off == end {
+			re = i
+			break
 		}
 	}
-	return out
-}
-
-// findFileLinksInRun runs findFileLinks over one style-uniform run with
-// run-relative rune offsets. The caller maps them back to the styled string.
-func findFileLinksInRun(runText, cwd string) []fileLinkSpanRune {
-	var out []fileLinkSpanRune
-	for _, span := range findFileLinks(runText, cwd) {
-		start := len([]rune(runText[:span.start]))
-		end := len([]rune(runText[:span.end]))
-		out = append(out, fileLinkSpanRune{start: start, end: end, raw: span.raw, abs: span.abs})
+	if rs < 0 || re < 0 || re <= rs {
+		return 0, 0, false
 	}
-	return out
+	return rs, re, true
 }
 
-// fileLinkSpanRune mirrors fileLinkSpan with rune offsets into its run.
-type fileLinkSpanRune struct {
-	start int
-	end   int
-	raw   string
-	abs   string
+// spanAbs returns the link target carried by a span.
+func spanAbs(span fileLinkSpan) (string, bool) {
+	return span.abs, strings.TrimSpace(span.abs) != ""
+}
+
+// linkifyStyledLineSpans wraps precomputed spans (byte offsets into the row's
+// plain text, e.g. pieces of a joined multi-line link) in one styled row.
+func linkifyStyledLineSpans(styled string, spans []fileLinkSpan) string {
+	plain, byteOffsets, inLink := scanStyledRow(styled)
+	return spliceLinkSpans(styled, plain, byteOffsets, inLink, spans)
 }
 
 // linkifyTranscriptLines wraps existing-file paths in every line of a
-// rendered multi-line block (assistant answer or tool output). OSC 8 is
-// zero-width, so fitted widths are preserved.
+// rendered multi-line block (assistant answer or tool output), rejoining
+// paths the width wrap split across rows. OSC 8 is zero-width, so fitted
+// widths are preserved.
 func linkifyTranscriptLines(text string, cwd string) string {
 	lines := strings.Split(text, "\n")
+	plain := make([]string, len(lines))
 	for i, line := range lines {
-		lines[i] = linkifyStyledLine(line, cwd)
+		plain[i] = string(stripStyledText(line))
+	}
+	singles, multis := planFileLinks(plain, cwd)
+	byLine := map[int][]fileLinkSpan{}
+	for line, spans := range singles {
+		byLine[line] = append(byLine[line], spans...)
+	}
+	for _, multi := range multis {
+		for _, part := range multi.parts {
+			byLine[part.line] = append(byLine[part.line], fileLinkSpan{start: part.start, end: part.end, abs: multi.abs})
+		}
+	}
+	for i, line := range lines {
+		lines[i] = linkifyStyledLineSpans(line, byLine[i])
 	}
 	return strings.Join(lines, "\n")
+}
+
+// stripStyledText returns the printable text of a styled row, dropping ANSI
+// escape sequences (including OSC 8) the same way the selectable-line builder
+// does, so render-time spans and click-time spans agree.
+func stripStyledText(styled string) []rune {
+	plain, _, _ := scanStyledRow(styled)
+	return plain
+}
+
+// planFileLinks finds single-row links plus links broken across wrapped rows.
+// lines are consecutive rendered rows of one block; blank rows always end a
+// chain, so paragraph breaks never glue. Single-row spans fully covered by a
+// multi-row span are dropped in favour of the longer match.
+func planFileLinks(lines []string, cwd string) (map[int][]fileLinkSpan, []fileLinkMultiSpan) {
+	singles := map[int][]fileLinkSpan{}
+	for i, line := range lines {
+		if spans := findFileLinks(line, cwd); len(spans) > 0 {
+			singles[i] = spans
+		}
+	}
+	var multis []fileLinkMultiSpan
+	for start := 0; start < len(lines); start++ {
+		if strings.TrimSpace(lines[start]) == "" {
+			continue
+		}
+		// Longest chain first: more pieces means a more specific path, and
+		// the existence check arbitrates every candidate.
+		for length := maxLinkChainLines; length >= 2; length-- {
+			end := start + length - 1
+			if end >= len(lines) {
+				continue
+			}
+			if badLinkChainGap(lines, start, end) {
+				continue
+			}
+			abs, parts, ok := joinLinkChain(lines, start, end, cwd)
+			if !ok {
+				continue
+			}
+			multis = append(multis, fileLinkMultiSpan{abs: abs, parts: parts})
+			start = end
+			break
+		}
+	}
+	covered := map[int][]fileLinkSpan{}
+	for _, multi := range multis {
+		for _, part := range multi.parts {
+			covered[part.line] = append(covered[part.line], fileLinkSpan{start: part.start, end: part.end})
+		}
+	}
+	for line := range covered {
+		kept := singles[line][:0]
+		for _, span := range singles[line] {
+			drop := false
+			for _, cover := range covered[line] {
+				if span.start >= cover.start && span.end <= cover.end {
+					drop = true
+					break
+				}
+			}
+			if !drop {
+				kept = append(kept, span)
+			}
+		}
+		if len(kept) == 0 {
+			delete(singles, line)
+		} else {
+			singles[line] = kept
+		}
+	}
+	return singles, multis
+}
+
+// badLinkChainGap reports whether rows start..end contain a blank row: a
+// paragraph break is never a wrap continuation.
+func badLinkChainGap(lines []string, start, end int) bool {
+	for _, line := range lines[start : end+1] {
+		if strings.TrimSpace(line) == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// fileLinkPiece is one visible piece of a wrapped link: which rendered row
+// it is on plus byte offsets into that row's plain text.
+type fileLinkPiece struct {
+	line  int
+	start int
+	end   int
+	raw   string
+}
+
+// fileLinkMultiSpan is one file path broken across wrapped rows. Every piece
+// carries the same URL, so Ctrl+click on any piece opens the whole file.
+type fileLinkMultiSpan struct {
+	abs   string
+	parts []fileLinkPiece
+}
+
+// maxLinkChainLines caps how many wrapped rows one path may span. Four covers
+// the realistic cases (a ~200-char path at 60 columns); longer chains fall
+// back to per-row detection.
+const maxLinkChainLines = 4
+
+// joinLinkChain tries to join rows start..end (inclusive, consecutive wrapped
+// rows) into one existing path. Separators are enumerated per junction —
+// all-space first (word-wrap splits), then direct (hard splits), then mixed —
+// and the first existing candidate wins. It returns the absolute path plus one
+// piece per row for rendering and click hit-testing.
+func joinLinkChain(lines []string, start, end int, cwd string) (string, []fileLinkPiece, bool) {
+	if end-start+1 > maxLinkChainLines {
+		return "", nil, false
+	}
+	frags := make([]linkChainFragment, 0, end-start+1)
+	for i := start; i <= end; i++ {
+		frag, ok := linkRowFragment(lines, i, i == start, i == end)
+		if !ok {
+			return "", nil, false
+		}
+		frags = append(frags, frag)
+	}
+	texts := make([]string, 0, len(frags))
+	for _, frag := range frags {
+		texts = append(texts, frag.text)
+	}
+	for _, seps := range linkSeparatorCombos(len(texts) - 1) {
+		candidate := texts[0]
+		for j, text := range texts[1:] {
+			candidate += seps[j] + text
+			if len([]rune(candidate)) > maxLinkRunes {
+				break
+			}
+		}
+		if len([]rune(candidate)) > maxLinkRunes {
+			continue
+		}
+		if abs, ok := resolveFileLink(candidate, cwd); ok {
+			parts := make([]fileLinkPiece, 0, len(frags))
+			for j, frag := range frags {
+				parts = append(parts, fileLinkPiece{line: start + j, start: frag.start, end: frag.end, raw: frag.text})
+			}
+			return abs, parts, true
+		}
+	}
+	return "", nil, false
+}
+
+// linkChainFragment is one row's contribution to a joined path, with byte
+// offsets into the row's plain text.
+type linkChainFragment struct {
+	text       string
+	start, end int
+}
+
+// linkRowFragment extracts the joinable fragment of one chain row: the tail
+// token of the first row, the whole stripped middle row, and the head
+// expansion of the last row. Positions are verified against leading and
+// trailing content so prose never glues onto a path.
+func linkRowFragment(lines []string, index int, first, last bool) (linkChainFragment, bool) {
+	line := lines[index]
+	if strings.TrimSpace(line) == "" {
+		return linkChainFragment{}, false
+	}
+	if first && last {
+		return linkChainFragment{}, false
+	}
+	if !first && !last {
+		stripped := stripGutterPrefix(strings.TrimSpace(line))
+		if stripped == "" {
+			return linkChainFragment{}, false
+		}
+		start := strings.Index(line, stripped)
+		if start < 0 {
+			return linkChainFragment{}, false
+		}
+		// Only whitespace and gutter bars may precede a middle piece.
+		if trimmed := strings.Trim(line[:start], " \t\u2502\u2503|"); trimmed != "" {
+			return linkChainFragment{}, false
+		}
+		return linkChainFragment{text: stripped, start: start, end: start + len(stripped)}, true
+	}
+	if first {
+		tail := linkTailFragment(line)
+		if tail == "" {
+			return linkChainFragment{}, false
+		}
+		start := strings.LastIndex(line, tail)
+		if start < 0 {
+			return linkChainFragment{}, false
+		}
+		end := start + len(tail)
+		// Only whitespace and trailing punctuation may follow a tail piece.
+		if rest := strings.Trim(line[end:], " \t.,;:!?)]}>\"'"); rest != "" {
+			return linkChainFragment{}, false
+		}
+		return linkChainFragment{text: tail, start: start, end: end}, true
+	}
+	head, start := linkHeadFragment(line)
+	if head == "" {
+		return linkChainFragment{}, false
+	}
+	return linkChainFragment{text: head, start: start, end: start + len(head)}, true
+}
+
+// linkTailFragment returns the last whitespace-delimited token of a row,
+// punctuation-trimmed. Any non-empty tail can start a join — a word-wrapped
+// path usually breaks mid-word with no path-like marker — and the existence
+// check on the joined candidate arbitrates.
+func linkTailFragment(line string) string {
+	chunks := splitLinkChunks(line)
+	if len(chunks) == 0 {
+		return ""
+	}
+	return stripLinkPunctuation(chunks[len(chunks)-1].text)
+}
+
+// linkHeadFragment returns the path head at the start of a wrapped row plus
+// its byte offset in the original line: the leftmost expansion that reaches
+// the row start (modulo indentation and gutter), e.g. ("de Tela teste.mov", 0)
+// for "de Tela teste.mov aqui". Anything before it must be filler only.
+func linkHeadFragment(line string) (string, int) {
+	stripped := stripGutterPrefix(strings.TrimSpace(line))
+	if stripped == "" {
+		return "", -1
+	}
+	lineOff := strings.Index(line, stripped)
+	if lineOff < 0 {
+		return "", -1
+	}
+	chunks := splitLinkChunks(stripped)
+	if len(chunks) == 0 {
+		return "", -1
+	}
+	for i := range chunks {
+		anchor := stripLinkPunctuation(chunks[i].text)
+		if !looksLikeFilePathToken(anchor) {
+			continue
+		}
+		head, rel, ok := expandLinkHeadLeft(chunks, i)
+		if !ok || head == "" {
+			continue
+		}
+		start := lineOff + rel
+		// Anything before the head must be filler: whitespace, gutter bars
+		// or one opening boundary char.
+		if before := line[:start]; strings.Trim(before, " \t\u2502\u2503|([{<\"'") != "" {
+			continue
+		}
+		return head, start
+	}
+	return "", -1
+}
+
+// expandLinkHeadLeft grows the anchor chunk leftwards over whole chunks,
+// mirroring the single-row scanner: punctuation-only chunks end the walk, and
+// a chunk with stripped leading boundary chars contributes its remainder and
+// then ends it. It reports the head text plus its byte offset in the stripped
+// row; reaching chunk 0 means the row starts with path text.
+func expandLinkHeadLeft(chunks []linkChunk, anchorIndex int) (string, int, bool) {
+	head := stripLinkPunctuation(chunks[anchorIndex].text)
+	if head == "" {
+		return "", 0, false
+	}
+	start := chunks[anchorIndex].start
+	for i := anchorIndex - 1; i >= 0; i-- {
+		raw := chunks[i].text
+		prev := stripLinkPunctuation(raw)
+		if prev == "" {
+			return "", 0, false
+		}
+		trimmed := strings.TrimLeft(raw, " \"'`([{<")
+		if trimmed != raw {
+			// Opening boundary: the head may start right after it, but
+			// nothing further left belongs to the path. trimmed cannot
+			// be empty here: prev (punctuation-trimmed) was not.
+			start = chunks[i].start + (len(raw) - len(trimmed))
+			head = trimmed + " " + head
+			if len([]rune(head)) > maxLinkRunes {
+				return "", 0, false
+			}
+			return head, start, true
+		}
+		start = chunks[i].start
+		head = prev + " " + head
+		if len([]rune(head)) > maxLinkRunes {
+			return "", 0, false
+		}
+	}
+	return head, start, true
+}
+
+// linkSeparatorCombos enumerates join separators for n junctions: the
+// all-space join first (word-wrap splits), then the direct join (hard
+// splits), then mixed.
+func linkSeparatorCombos(n int) [][]string {
+	if n <= 0 {
+		return [][]string{{}}
+	}
+	var combos [][]string
+	spaces := make([]string, n)
+	for i := range spaces {
+		spaces[i] = " "
+	}
+	combos = append(combos, append([]string(nil), spaces...))
+	direct := make([]string, n)
+	combos = append(combos, direct)
+	var rec func(prefix []string, depth int)
+	rec = func(prefix []string, depth int) {
+		if depth == n {
+			allSpace, allDirect := true, true
+			for _, sep := range prefix {
+				if sep != " " {
+					allSpace = false
+				} else {
+					allDirect = false
+				}
+			}
+			if !allSpace && !allDirect {
+				combos = append(combos, append([]string(nil), prefix...))
+			}
+			return
+		}
+		for _, sep := range []string{" ", ""} {
+			rec(append(prefix, sep), depth+1)
+		}
+	}
+	rec(nil, 0)
+	return combos
 }
 
 // fileLinkURL builds the file:// target for an absolute path, percent-encoded

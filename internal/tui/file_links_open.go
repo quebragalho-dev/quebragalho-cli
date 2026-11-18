@@ -38,6 +38,55 @@ func fileLinkClickModifier(mod tea.KeyMod) bool {
 	return mod.Contains(tea.ModCtrl) || mod.Contains(tea.ModAlt) || mod.Contains(tea.ModMeta)
 }
 
+// handleFileLinkClickWindow opens the link under a modified click when the
+// clicked row belongs to a path broken across wrapped rows. rows holds the
+// plain text of consecutive selectable rows and index positions the clicked
+// one; up to two rows on each side are considered, and only chains of rows
+// with consecutive bodyYs join (paragraph breaks never glue). A single-row
+// hit wins first, so unbroken links behave exactly as before.
+func handleFileLinkClickWindow(rows []transcriptSelectableLine, index int, col int, cwd string, mod tea.KeyMod) (bool, error) {
+	if !fileLinkClickModifier(mod) || index < 0 || index >= len(rows) {
+		return false, nil
+	}
+	if handled, err := handleFileLinkClick(mod, rows[index].text, col, cwd); handled || err != nil {
+		return handled, err
+	}
+	// Gather the largest consecutive window around the click (at most two
+	// rows each side): wrapped pieces only ever sit on adjacent body rows.
+	lo, hi := index, index
+	for lo-1 >= 0 && lo-1 >= index-2 && rows[lo-1].bodyY+1 == rows[lo].bodyY {
+		lo--
+	}
+	for hi+1 < len(rows) && hi+1 <= index+2 && rows[hi].bodyY+1 == rows[hi+1].bodyY {
+		hi++
+	}
+	if hi == lo {
+		return false, nil
+	}
+	windowTexts := make([]string, 0, hi-lo+1)
+	for _, line := range rows[lo : hi+1] {
+		windowTexts = append(windowTexts, line.text)
+	}
+	_, multis := planFileLinks(windowTexts, cwd)
+	for _, multi := range multis {
+		for _, part := range multi.parts {
+			if part.line != index-lo {
+				continue
+			}
+			startCol := lipgloss.Width(rows[index].text[:part.start])
+			endCol := lipgloss.Width(rows[index].text[:part.end])
+			if col < startCol || col >= endCol {
+				continue
+			}
+			if err := fileLinkOpener(multi.abs); err != nil {
+				return true, err
+			}
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // handleFileLinkClick opens the file link under a modified click. Plain and
 // shift-modified clicks return false so the normal selection flow proceeds.
 func handleFileLinkClick(mod tea.KeyMod, lineText string, col int, cwd string) (bool, error) {

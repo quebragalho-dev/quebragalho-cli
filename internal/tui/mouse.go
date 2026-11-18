@@ -204,11 +204,21 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if mouseLeftPress(msg) && fileLinkClickModifier(mouseEvent(msg).Mod) {
 		if line, ok := m.transcriptLineAtMouse(msg); ok {
 			col := mouseX(msg) - line.textStart
-			if abs, ok := fileLinkAtClick(line.text, col, m.cwd); ok {
-				if err := fileLinkOpener(abs); err != nil {
-					m = m.appendSystemNotice("Não foi possível abrir o arquivo: " + err.Error())
+			_, _, layout := m.transcriptHitTestLayout()
+			index := -1
+			for i, candidate := range layout.selectable {
+				if candidate.bodyY == line.bodyY {
+					index = i
+					break
 				}
-				return m, nil
+			}
+			if index >= 0 {
+				if handled, err := handleFileLinkClickWindow(layout.selectable, index, col, m.cwd, mouseEvent(msg).Mod); handled {
+					if err != nil {
+						m = m.appendSystemNotice("Não foi possível abrir o arquivo: " + err.Error())
+					}
+					return m, nil
+				}
 			}
 		}
 	}

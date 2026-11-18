@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 // fileLinkTestDir creates a temp dir with the given files (parents created)
@@ -270,5 +272,116 @@ func TestFileLinkCacheExpires(t *testing.T) {
 	abs, ok := resolveFileLink(path, dir)
 	if !ok || abs != path {
 		t.Fatalf("após expirar, resolve = %q, %v", abs, ok)
+	}
+}
+
+func TestPlanFileLinksJoinsTwoLineWrap(t *testing.T) {
+	dir := fileLinkTestDir(t, filepath.Join("e2e-links", "work", "Gravação de Tela teste.mov"))
+	plain := []string{
+		"veja " + filepath.Join(dir, "e2e-links", "work", "Gravação"),
+		"de Tela teste.mov aqui",
+	}
+	singles, multis := planFileLinks(plain, dir)
+	if len(multis) != 1 {
+		t.Fatalf("multis = %#v, want one joined span", multis)
+	}
+	multi := multis[0]
+	if multi.abs != filepath.Join(dir, "e2e-links", "work", "Gravação de Tela teste.mov") {
+		t.Fatalf("joined abs = %q", multi.abs)
+	}
+	if len(multi.parts) != 2 || multi.parts[0].line != 0 || multi.parts[1].line != 1 {
+		t.Fatalf("parts = %#v, want one piece per row", multi.parts)
+	}
+	if len(singles) != 0 {
+		t.Fatalf("singles = %#v, want none (pieces alone do not exist)", singles)
+	}
+}
+
+func TestPlanFileLinksJoinsThreeLineWrap(t *testing.T) {
+	dir := fileLinkTestDir(t, filepath.Join("e2e-links", "work", "Gravação de Tela teste.mov"))
+	plain := []string{
+		"arquivo " + filepath.Join(dir, "e2e-links", "wo"),
+		"rk/Gravação de",
+		"Tela teste.mov ok",
+	}
+	_, multis := planFileLinks(plain, dir)
+	if len(multis) != 1 {
+		t.Fatalf("multis = %#v, want one three-piece span", multis)
+	}
+	if got := multis[0].abs; got != filepath.Join(dir, "e2e-links", "work", "Gravação de Tela teste.mov") {
+		t.Fatalf("joined abs = %q", got)
+	}
+	if len(multis[0].parts) != 3 {
+		t.Fatalf("parts = %#v, want three", multis[0].parts)
+	}
+}
+
+func TestPlanFileLinksNoJoinAcrossBlankLine(t *testing.T) {
+	dir := fileLinkTestDir(t, filepath.Join("w", "Gravação de Tela teste.mov"))
+	plain := []string{
+		"veja " + filepath.Join(dir, "w", "Gravação"),
+		"",
+		"de Tela teste.mov aqui",
+	}
+	_, multis := planFileLinks(plain, dir)
+	if len(multis) != 0 {
+		t.Fatalf("multis = %#v, want none across a paragraph break", multis)
+	}
+}
+
+func TestPlanFileLinksMissingStaysUnlinked(t *testing.T) {
+	dir := t.TempDir()
+	plain := []string{
+		"veja " + filepath.Join(dir, "que", "não", "existe", "a.png"),
+		"cortado",
+	}
+	singles, multis := planFileLinks(plain, dir)
+	if len(singles) != 0 || len(multis) != 0 {
+		t.Fatalf("singles = %#v multis = %#v, want none for a missing path", singles, multis)
+	}
+}
+
+func TestLinkifyTranscriptLinesLinksEveryPiece(t *testing.T) {
+	dir := fileLinkTestDir(t, filepath.Join("e2e-links", "work", "Gravação de Tela teste.mov"))
+	tail := filepath.Join("e2e-links", "work", "Gravação")
+	block := "veja " + filepath.Join(dir, tail) + "\nde Tela teste.mov aqui"
+	got := linkifyTranscriptLines(block, dir)
+	url := fileLinkURL(filepath.Join(dir, "e2e-links", "work", "Gravação de Tela teste.mov"))
+	if count := strings.Count(got, "\x1b]8;;"+url+"\x1b\\"); count != 2 {
+		t.Fatalf("both pieces must carry the same URL, got %d opens in %q", count, got)
+	}
+}
+
+func TestFileLinkClickJoinedOpensWholeFile(t *testing.T) {
+	dir := fileLinkTestDir(t, filepath.Join("e2e-links", "work", "Gravação de Tela teste.mov"))
+	plain := []string{
+		"veja " + filepath.Join(dir, "e2e-links", "work", "Gravação"),
+		"de Tela teste.mov aqui",
+	}
+	rows := []transcriptSelectableLine{
+		{bodyY: 10, text: plain[0]},
+		{bodyY: 11, text: plain[1]},
+	}
+	var opened []string
+	restore := fileLinkOpener
+	fileLinkOpener = func(path string) error {
+		opened = append(opened, path)
+		return nil
+	}
+	defer func() { fileLinkOpener = restore }()
+
+	// Click inside the second piece ("de Tela..."): the whole joined path
+	// must open.
+	col := strings.Index(rows[1].text, "Tela") + 1
+	handled, err := handleFileLinkClickWindow(rows, 1, col, dir, tea.ModCtrl)
+	if err != nil {
+		t.Fatalf("opener error: %v", err)
+	}
+	if !handled {
+		t.Fatal("click on a wrapped piece must be handled")
+	}
+	want := filepath.Join(dir, "e2e-links", "work", "Gravação de Tela teste.mov")
+	if len(opened) != 1 || opened[0] != want {
+		t.Fatalf("opened = %#v, want [%q]", opened, want)
 	}
 }
