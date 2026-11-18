@@ -594,6 +594,14 @@ func TestDesktopActionDescriptionGuidesWindowsStoreLaunch(t *testing.T) {
 			t.Fatalf("desktop_action description = %q, want %q guidance for Windows Store apps", desc, want)
 		}
 	}
+	// The launched process is gone before the window shows up, so the
+	// guidance must send the model to the window title instead of waiting on
+	// that process.
+	for _, want := range []string{"another process", "title"} {
+		if !strings.Contains(desc, want) {
+			t.Fatalf("desktop_action description = %q, want %q in the Windows Store launch guidance", desc, want)
+		}
+	}
 	argsDesc := tool.Parameters().Properties["args"].Description
 	if !strings.Contains(argsDesc, "--no-attach") || !strings.Contains(argsDesc, "list-windows") {
 		t.Fatalf("desktop_action args description = %q, want --no-attach and list-windows hint", argsDesc)

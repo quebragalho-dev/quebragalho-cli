@@ -113,7 +113,7 @@ func newDesktopActionTool(options localcontrol.DesktopOptions) Tool {
 				`Pass @<snapshot_id>:eN ref from desktop_snapshot (bare @e8 rejected). ` +
 				`Loop: snapshot -i -> act -> snapshot to verify; on STALE_REF/AMBIGUOUS_TARGET re-snapshot or pass --window-id. ` +
 				`Retry only if error.disposition.retry == "safe". ` +
-				`On Windows, Store/packaged apps (e.g. calc.exe, modern notepad.exe) switch processes so bare launch waits 30s in vain; launch with args=["--no-attach"] and follow with command="list-windows" instead of waiting. ` +
+				`On Windows, Store/packaged apps (e.g. calc.exe, modern notepad.exe) open the window in another process, so the launched process exits at once; launch with args=["--no-attach"], then find the window by title with command="list-windows" instead of waiting for the launched process. ` +
 				`Set headed=true only when the user explicitly permits physical mouse/keyboard control, never as a fallback after a headless failure. ` +
 				`Guide: command="skills", args=["get","desktop"] (or "platform").`,
 			parameters: Schema{
