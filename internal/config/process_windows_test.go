@@ -29,7 +29,7 @@ func TestCommandProcessRetainsIdentityAfterWait(t *testing.T) {
 	}
 	proc := attachCommandProcess(cmd)
 	t.Cleanup(proc.Close)
-	if proc.processHandle == 0 {
+	if proc.job.ProcessHandle() == 0 {
 		t.Fatal("attachCommandProcess did not retain a process handle")
 	}
 	if err := cmd.Wait(); err != nil {
@@ -37,7 +37,7 @@ func TestCommandProcessRetainsIdentityAfterWait(t *testing.T) {
 	}
 
 	var code uint32
-	if err := windows.GetExitCodeProcess(proc.processHandle, &code); err != nil {
+	if err := windows.GetExitCodeProcess(proc.job.ProcessHandle(), &code); err != nil {
 		t.Fatalf("GetExitCodeProcess after Wait: %v", err)
 	}
 	if code == stillActive {
@@ -45,10 +45,12 @@ func TestCommandProcessRetainsIdentityAfterWait(t *testing.T) {
 	}
 
 	proc.Close()
-	if proc.job != 0 || proc.processHandle != 0 {
-		t.Fatalf("Close left handles open: job=%v process=%v", proc.job, proc.processHandle)
+	if proc.job.JobHandle() != 0 || proc.job.ProcessHandle() != 0 {
+		t.Fatalf("Close left handles open: job=%v process=%v", proc.job.JobHandle(), proc.job.ProcessHandle())
 	}
 }
+
+const stillActive = uint32(259) // STILL_ACTIVE
 
 func processAlive(pid int) bool {
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
