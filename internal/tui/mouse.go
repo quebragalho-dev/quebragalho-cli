@@ -197,6 +197,21 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m.subagents.expanded = true
 		return m, nil
 	}
+	// A modifier+click on an existing file opens it instead of starting a
+	// selection: with the mouse captured the terminal surrenders clicks to the
+	// app, so waiting for the terminal to open OSC 8 links never works. Plain
+	// clicks (and clicks on non-link text) fall through to selection below.
+	if mouseLeftPress(msg) && fileLinkClickModifier(mouseEvent(msg).Mod) {
+		if line, ok := m.transcriptLineAtMouse(msg); ok {
+			col := mouseX(msg) - line.textStart
+			if abs, ok := fileLinkAtClick(line.text, col, m.cwd); ok {
+				if err := fileLinkOpener(abs); err != nil {
+					m = m.appendSystemNotice("Não foi possível abrir o arquivo: " + err.Error())
+				}
+				return m, nil
+			}
+		}
+	}
 	if next, cmd, ok := m.handleTranscriptSelectionMouse(msg); ok {
 		return next, cmd
 	}
