@@ -1810,7 +1810,7 @@ func sandboxDeniedNetworkRetryEvent(call ToolCall, tool tools.Tool, args map[str
 		DecisionReason: reason,
 		Scope:          permissionScope(call.Name, args),
 		Risk:           risk,
-		CommandPrefix:  proposedCommandPrefix(call.Name, args),
+		CommandPrefix:  proposedCommandPrefixInDir(call.Name, args, effectiveCommandBaseDir(options)),
 	}
 }
 
@@ -1883,7 +1883,7 @@ func sandboxRestrictionRetryEvent(call ToolCall, tool tools.Tool, args map[strin
 		Reason:         reason,
 		Scope:          permissionScope(call.Name, args),
 		Risk:           risk,
-		CommandPrefix:  proposedCommandPrefix(call.Name, args),
+		CommandPrefix:  proposedCommandPrefixInDir(call.Name, args, effectiveCommandBaseDir(options)),
 	}
 }
 
@@ -2896,7 +2896,7 @@ func buildPermissionEvent(call ToolCall, tool tools.Tool, args map[string]any, p
 		Block:             block,
 		GrantMatched:      grantMatched,
 		Grant:             grant,
-		CommandPrefix:     proposedCommandPrefix(call.Name, args),
+		CommandPrefix:     proposedCommandPrefixInDir(call.Name, args, effectiveCommandBaseDir(options)),
 	}, true
 }
 
