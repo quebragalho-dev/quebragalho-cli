@@ -1580,8 +1580,9 @@ Opções:
       --no-browser               Mostra o link de login inicial sem abrir
                                  o navegador (ou defina QG_NO_BROWSER=1)
       --dangerously-skip-permissions
-                                 Abre o shell interativo sem confirmação
-                                 (ativa o escape ! do shell)
+                                 Abre o shell interativo sem confirmação;
+                                 os comandos rodam sem isolamento e com
+                                 acesso total ao computador (ativa !)
       --skip-permissions-unsafe  Alias de --dangerously-skip-permissions
 `)
 	return err
@@ -2002,7 +2003,8 @@ Opções:
                                      prefira --plan / --auto no uso interativo.
                                      Para filhos de especialista/swarm.
       --max-turns <number>           Troca o máximo de turnos do loop do agente
-      --auto <low|medium|high>       Autonomia (high libera sem confirmar)
+      --auto <low|medium|high>       Autonomia (high roda sem isolamento, sem
+                                     confirmar e com acesso total ao computador)
       --enabled-tools <tools>        Expõe só estas ferramentas, por vírgula
                                      ou espaço
       --disabled-tools <tools>       Oculta estas ferramentas, por vírgula
@@ -2027,7 +2029,10 @@ Opções:
       --depth <number>               Profundidade do aninhamento do especialista
       --session-title <text>         Define o título da sessão criada
       --init-session-id <id>         Cria sessão de execução com este id
-      --dangerously-skip-permissions Libera ferramentas sem pedir confirmação
+      --dangerously-skip-permissions
+                                     Libera ferramentas sem confirmação;
+                                     comandos rodam sem isolamento e com
+                                     acesso total ao computador
       --skip-permissions-unsafe      Alias de --dangerously-skip-permissions
       --allow-escalation             Permite escalar para um modelo
                                      mais forte (escalate_model)

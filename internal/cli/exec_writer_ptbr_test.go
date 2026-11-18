@@ -15,7 +15,9 @@ func TestHumanExecMessageTable(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"unsafe flag", "Unsafe permissions are active for this run because --dangerously-skip-permissions was passed.", "Permissões sem confirmação ativas nesta execução porque --dangerously-skip-permissions foi passado."},
+		{"unsafe flag", "Unsafe permissions are active for this run because --dangerously-skip-permissions was passed.", "Permissões sem confirmação ativas nesta execução (--dangerously-skip-permissions): os comandos rodam sem isolamento e com acesso total ao computador."},
+		{"auto high", "Unsafe permissions are active for this run because --auto high was passed.", "Permissões sem confirmação ativas nesta execução (--auto high): os comandos rodam sem isolamento e com acesso total ao computador."},
+		{"permission mode unsafe", "Unsafe permissions are active for this run because --permission-mode unsafe was passed.", "Permissões sem confirmação ativas nesta execução (--permission-mode unsafe): os comandos rodam sem isolamento e com acesso total ao computador."},
 		{"cancelled", "run cancelled by signal", "execução cancelada por sinal"},
 		{"incomplete default", "run stopped with work unfinished", "execução parada com trabalho inacabado"},
 		{"truncation length", "Response was cut off at the output token limit and may be incomplete. Raise the model's max output tokens or ask qg to continue.", "A resposta foi cortada no limite de tokens de saída e pode estar incompleta. Aumente o máximo de tokens de saída do modelo ou peça ao qg para continuar."},

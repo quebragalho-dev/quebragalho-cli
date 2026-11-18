@@ -1432,6 +1432,12 @@ func newModel(ctx context.Context, options Options) model {
 	if warning := strings.TrimSpace(options.SandboxWarning); warning != "" {
 		m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: warning})
 	}
+	if m.permissionMode == agent.PermissionModeUnsafe {
+		m.transcript = reduceTranscript(m.transcript, transcriptAction{
+			kind: actionAppendSystem,
+			text: "Aviso: modo sem confirmação ativo — os comandos rodam sem isolamento e com acesso total ao computador.",
+		})
+	}
 	// Name unknown statusline field ids once at startup, so a typo in a
 	// hand-written config does not fail silently (the setup card repeats
 	// them at preview time; this covers everything else).
