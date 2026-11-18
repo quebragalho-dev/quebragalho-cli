@@ -165,7 +165,7 @@ func runSandboxSetup(args []string, stdout io.Writer, stderr io.Writer, deps app
 	if err != nil {
 		return writeExecUsageError(stderr, err.Error())
 	}
-	profile := qgSandbox.PermissionProfileFromPolicy(workspaceRoot, policy, scope)
+	profile := qgSandbox.PermissionProfileFromPolicyForGOOS(workspaceRoot, policy, scope, backend.Platform)
 	// Resolve the setup helper the same way the runner is resolved: a standalone
 	// .exe when shipped (release), else self-dispatch via the running qg binary
 	// (dev / plain build). This mirrors the backend's command-runner resolution

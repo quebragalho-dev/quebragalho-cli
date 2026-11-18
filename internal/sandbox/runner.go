@@ -204,7 +204,10 @@ func (engine *Engine) BuildCommandPlan(spec CommandSpec) (CommandPlan, error) {
 	if policy.Mode == ModeDisabled {
 		preference = SandboxPreferenceForbid
 	}
-	profile := permissionProfileFromPolicy(workspaceRoot, policy, engine.scope, spec.Dir, spec.Env)
+	// The profile is platform-shaped for the backend that will enforce it, not
+	// for this host: a Windows host planning a Linux command must not plant
+	// host-shaped paths into the other platform's plan.
+	profile := permissionProfileFromPolicy(workspaceRoot, policy, engine.scope, spec.Dir, spec.Env, resolveProfileTargetGOOS(backend.Platform, backend.Name))
 	// Validate in the main process before creating runtime state or launching a
 	// potentially version-skewed helper. Keep the helper check as defense in depth.
 	if preference != SandboxPreferenceForbid && backend.Name == BackendLinuxBwrap && backend.Available && backend.CommandWrapping && backend.NativeIsolation {

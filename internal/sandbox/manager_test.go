@@ -53,7 +53,7 @@ func TestPermissionProfileFromPolicyBuildsWorkspaceWriteProfile(t *testing.T) {
 			t.Fatalf("write roots = %#v, want scope roots %#v", profile.FileSystem.WriteRoots, roots)
 		}
 	}
-	for _, want := range policyFilesystemReadRoots() {
+	for _, want := range policyFilesystemReadRootsForGOOS(runtime.GOOS) {
 		if !stringSliceContains(profile.FileSystem.ReadRoots, want) {
 			t.Fatalf("read roots = %#v, want policy filesystem root %q", profile.FileSystem.ReadRoots, want)
 		}
@@ -973,7 +973,7 @@ func TestCommandSuppliedTokenOverrideFailsClosedOnBubblewrap(t *testing.T) {
 	t.Setenv("QG_MCP_OAUTH_TOKENS_PATH", "")
 	workspace := t.TempDir()
 
-	baseline := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, nil)
+	baseline := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, nil, runtime.GOOS)
 	if len(baseline.FileSystem.ProcessTrustedDenyReadFiles) != 0 || len(baseline.FileSystem.CommandDenyReadFinalFiles) != 0 {
 		t.Fatalf("baseline profile should have no replaceable final files: %#v", baseline.FileSystem)
 	}
@@ -989,7 +989,7 @@ func TestCommandSuppliedTokenOverrideFailsClosedOnBubblewrap(t *testing.T) {
 
 	commandToken := filepath.Join(testutil.TempDirOutsideDefaultTemp(t), "command-store", "tokens.json")
 	profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace,
-		[]string{"QG_OAUTH_TOKENS_PATH=" + commandToken})
+		[]string{"QG_OAUTH_TOKENS_PATH=" + commandToken}, runtime.GOOS)
 	fs := profile.FileSystem
 	if !stringSliceContains(fs.CommandDenyReadFinalFiles, normalizeProfilePath(commandToken)) {
 		t.Fatalf("CommandDenyReadFinalFiles = %#v, want command override %q", fs.CommandDenyReadFinalFiles, commandToken)
@@ -1035,7 +1035,7 @@ func TestKeyringOAuthOverrideDoesNotFailClosedOnBubblewrap(t *testing.T) {
 	t.Run("process environment", func(t *testing.T) {
 		t.Setenv("QG_OAUTH_TOKENS_PATH", tokenPath)
 		t.Setenv("QG_OAUTH_STORAGE", "keyring")
-		profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, nil)
+		profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, nil, runtime.GOOS)
 		fs := profile.FileSystem
 		if !stringSliceContains(fs.DenyReadIfExists, normalizeProfilePath(tokenPath)) {
 			t.Fatalf("DenyReadIfExists = %#v, want keyring override retained in ordinary deny baseline", fs.DenyReadIfExists)
@@ -1065,7 +1065,7 @@ func TestKeyringOAuthOverrideDoesNotFailClosedOnBubblewrap(t *testing.T) {
 		profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, []string{
 			"QG_OAUTH_TOKENS_PATH=" + tokenPath,
 			"QG_OAUTH_STORAGE=keyring",
-		})
+		}, runtime.GOOS)
 		fs := profile.FileSystem
 		if !stringSliceContains(fs.DenyReadIfExists, normalizeProfilePath(tokenPath)) {
 			t.Fatalf("DenyReadIfExists = %#v, want command keyring override retained in ordinary deny baseline", fs.DenyReadIfExists)
@@ -1100,7 +1100,7 @@ func TestCommandCredentialDirectoriesFailClosedWithoutHostMutation(t *testing.T)
 	profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, []string{
 		"HOME=" + filepath.Dir(commandConfig),
 		"XDG_CONFIG_HOME=" + commandConfig,
-	})
+	}, runtime.GOOS)
 	if !stringSliceContains(profile.FileSystem.CommandDenyReadDirs, normalizeProfilePath(commandZero)) {
 		t.Fatalf("CommandDenyReadDirs = %#v, want future command credential root %q", profile.FileSystem.CommandDenyReadDirs, commandZero)
 	}
@@ -1149,7 +1149,7 @@ func TestCommandCredentialSettingsDoNotMaskAllowedRoots(t *testing.T) {
 	profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, []string{
 		"CLOUDSDK_CONFIG=" + workspace,
 		"GOOGLE_APPLICATION_CREDENTIALS=" + filepath.Join(externalCloud, "service-account.json"),
-	})
+	}, runtime.GOOS)
 	fs := profile.FileSystem
 	if stringSliceContains(fs.DenyReadIfExists, normalizeProfilePath(workspace)) {
 		t.Fatalf("command CLOUDSDK_CONFIG masked workspace: %#v", fs.DenyReadIfExists)
@@ -1226,7 +1226,7 @@ func TestKeyringExceptionKeepsFileBackedTokenStoresFailClosed(t *testing.T) {
 			for key, value := range test.processEnv {
 				t.Setenv(key, value)
 			}
-			profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, test.commandEnv)
+			profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, test.commandEnv, runtime.GOOS)
 			markers := profile.FileSystem.ProcessTrustedDenyReadFiles
 			if test.commandMarker {
 				markers = profile.FileSystem.CommandDenyReadFinalFiles
@@ -1269,7 +1269,7 @@ func TestLegacyMCPOverrideDoesNotFailClosedOnBubblewrap(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("QG_MCP_OAUTH_TOKENS_PATH", test.processMCP)
-			profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, test.commandEnv)
+			profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, test.commandEnv, runtime.GOOS)
 			fs := profile.FileSystem
 			for _, want := range []string{legacy, legacy + ".migrated"} {
 				if !stringSliceContains(fs.DenyReadIfExists, normalizeProfilePath(want)) {
@@ -1328,7 +1328,7 @@ func TestOAuthOverridesInsideCredentialCarveoutsRemainFailClosedOnBubblewrap(t *
 		t.Run(name, func(t *testing.T) {
 			token := filepath.Join(configDir, "qg", name, "tokens.json")
 			t.Setenv("QG_OAUTH_TOKENS_PATH", token)
-			profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, nil)
+			profile := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, workspace, nil, runtime.GOOS)
 			for _, want := range []string{token, token + ".secret"} {
 				if !stringSliceContains(profile.FileSystem.ProcessTrustedDenyReadFiles, normalizeCredentialFinalPath(want)) {
 					t.Fatalf("ProcessTrustedDenyReadFiles = %#v, carveout must retain final-file marker %q", profile.FileSystem.ProcessTrustedDenyReadFiles, want)
@@ -1359,12 +1359,12 @@ func TestProcessCredentialBaseDirDoesNotFollowWorkingDirectoryChanges(t *testing
 	t.Setenv("QG_MCP_OAUTH_TOKENS_PATH", "")
 	workspace := t.TempDir()
 
-	before := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, "", nil).FileSystem.ProcessTrustedDenyReadFiles
+	before := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, "", nil, runtime.GOOS).FileSystem.ProcessTrustedDenyReadFiles
 	if len(before) == 0 {
 		t.Fatal("a relative token override must produce a process-trusted deny")
 	}
 	t.Chdir(t.TempDir())
-	after := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, "", nil).FileSystem.ProcessTrustedDenyReadFiles
+	after := permissionProfileFromPolicy(workspace, DefaultPolicy(), nil, "", nil, runtime.GOOS).FileSystem.ProcessTrustedDenyReadFiles
 	if !slices.Equal(before, after) {
 		t.Fatalf("process-trusted denies followed the working directory: before %#v, after %#v", before, after)
 	}
@@ -1383,7 +1383,7 @@ func TestCommandControlledConfigAncestorDoesNotSuppressProcessTrustedFile(t *tes
 	t.Setenv("QG_OAUTH_TOKENS_PATH", tokenPath)
 	t.Setenv("QG_MCP_OAUTH_TOKENS_PATH", "")
 
-	profile := permissionProfileFromPolicy(t.TempDir(), DefaultPolicy(), nil, t.TempDir(), []string{"XDG_CONFIG_HOME=" + commandConfig})
+	profile := permissionProfileFromPolicy(t.TempDir(), DefaultPolicy(), nil, t.TempDir(), []string{"XDG_CONFIG_HOME=" + commandConfig}, runtime.GOOS)
 	if !stringSliceContains(profile.FileSystem.ProcessTrustedDenyReadFiles, normalizeProfilePath(tokenPath)) {
 		t.Fatalf("ProcessTrustedDenyReadFiles = %#v, command-controlled config ancestor must not suppress %q", profile.FileSystem.ProcessTrustedDenyReadFiles, tokenPath)
 	}

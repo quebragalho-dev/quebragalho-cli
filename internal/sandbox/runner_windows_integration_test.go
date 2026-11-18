@@ -429,10 +429,16 @@ func runWindowsRealSmokeCommand(t *testing.T, runnerExe string, base WindowsSand
 		return
 	}
 	if err != nil {
-		t.Fatalf("Windows sandbox command failed: %v\n%s", err, output)
+		// Always show the runner's own output and exit code: a bare
+		// "exit status 1" hides whether the command ran and failed or the
+		// runner refused to launch it at all.
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			t.Fatalf("Windows sandbox command failed: exit code %d\ncommand: %q\noutput:\n%s", exitErr.ExitCode(), command, output)
+		}
+		t.Fatalf("Windows sandbox command failed: %v\ncommand: %q\noutput:\n%s", err, command, output)
 	}
 	if wantCode != 0 {
-		t.Fatalf("Windows sandbox command exit code = 0, want %d\n%s", wantCode, output)
+		t.Fatalf("Windows sandbox command exit code = 0, want %d\ncommand: %q\noutput:\n%s", wantCode, command, output)
 	}
 }
 

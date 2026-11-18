@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
@@ -20,17 +19,19 @@ func windowsDriveRootsFromBitmask(mask uint32) []string {
 	return out
 }
 
-// policyFilesystemReadRoots is the read-all half of the read-all/write-jail
-// posture: every mounted drive root, not just the current drive's ("\"). The
+// policyFilesystemReadRootsForGOOS is the read-all half of the
+// read-all/write-jail posture for a target platform: on Windows it spans every
+// mounted drive root, not just the current drive's ("\"). The
 // roots are policy only — the Windows ACL plan deliberately grants no read on
 // drive roots (an inheritable allow on C:\ would stamp an ACE on every file of
 // the drive), so reads outside granted roots fail closed under the fully
 // restricted token instead.
-func policyFilesystemReadRoots() []string {
-	if runtime.GOOS == "windows" {
+func policyFilesystemReadRootsForGOOS(targetGOOS string) []string {
+	if targetGOOS == "windows" {
 		if drives := windowsLogicalDriveRoots(); len(drives) > 0 {
 			return drives
 		}
+		return []string{`\`}
 	}
 	return []string{profileRootPath()}
 }
@@ -45,6 +46,12 @@ func policyFilesystemReadRoots() []string {
 func isFilesystemRootPath(path string) bool {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" || trimmed == "." {
+		return false
+	}
+	// A bare drive letter ("C:") is drive-relative — the current directory of
+	// that drive — never a root. filepath.Dir reports it as its own parent on
+	// Windows, so it needs the explicit carve-out.
+	if len(trimmed) == 2 && trimmed[1] == ':' && isASCIIDriveLetter(trimmed[0]) {
 		return false
 	}
 	clean := filepath.Clean(trimmed)

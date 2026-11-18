@@ -196,6 +196,20 @@ func NewSandboxManager(options SandboxManagerOptions) SandboxManager {
 	return SandboxManager{goos: goos, backend: backend}
 }
 
+// resolveProfileTargetGOOS picks the platform a permission profile is built
+// for: the backend's own platform first, then the platform its name implies,
+// then the host. An empty backend (unavailable/degraded paths) falls through
+// to the host, matching the previous behavior.
+func resolveProfileTargetGOOS(platform string, name BackendName) string {
+	if strings.TrimSpace(platform) != "" {
+		return platform
+	}
+	if resolved := platformForBackendName(name); resolved != "" {
+		return resolved
+	}
+	return runtime.GOOS
+}
+
 func platformForBackendName(name BackendName) string {
 	switch name {
 	case BackendMacOSSeatbelt:
@@ -320,7 +334,7 @@ func (manager SandboxManager) BuildExecutionRequest(request SandboxManagerReques
 	}
 	profile := request.Profile
 	if permissionProfileUnset(profile) {
-		profile = PermissionProfileFromPolicy(request.WorkspaceRoot, policy, request.Scope)
+		profile = PermissionProfileFromPolicyForGOOS(request.WorkspaceRoot, policy, request.Scope, resolveProfileTargetGOOS(manager.backend.Platform, manager.backend.Name))
 	}
 	requiresPlatformSandbox := profile.RequiresPlatformSandbox() && preference != SandboxPreferenceForbid
 	backend := manager.backend

@@ -66,7 +66,7 @@ func TestCredentialDenyReadPathsCoversIssue815Stores(t *testing.T) {
 	t.Setenv("DOCKER_CONFIG", "")
 	t.Setenv("KUBECONFIG", "")
 
-	profile := permissionProfileFromPolicy(t.TempDir(), DefaultPolicy(), nil, "", nil)
+	profile := permissionProfileFromPolicy(t.TempDir(), DefaultPolicy(), nil, "", nil, runtime.GOOS)
 	denied := profile.FileSystem.DenyReadIfExists
 
 	isCovered := func(target string) bool {

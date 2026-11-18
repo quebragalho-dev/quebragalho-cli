@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -583,11 +582,14 @@ func normalizeSandboxPolicyGoldenTempRoots(t *testing.T, gotBytes []byte, worksp
 	profile, _ := plan["permissionProfile"].(map[string]any)
 	fileSystem, _ := profile["fileSystem"].(map[string]any)
 	wantDenyRead := []string(nil)
+	// Resolved the same way the profile builder resolves its candidates, on
+	// every platform: the Windows backend now carries the credential baseline
+	// too, so the golden pins it there as well.
 	credentialHome := emptyHome
-	if runtime.GOOS != "windows" {
-		if resolved, err := filepath.EvalSymlinks(emptyHome); err == nil {
-			credentialHome = resolved
-		}
+	if resolved, err := filepath.EvalSymlinks(emptyHome); err == nil {
+		credentialHome = resolved
+	}
+	{
 		wantDenyRead = []string{
 			filepath.Join(credentialHome, ".ssh"),
 			filepath.Join(credentialHome, ".gnupg"),
@@ -617,7 +619,7 @@ func normalizeSandboxPolicyGoldenTempRoots(t *testing.T, gotBytes []byte, worksp
 	}
 	wantCarveouts := []string(nil)
 	wantEnsureDirs := []string(nil)
-	if runtime.GOOS != "windows" {
+	{
 		zeroDir := filepath.Join(credentialHome, ".config", "qg")
 		wantCarveouts = []string{
 			filepath.Join(zeroDir, "plugins"),
@@ -635,13 +637,45 @@ func normalizeSandboxPolicyGoldenTempRoots(t *testing.T, gotBytes []byte, worksp
 	delete(fileSystem, "denyReadIfExists")
 	delete(fileSystem, "denyReadCarveouts")
 	delete(fileSystem, "ensureDenyReadDirs")
-	fileSystem["readRoots"] = filterJSONStringRoots(fileSystem["readRoots"], tempRoots)
+	fileSystem["readRoots"] = normalizeGoldenDriveRoots(filterJSONStringRoots(fileSystem["readRoots"], tempRoots))
 	fileSystem["writeRoots"] = filterJSONWriteRoots(fileSystem["writeRoots"], tempRoots)
 	normalized, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		t.Fatalf("encode normalized policy JSON: %v", err)
 	}
 	return append(normalized, '\n')
+}
+
+// normalizeGoldenDriveRoots keeps the policy golden deterministic across
+// machines: every mounted drive root (C:\\, D:\\, ...) — and the fallback
+// current-drive root ("\\") where no drives are visible — becomes one shared
+// $DRIVE token, deduplicated. The golden pins the shape (drive roots are
+// listed), while the VM-only policy test pins the all-drives coverage.
+func normalizeGoldenDriveRoots(value any) any {
+	roots, ok := value.([]any)
+	if !ok {
+		return value
+	}
+	out := make([]any, 0, len(roots))
+	seenDrive := false
+	for _, root := range roots {
+		text, ok := root.(string)
+		if !ok {
+			out = append(out, root)
+			continue
+		}
+		if text == `\` || (len(text) == 3 && text[1] == ':' && (text[2] == '\\' || text[2] == '/') &&
+			((text[0] >= 'A' && text[0] <= 'Z') || (text[0] >= 'a' && text[0] <= 'z'))) {
+			if seenDrive {
+				continue
+			}
+			seenDrive = true
+			out = append(out, "$DRIVE")
+			continue
+		}
+		out = append(out, root)
+	}
+	return out
 }
 
 func jsonStringSlice(value any) []string {

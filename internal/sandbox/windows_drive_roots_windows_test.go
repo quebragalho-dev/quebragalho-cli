@@ -12,7 +12,7 @@ func TestPolicyFilesystemReadRootsCoversAllDrives(t *testing.T) {
 	if len(drives) == 0 {
 		t.Skip("no visible drives to enumerate")
 	}
-	roots := policyFilesystemReadRoots()
+	roots := policyFilesystemReadRootsForGOOS("windows")
 	if len(roots) != len(drives) {
 		t.Fatalf("policyFilesystemReadRoots() = %q, want the %d visible drive roots %q", roots, len(drives), drives)
 	}

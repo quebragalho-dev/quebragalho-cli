@@ -3,6 +3,7 @@ package sandbox
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/envstr"
@@ -122,10 +123,18 @@ func gitMetadataWriteCarveoutsWithLstat(root string, lstat func(string) (os.File
 }
 
 func PermissionProfileFromPolicy(workspaceRoot string, policy Policy, scope *Scope) PermissionProfile {
-	return permissionProfileFromPolicy(workspaceRoot, policy, scope, "", nil)
+	return permissionProfileFromPolicy(workspaceRoot, policy, scope, "", nil, runtime.GOOS)
 }
 
-func permissionProfileFromPolicy(workspaceRoot string, policy Policy, scope *Scope, credentialCommandDir string, credentialEnv []string) PermissionProfile {
+// PermissionProfileFromPolicyForGOOS builds the profile for a target platform
+// rather than the host: read roots and the credential baseline are
+// platform-shaped, so a Windows host planning a Linux command (or vice versa)
+// must not plant host-shaped paths into the other platform's plan.
+func PermissionProfileFromPolicyForGOOS(workspaceRoot string, policy Policy, scope *Scope, targetGOOS string) PermissionProfile {
+	return permissionProfileFromPolicy(workspaceRoot, policy, scope, "", nil, targetGOOS)
+}
+
+func permissionProfileFromPolicy(workspaceRoot string, policy Policy, scope *Scope, credentialCommandDir string, credentialEnv []string, targetGOOS string) PermissionProfile {
 	if policy.Mode == "" {
 		policy = DefaultPolicy()
 	}
@@ -140,7 +149,10 @@ func permissionProfileFromPolicy(workspaceRoot string, policy Policy, scope *Sco
 	if extra := normalizeProfileDirs(policy.AllowWrite); len(extra) > 0 {
 		roots = dedupeStrings(append(roots, extra...))
 	}
-	readRoots := permissionProfileReadRoots(workspaceRoot, policy, scope, roots)
+	if targetGOOS == "" {
+		targetGOOS = runtime.GOOS
+	}
+	readRoots := permissionProfileReadRoots(workspaceRoot, policy, scope, roots, targetGOOS)
 	writeRoots := make([]WritableRoot, 0, len(roots))
 	for _, root := range roots {
 		writeRoots = append(writeRoots, WritableRoot{
@@ -160,7 +172,15 @@ func permissionProfileFromPolicy(workspaceRoot string, policy Policy, scope *Sco
 			commandAllowedRoots = append(commandAllowedRoots, root)
 		}
 	}
-	credentials := credentialDenyReadPaths(policy, credentialCommandDir, credentialEnv, dedupeStrings(commandAllowedRoots))
+	// The credential baseline resolves host paths (home dirs, env overrides).
+	// A Windows host planning a non-Windows command would plant C:\... paths
+	// into a Linux/macOS plan whose backend fails closed on them, so that
+	// combination stays empty, as before. Windows-target profiles always
+	// populate it: the Windows ACL plan stamps best-effort DACL denies from it.
+	var credentials credentialDenyPaths
+	if targetGOOS == "windows" || runtime.GOOS != "windows" {
+		credentials = credentialDenyReadPaths(policy, credentialCommandDir, credentialEnv, dedupeStrings(commandAllowedRoots))
+	}
 	credentials = finalizeCredentialDenyPaths(credentials, userDenyRead)
 	return PermissionProfile{
 		FileSystem: FileSystemPolicy{
@@ -201,13 +221,13 @@ func permissionProfileRoots(workspaceRoot string, scope *Scope) []string {
 	return dedupeStrings(roots)
 }
 
-func permissionProfileReadRoots(workspaceRoot string, policy Policy, scope *Scope, writeRoots []string) []string {
+func permissionProfileReadRoots(workspaceRoot string, policy Policy, scope *Scope, writeRoots []string, targetGOOS string) []string {
 	// Workspace-write follows the upstream sandbox model: full disk is readable,
 	// while writes are narrowed to workspace/extra roots below. This is a
 	// deliberate read-all/write-jail posture; callers that must hide secrets use
 	// DenyRead to carve them out. On Windows the read-all half spans every
 	// mounted drive root (C:\, D:\, ...), not just the current drive ("\").
-	readRoots := policyFilesystemReadRoots()
+	readRoots := policyFilesystemReadRootsForGOOS(targetGOOS)
 	readRoots = append(readRoots, writeRoots...)
 	if scope != nil {
 		readRoots = dedupeStrings(append(readRoots, scope.ReadRoots()...))

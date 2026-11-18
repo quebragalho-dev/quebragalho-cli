@@ -26,7 +26,10 @@ func PinProcessCredentialBaseDir(t interface{ Cleanup(func()) }, dir string) {
 }
 
 func DefaultPermissionProfile(workspaceRoot string) PermissionProfile {
-	return PermissionProfileFromPolicy(workspaceRoot, DefaultPolicy(), nil)
+	// Linux-shaped baseline: the backend-plan tests that use it assert
+	// Linux/macOS plan rendering, and must not inherit host-shaped paths on a
+	// Windows host.
+	return PermissionProfileFromPolicyForGOOS(workspaceRoot, DefaultPolicy(), nil, "linux")
 }
 
 // writeRoots returns the full ordered write-root list for command plans:
