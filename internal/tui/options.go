@@ -166,11 +166,6 @@ type Options struct {
 	// localModelPath — takes effect on the next recording.
 	BuildDictationTranscriber func(cfg config.STTConfig, preferStreaming bool) (t Transcriber, streaming bool, err error)
 
-	// ShutdownDictationServer tears down the warm sherpa-onnx streaming server (if
-	// one was started), called alongside the LSP manager's shutdown on exit. Nil
-	// when dictation is not wired.
-	ShutdownDictationServer func(context.Context) error
-
 	// STTDownloadRoot is where the auto-download stores the sherpa-onnx engine
 	// and model (e.g. ~/.config/qg/stt). Empty disables auto-download (the F9
 	// setup message then only points at manual setup / cloud providers).

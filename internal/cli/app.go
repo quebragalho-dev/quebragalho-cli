@@ -1050,7 +1050,6 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 	lastKnownMCPConfig := mcpConfig
 	fileTracker := tools.NewFileTracker()
 	var scratchBaseline scratchFileBaseline
-	sttServerManager := newDictationServerManager(resolved.STT)
 	// Keep STT downloads in the SAME config tree the rest of the TUI uses. Deriving
 	// from userConfigPath (rather than config.UserConfigDir()) matters when the config
 	// root is overridden — e.g. in tests or a custom QG config dir — so the two
@@ -1180,8 +1179,7 @@ func runInteractiveTUIWithSetup(stderr io.Writer, deps appDeps, permissionMode a
 		STT:                       resolved.STT,
 		ResumeSessionID:           resumeSessionID,
 		ShowResumePicker:          resumePicker,
-		BuildDictationTranscriber: newDictationTranscriberFactory(resolved, userConfigPath, sttServerManager),
-		ShutdownDictationServer:   sttServerManager.Shutdown,
+		BuildDictationTranscriber: newDictationTranscriberFactory(resolved, userConfigPath),
 		STTDownloadRoot:           sttDownloadRoot,
 		STTKeyStatus:              newSTTKeyStatus(resolved, userConfigPath),
 		SaveSTTKey:                newSaveSTTKey(userConfigPath),

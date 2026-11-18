@@ -40,13 +40,12 @@ const (
 // are pointers, so they survive across frames and are shared with the async
 // commands that operate on them.
 type dictationController struct {
-	cfg            config.STTConfig
-	build          func(cfg config.STTConfig, preferStreaming bool) (Transcriber, bool, error)
-	shutdownServer func(context.Context) error
-	keyAvailable   func(provider string) bool
-	saveKey        func(provider, key string) error
-	phase          dictationPhase
-	platform       dictation.Platform
+	cfg          config.STTConfig
+	build        func(cfg config.STTConfig, preferStreaming bool) (Transcriber, bool, error)
+	keyAvailable func(provider string) bool
+	saveKey      func(provider, key string) error
+	phase        dictationPhase
+	platform     dictation.Platform
 
 	// downloadRoot is where the auto-download stores the engine + model ("" =
 	// auto-download disabled). userConfigPath is where the resolved paths persist.
@@ -145,11 +144,10 @@ type dictationTranscribedMsg struct {
 func newDictationController(opts Options) dictationController {
 	platform := dictation.DetectPlatform()
 	return dictationController{
-		cfg:            opts.STT,
-		build:          opts.BuildDictationTranscriber,
-		shutdownServer: opts.ShutdownDictationServer,
-		keyAvailable:   opts.STTKeyStatus,
-		saveKey:        opts.SaveSTTKey,
+		cfg:          opts.STT,
+		build:        opts.BuildDictationTranscriber,
+		keyAvailable: opts.STTKeyStatus,
+		saveKey:      opts.SaveSTTKey,
 		platform:       platform,
 		downloadRoot:   opts.STTDownloadRoot,
 		userConfigPath: opts.UserConfigPath,
@@ -249,20 +247,10 @@ func (m model) toggleVoiceMode() (model, tea.Cmd) {
 	}
 	m.dictation.voiceModeEnabled = false
 	saveErrText := m.persistVoiceMode()
-	// Turning voice off is the "done dictating" signal, so release the warm sherpa
-	// streaming server — otherwise a loaded model keeps idling in RAM (and holding
-	// its port) until the app exits. It respawns lazily on the next streaming
-	// recording. Skip while a recording is still in flight so we don't kill it.
-	var next model
 	if saveErrText != "" {
-		next = m.appendSystemNotice("Modo de voz desligado." + saveErrText)
-	} else {
-		next = m.showTransientNoticeInline("Modo de voz desligado.", transientNoticeInfo)
+		return m.appendSystemNotice("Modo de voz desligado." + saveErrText), nil
 	}
-	if next.dictation.active() {
-		return next, nil
-	}
-	return next, next.releaseDictationServerCmd()
+	return m.showTransientNoticeInline("Modo de voz desligado.", transientNoticeInfo), nil
 }
 
 // enableVoiceSetup runs the /voice turn-on checks in order: an in-flight
@@ -388,22 +376,6 @@ func (m model) persistVoiceMode() string {
 		return " Não foi possível salvar na configuração: " + err.Error()
 	}
 	return ""
-}
-
-// releaseDictationServerCmd tears down the warm sherpa-onnx streaming server off
-// the UI goroutine (Shutdown waits on the process). No-op when no server backend
-// is wired or none is running.
-func (m model) releaseDictationServerCmd() tea.Cmd {
-	shutdown := m.dictation.shutdownServer
-	if shutdown == nil {
-		return nil
-	}
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = shutdown(ctx)
-		return nil
-	}
 }
 
 // startDictation builds the recorder + transcriber and kicks off capture.

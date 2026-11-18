@@ -1670,11 +1670,6 @@ func (m model) shutdownLSPManager() {
 	if m.lspManager != nil {
 		_ = m.lspManager.Shutdown(shutdownCtx)
 	}
-	// The warm sherpa-onnx streaming server is a session-long child process too;
-	// tear it down alongside the language servers (§6a).
-	if m.dictation.shutdownServer != nil {
-		_ = m.dictation.shutdownServer(shutdownCtx)
-	}
 }
 
 func (m model) handleCtrlC() (tea.Model, tea.Cmd) {

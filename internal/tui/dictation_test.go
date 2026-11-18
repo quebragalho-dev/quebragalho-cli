@@ -250,43 +250,6 @@ func TestDictationCommitKeepsStreamedText(t *testing.T) {
 	}
 }
 
-func TestVoiceOffReleasesWarmServer(t *testing.T) {
-	shutdownCalls := 0
-	m := model{}
-	m.dictation.build = func(config.STTConfig, bool) (Transcriber, bool, error) { return nil, false, nil } // makes available()
-	m.dictation.shutdownServer = func(context.Context) error { shutdownCalls++; return nil }
-
-	on, _ := m.toggleVoiceMode()
-	if !on.dictation.voiceModeEnabled {
-		t.Fatal("voice should be on after first toggle")
-	}
-	off, cmd := on.toggleVoiceMode()
-	if off.dictation.voiceModeEnabled {
-		t.Fatal("voice should be off after second toggle")
-	}
-	if cmd == nil {
-		t.Fatal("turning voice off should return a server-release command")
-	}
-	cmd() // run it
-	if shutdownCalls != 1 {
-		t.Errorf("shutdown called %d times, want 1", shutdownCalls)
-	}
-}
-
-func TestVoiceOffMidRecordingKeepsServer(t *testing.T) {
-	m := model{}
-	m.dictation.build = func(config.STTConfig, bool) (Transcriber, bool, error) { return nil, false, nil }
-	m.dictation.shutdownServer = func(context.Context) error {
-		t.Error("must not tear down the server while a recording is in flight")
-		return nil
-	}
-	m.dictation.voiceModeEnabled = true
-	m.dictation.phase = dictRecording
-	if _, cmd := m.toggleVoiceMode(); cmd != nil {
-		t.Error("no server-release command should be issued mid-recording")
-	}
-}
-
 func TestWantStreamingGatedByConfigAndPlatform(t *testing.T) {
 	streamOff := false
 	d := dictationController{cfg: config.STTConfig{Streaming: &streamOff}, platform: dictation.PlatformLinux}
