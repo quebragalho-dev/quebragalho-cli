@@ -289,3 +289,61 @@ func TestDownloadFailureReported(t *testing.T) {
 		t.Error("expected the failure reported")
 	}
 }
+
+func TestSTTDownloadPickerSenseVoiceAttributionFitsLayout(t *testing.T) {
+	root := t.TempDir()
+	var sv dictation.ModelVariant
+	for _, v := range dictation.ModelVariants() {
+		if strings.HasPrefix(v.ID, "sense-voice-") {
+			sv = v
+			break
+		}
+	}
+	if sv.ID == "" {
+		t.Fatal("SenseVoice variant not found")
+	}
+
+	// Render both default (80 cols) and installed/current (92 cols) states.
+	for _, tc := range []struct {
+		name      string
+		width     int
+		installed bool
+		current   string
+	}{
+		{name: "width_80", width: 80},
+		{name: "width_92_installed", width: 92, installed: true},
+		{name: "width_92_current", width: 92, installed: true, current: filepath.Join(root, sv.DirName)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dlRoot := root
+			if tc.installed {
+				stageInstalledModel(t, dlRoot, sv)
+			} else {
+				dlRoot = t.TempDir()
+			}
+			m := newModel(t.Context(), Options{})
+			m.picker = newSTTDownloadPickerFrom(dictation.ModelVariants(), false, dlRoot, tc.installed, tc.current, "")
+			m.selectPickerValue(sv.ID)
+
+			rendered := stripANSI(m.pickerOverlay(tc.width))
+			var svLine string
+			for _, line := range strings.Split(rendered, "\n") {
+				if strings.Contains(line, "★ SenseVoice") {
+					svLine = line
+					break
+				}
+			}
+			if svLine == "" {
+				t.Fatalf("SenseVoice row not found in rendered picker:\n%s", rendered)
+			}
+			for _, want := range []string{"FunAudioLLM/SenseVoice", "MB"} {
+				if !strings.Contains(svLine, want) {
+					t.Fatalf("SenseVoice row %q missing %q (truncated or absent)", svLine, want)
+				}
+			}
+			if strings.Contains(svLine, "…") {
+				t.Fatalf("SenseVoice row truncated in %s layout: %q", tc.name, svLine)
+			}
+		})
+	}
+}

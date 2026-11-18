@@ -171,9 +171,10 @@ func ModelVariants() []ModelVariant {
 			Recommended: true,
 			Language:    "en",
 		},
+		// FunAudioLLM/SenseVoice, FunASR Model License v1.1 (attribution: FunAudioLLM/SenseVoice).
 		{
 			ID: "sense-voice-zh-en-ja-ko-yue-int8-2025-09-09", Label: "SenseVoice",
-			Description: "multilingual, accurate", Bytes: 158 << 20,
+			Description: "multilíngue, FunAudioLLM/SenseVoice", Bytes: 158 << 20,
 			AssetName:   "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2",
 			Digest:      "7305f7905bfcf77fa0b39388a313f3da35c68d971661a65475b56fb2162c8e63",
 			DirName:     "model-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09",

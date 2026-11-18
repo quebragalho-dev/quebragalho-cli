@@ -466,3 +466,27 @@ func TestSetupErrorToolsRenamed(t *testing.T) {
 		t.Errorf("missing online model path should mention 'modelo de ditado local', got %v", err)
 	}
 }
+
+func TestSenseVoiceVariantCarriesOriginAttribution(t *testing.T) {
+	const wantCredit = "FunAudioLLM/SenseVoice"
+	sv := curatedVariantByID(t, "sense-voice-zh-en-ja-ko-yue-int8-2025-09-09")
+	if !strings.Contains(sv.Description, wantCredit) {
+		t.Fatalf("SenseVoice curated Description = %q, want attribution %q", sv.Description, wantCredit)
+	}
+
+	assets := []map[string]any{
+		{"name": sv.AssetName, "size": sv.Bytes},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 1, "assets": assets})
+	}))
+	defer srv.Close()
+
+	listed, err := ListModels(context.Background(), http.DefaultClient, srv.URL)
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if len(listed) != 1 || !strings.Contains(listed[0].Description, wantCredit) {
+		t.Fatalf("ListModels SenseVoice = %+v, want Description containing %q", listed, wantCredit)
+	}
+}
