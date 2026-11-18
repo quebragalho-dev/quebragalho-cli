@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -310,5 +311,80 @@ func TestResolveSTTKeyPrefersConfiguredProvider(t *testing.T) {
 	}
 	if got := resolveSTTKey(resolved, "", dictation.ProviderGroq, "GROQ_API_KEY"); got != "gsk-configured" {
 		t.Errorf("key = %q, want the configured provider's key", got)
+	}
+}
+
+func TestFactoryUsesSherpaCAPIForStreamingAndKeepsRollingForBatch(t *testing.T) {
+	libName := "libsherpa-onnx-c-api.so"
+	switch runtime.GOOS {
+	case "darwin":
+		libName = "libsherpa-onnx-c-api.dylib"
+	case "windows":
+		libName = "sherpa-onnx-c-api.dll"
+	case "android":
+		t.Skip("Termux is batch-only")
+	}
+
+	engRoot := t.TempDir()
+	binDir := filepath.Join(engRoot, "bin")
+	libDir := filepath.Join(engRoot, "lib")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	offlineBin := filepath.Join(binDir, "sherpa-onnx-offline")
+	onlineBin := filepath.Join(binDir, "sherpa-onnx")
+	libPath := filepath.Join(libDir, libName)
+	for _, p := range []string{offlineBin, onlineBin, libPath} {
+		if err := os.WriteFile(p, []byte("stub"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Streaming model selects the in-process C API transcriber.
+	streamModel := namedModelDir(t, "sherpa-onnx-streaming-zipformer-en-kroko-2025-08-06",
+		"encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt")
+	streamSTT := config.STTConfig{
+		Provider:       config.STTProviderLocal,
+		LocalModelPath: streamModel,
+		LocalBinary:    offlineBin,
+	}
+	factory := newDictationTranscriberFactory(config.ResolvedConfig{STT: streamSTT}, "")
+	tr, streaming, err := factory(streamSTT, true)
+	if err != nil || !streaming || tr == nil {
+		t.Fatalf("streaming factory = (%v, %v, %v)", tr, streaming, err)
+	}
+	chunks := make(chan []byte, 1)
+	chunks <- make([]byte, 1600)
+	close(chunks)
+	// Stub shared library fails to load via C API (proving the C API path was
+	// selected rather than rollingTranscriber executing the stub binary).
+	_, serr := tr.StreamTranscribe(context.Background(), chunks, nil)
+	if serr == nil || !strings.Contains(serr.Error(), "sherpa-onnx C API") {
+		t.Fatalf("expected C API load error on stub library, got %v", serr)
+	}
+
+	// Batch model (Parakeet v3) in the exact same environment must keep the
+	// rolling + sherpa-onnx-offline path untouched.
+	batchModel := namedModelDir(t, "model-nemo-parakeet-tdt-0.6b-v3-int8",
+		"encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt")
+	batchSTT := config.STTConfig{
+		Provider:       config.STTProviderLocal,
+		LocalModelPath: batchModel,
+		LocalBinary:    offlineBin,
+	}
+	if got := dictation.CanUseSherpaCAPI(batchModel, onlineBin); got != "" {
+		t.Fatalf("CanUseSherpaCAPI on batch model = %q, want empty", got)
+	}
+	batchTr, batchStreaming, err := factory(batchSTT, true)
+	if err != nil || !batchStreaming || batchTr == nil {
+		t.Fatalf("batch factory = (%v, %v, %v)", batchTr, batchStreaming, err)
+	}
+	empty := make(chan []byte)
+	close(empty)
+	if txt, err := batchTr.StreamTranscribe(context.Background(), empty, nil); err != nil || txt != "" {
+		t.Fatalf("batch rolling empty stream = (%q, %v), want (\"\", nil)", txt, err)
 	}
 }

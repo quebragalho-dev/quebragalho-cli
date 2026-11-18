@@ -82,9 +82,17 @@ func buildStreamingTranscriber(stt config.STTConfig, resolved config.ResolvedCon
 		if strings.TrimSpace(stt.LocalModelPath) == "" {
 			return nil, nil
 		}
-		// Both batch and streaming local models run file-based decoding wrapped in
-		// rollingTranscriber (sherpa-onnx-offline for batch models, sherpa-onnx for
-		// streaming models), so no local model ever starts a network server.
+		// Streaming models run in-process through sherpa-onnx's shared C API
+		// when available (no network server, no per-partial subprocess). Batch
+		// models and CLI-only setups keep rollingTranscriber.
+		if libPath := dictation.CanUseSherpaCAPI(stt.LocalModelPath, resolveLocalOnlineBinary(stt)); libPath != "" {
+			return dictation.NewLocalStreamingTranscriber(dictation.LocalConfig{
+				Binary:     resolveLocalOnlineBinary(stt),
+				ModelPath:  stt.LocalModelPath,
+				NumThreads: stt.NumThreads,
+				Online:     true,
+			}, libPath)
+		}
 		inner, err := newLocalFileTranscriber(stt)
 		if err != nil {
 			return nil, err
