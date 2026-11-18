@@ -6,7 +6,7 @@ package tui
 //	  None -> Permission -> PermissionTyping -> None (submit/cancel/cancelRun)
 //	  None -> AskUser -> None (submit/esc/cancelRun)
 //	  None -> SpecReview -> None (approve/reject/cancel; survives cancelRun)
-//	  None -> PeerApproval -> None (decide/expire/release; cancelRun keeps queue)
+//	  None -> PeerApproval -> None (decide/expire/release/cancelRun; cancelRun keeps queue)
 //	Only one prompt may be live at a time; a second open while busy is illegal
 //	and must be refused (the newcomer is resolved with Cancel, never overwrites).
 //
@@ -343,19 +343,30 @@ func (m *model) promptTransition(ev PromptEvent, a promptArgs) error {
 	case PromptEvResolveSpecReview:
 		m.pendingSpecReview = nil
 	case PromptEvCancelRun:
-		// Pre-machine cancelRun parity plus the proven draft fix: restore a
-		// typing draft, drop the tool prompt (even a peer card, leaving its
-		// approval orphaned as before) and drop ask WITHOUT answering.
-		// Spec review is preserved (idle modal, proven intentional).
-		if m.pendingPermission != nil && m.pendingPermission.typing {
-			m.input.SetValue(m.pendingPermission.savedDraft)
+		// Restore a typing draft, clear any pending peer approval (denying its
+		// callback so the sender/queue settles cleanly instead of leaving an
+		// orphaned peerPendingApproval without a card), drop tool/ask prompts,
+		// and preserve spec review (idle modal).
+		wasPeer := m.peerPendingApproval != nil
+		prevPerm := m.pendingPermission
+		if prevPerm != nil && prevPerm.typing {
+			m.input.SetValue(prevPerm.savedDraft)
 		}
+		m.peerPendingApproval = nil
 		m.pendingPermission = nil
 		m.pendingAskUser = nil
+		if wasPeer && prevPerm != nil && prevPerm.decide != nil {
+			prevPerm.decide(agent.PermissionDecision{
+				Action: agent.PermissionDecisionDeny,
+				Reason: "cancelled in TUI",
+			})
+		}
 	case PromptEvSettleEnd:
 		// Pre-machine agentResponseMsg parity: drop the tool prompt without
 		// restoring a draft, answer a live ask with nil, preserve spec/peer.
-		m.pendingPermission = nil
+		if m.peerPendingApproval == nil {
+			m.pendingPermission = nil
+		}
 		if m.pendingAskUser != nil {
 			if m.pendingAskUser.answer != nil {
 				m.pendingAskUser.answer(nil)
