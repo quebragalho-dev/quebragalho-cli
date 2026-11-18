@@ -3005,8 +3005,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		promptRow.runID = msg.runID
 		m.transcript = appendTranscriptRow(m.transcript, promptRow)
 		if m.promptPhase() != PromptNone {
-			// Pre-machine parity: the new request replaced the live prompt
-			// without resolving the old decide (open item, not fixed here).
 			_ = m.promptTransition(PromptEvReplacePermission, promptArgs{permReq: &msg.request, permDecide: msg.decide})
 			return m, nil
 		}
@@ -3032,7 +3030,6 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.transcript = appendTranscriptRow(m.transcript, askUserTranscriptRow(msg.request))
 		if m.promptPhase() != PromptNone {
-			// Pre-machine parity: overwrite without answering the old one.
 			_ = m.promptTransition(PromptEvReplaceAskUser, promptArgs{askReq: &msg.request, askAnswer: msg.answer, askStates: newAskUserStates(msg.request.Questions)})
 			m.clearComposer()
 			m.clearSuggestions()

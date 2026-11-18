@@ -109,10 +109,10 @@ func (e PromptEvent) String() string {
 }
 
 // promptLegal is the single table of legal (phase x event) transitions.
-// Replace/expire/release/cancelRun/settleEnd are legal in every busy phase to
-// preserve the exact pre-machine effects: a new tool/ask request overwrote the
-// live prompt (leaking the old callback — open item, not fixed here), and a
-// queued peer expire/release removed its queue entry even with a modal open.
+// Replace/expire/release/cancelRun/settleEnd are legal in every busy phase:
+// a new tool/ask request explicitly denies/answers any superseded prompt
+// before installing the newcomer, and a queued peer expire/release removes
+// its queue entry even with a modal open.
 var promptLegal = map[PromptPhase]map[PromptEvent]bool{
 	PromptNone: {
 		PromptEvOpenPermission: true,
@@ -218,20 +218,42 @@ type promptArgs struct {
 // promptTransition is the single point that writes the prompt fields. It
 // validates (phase x event) against promptLegal, refuses illegal transitions
 // with an error while keeping state, and fixes twin fields together.
-// Replace events restore the exact pre-machine overwrite (new request drops
-// the live prompt without resolving the old callback — open item, not fixed).
-// CancelRun restores a typing draft (proven fix) and drops tool/ask prompts
-// without answering (pre-machine parity); SettleEnd answers ask with nil
+// Replace events explicitly resolve any displaced permission (fail-closed Deny)
+// or ask_user (nil answers) callback before installing the newcomer so no
+// blocked caller is stranded. CancelRun restores a typing draft and drops
+// tool/ask prompts without answering; SettleEnd answers ask with nil
 // (agentResponseMsg parity) without restoring a draft. A peer expire/release
 // only clears a pending prompt whose ToolCallID matches; queue entries are
-// removed in every phase (pre-machine parity). Opening (or replacing) any
-// prompt cancels a pending leader chord: the follow-up key must go to the
-// modal, never to a stale Ctrl+X slash; the chord's tick is invalidated via
-// the seq bump, like clearLeader.
+// removed in every phase. Opening (or replacing) any prompt cancels a pending
+// leader chord: the follow-up key must go to the modal, never to a stale
+// Ctrl+X slash; the chord's tick is invalidated via the seq bump, like
+// clearLeader.
 func (m *model) promptTransition(ev PromptEvent, a promptArgs) error {
 	phase := m.promptPhase()
 	if !promptEventLegal(phase, ev) {
 		return fmt.Errorf("illegal prompt transition %s in %s", ev, phase)
+	}
+	switch ev {
+	case PromptEvOpenPermission, PromptEvReplacePermission:
+		if a.permReq == nil {
+			return fmt.Errorf("%s without request", ev)
+		}
+	case PromptEvOpenAskUser, PromptEvReplaceAskUser:
+		if a.askReq == nil {
+			return fmt.Errorf("%s without request", ev)
+		}
+	case PromptEvOpenSpecReview:
+		if a.spec == nil {
+			return fmt.Errorf("openSpecReview without review")
+		}
+	case PromptEvOpenPeer:
+		if a.peer == nil {
+			return fmt.Errorf("openPeer without message")
+		}
+	case PromptEvReleasePeer:
+		if a.released == nil {
+			return fmt.Errorf("releasePeer without message")
+		}
 	}
 	switch ev {
 	case PromptEvOpenPermission, PromptEvOpenAskUser, PromptEvOpenSpecReview, PromptEvOpenPeer, PromptEvReplacePermission, PromptEvReplaceAskUser:
@@ -242,29 +264,17 @@ func (m *model) promptTransition(ev PromptEvent, a promptArgs) error {
 	}
 	switch ev {
 	case PromptEvOpenPermission:
-		if a.permReq == nil {
-			return fmt.Errorf("openPermission without request")
-		}
 		m.pendingPermission = &pendingPermissionPrompt{request: *a.permReq, decide: a.permDecide}
 	case PromptEvOpenAskUser:
-		if a.askReq == nil {
-			return fmt.Errorf("openAskUser without request")
-		}
 		states := a.askStates
 		if states == nil {
 			states = newAskUserStates(a.askReq.Questions)
 		}
 		m.pendingAskUser = &pendingAskUserPrompt{request: *a.askReq, answer: a.askAnswer, states: states}
 	case PromptEvOpenSpecReview:
-		if a.spec == nil {
-			return fmt.Errorf("openSpecReview without review")
-		}
 		review := *a.spec
 		m.pendingSpecReview = &review
 	case PromptEvOpenPeer:
-		if a.peer == nil {
-			return fmt.Errorf("openPeer without message")
-		}
 		message := *a.peer
 		m.peerPendingApproval = &message
 		m.pendingPermission = &pendingPermissionPrompt{
@@ -281,19 +291,10 @@ func (m *model) promptTransition(ev PromptEvent, a promptArgs) error {
 			m.pendingPermission.decide = a.permDecide
 		}
 	case PromptEvReplacePermission:
-		// Pre-machine parity: a new tool request overwrote the live prompt
-		// without resolving the old decide (open item, not fixed here).
-		// Other prompt fields are left untouched (split-brain preserved).
-		if a.permReq == nil {
-			return fmt.Errorf("replacePermission without request")
-		}
+		m.retireSupersededPrompts()
 		m.pendingPermission = &pendingPermissionPrompt{request: *a.permReq, decide: a.permDecide}
 	case PromptEvReplaceAskUser:
-		// Pre-machine parity: a new ask_user request overwrote pendingAskUser
-		// without answering the old one (open item, not fixed here).
-		if a.askReq == nil {
-			return fmt.Errorf("replaceAskUser without request")
-		}
+		m.retireSupersededPrompts()
 		states := a.askStates
 		if states == nil {
 			states = newAskUserStates(a.askReq.Questions)
@@ -377,9 +378,6 @@ func (m *model) promptTransition(ev PromptEvent, a promptArgs) error {
 			}
 		}
 	case PromptEvReleasePeer:
-		if a.released == nil {
-			return fmt.Errorf("releasePeer without message")
-		}
 		id := a.released.ID
 		if m.peerPendingApproval != nil && m.peerPendingApproval.ID == id {
 			m.peerPendingApproval = nil
@@ -395,6 +393,30 @@ func (m *model) promptTransition(ev PromptEvent, a promptArgs) error {
 		}
 	}
 	return nil
+}
+
+// retireSupersededPrompts resolves and clears any live permission or ask_user
+// prompt displaced by an incoming replacement so its blocked caller never hangs.
+func (m *model) retireSupersededPrompts() {
+	if prev := m.pendingPermission; prev != nil {
+		if prev.typing {
+			m.input.SetValue(prev.savedDraft)
+		}
+		m.pendingPermission = nil
+		if prev.decide != nil {
+			prev.decide(agent.PermissionDecision{
+				Action: agent.PermissionDecisionDeny,
+				Reason: "pedido substituído",
+			})
+		}
+	}
+	m.peerPendingApproval = nil
+	if prevAsk := m.pendingAskUser; prevAsk != nil {
+		m.pendingAskUser = nil
+		if prevAsk.answer != nil {
+			prevAsk.answer(nil)
+		}
+	}
 }
 
 // pendingActionToAgent maps the TUI decision to the agent action. The TUI
