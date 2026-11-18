@@ -34,24 +34,71 @@ func (s Status) String() string { return string(s) }
 //	[*] --> running: Register
 //	running --> completed: UpdateStatus / MarkExited
 //	running --> error: UpdateStatus / MarkExited / reload (normalizeLoadedTask)
-//	running --> killed: Kill (optimistic mark, then signal)
-//	killed --> running: restoreRunningAfterFailedKill only (failed Kill)
+//	running --> killing: Kill (in-memory claim; Status stays running until settled)
+//	killing --> killed: Kill succeeded (single terminal write)
+//	killing --> running: Kill failed and child has not exited
+//	killing --> completed|error: Kill failed after child already exited naturally
 //	completed|error|killed --> same: idempotent no-op (UpdateStatus) / ignore (MarkExited)
-//	completed|error|killed --> other: refused with error
+//	completed|error|killed --> other: refused with error (truly terminal, no exit)
 //	running --> running: SetPID (pid change only)
 //
-// CompletedAt/ExitCode/PID are written only inside transitionLocked, which
-// fixes the twins together: running always has zero CompletedAt and exit 0;
-// killed always carries exit -1; completed/error always stamp CompletedAt.
+// Each task enters at most ONE terminal state (completed, error, or killed) and
+// never leaves it. CompletedAt/ExitCode/PID are written only inside
+// transitionLocked, which fixes the twins together: running/killing always have
+// zero CompletedAt and exit 0; killed always carries exit -1; completed/error
+// always stamp CompletedAt.
 // Load-time repair (normalizeLoadedTask) is construction, not a runtime
 // transition: it already keeps the twins coherent (error, pid 0, exit -1).
+type taskPhase int
+
+const (
+	phaseRunning taskPhase = iota
+	phaseKilling
+	phaseCompleted
+	phaseError
+	phaseKilled
+)
+
+func (p taskPhase) String() string {
+	switch p {
+	case phaseRunning:
+		return "running"
+	case phaseKilling:
+		return "killing"
+	case phaseCompleted:
+		return "completed"
+	case phaseError:
+		return "error"
+	case phaseKilled:
+		return "killed"
+	default:
+		return "unknown"
+	}
+}
+
+func (p taskPhase) status() Status {
+	switch p {
+	case phaseRunning, phaseKilling:
+		return StatusRunning
+	case phaseCompleted:
+		return StatusCompleted
+	case phaseError:
+		return StatusError
+	case phaseKilled:
+		return StatusKilled
+	default:
+		return ""
+	}
+}
+
 type taskEvent int
 
 const (
 	taskEventUpdate taskEvent = iota
 	taskEventExit
-	taskEventKill
-	taskEventRestore
+	taskEventBeginKill
+	taskEventCommitKill
+	taskEventAbortKill
 	taskEventSetPID
 )
 
@@ -62,10 +109,12 @@ func (e taskEvent) String() string {
 		return "update"
 	case taskEventExit:
 		return "exit"
-	case taskEventKill:
-		return "kill"
-	case taskEventRestore:
-		return "restore"
+	case taskEventBeginKill:
+		return "beginKill"
+	case taskEventCommitKill:
+		return "commitKill"
+	case taskEventAbortKill:
+		return "abortKill"
 	case taskEventSetPID:
 		return "setpid"
 	default:
@@ -73,40 +122,53 @@ func (e taskEvent) String() string {
 	}
 }
 
-// legalTaskTransition is the single table of legal task transitions. Every
-// runtime state change goes through transitionLocked, which consults this
-// table; anything not listed here is refused (or ignored, for MarkExited on
-// a terminal task, preserving its historical no-op contract).
-func legalTaskTransition(from Status, event taskEvent, to Status) bool {
+// legalTaskTransition is the single table of legal (phase x event x target status)
+// transitions. Every runtime state change goes through transitionLocked, which
+// consults this table; terminal phases have no outgoing edges to any other state.
+func legalTaskTransition(from taskPhase, event taskEvent, to Status) bool {
 	switch from {
-	case StatusRunning:
+	case phaseRunning:
 		switch event {
 		case taskEventUpdate:
 			return to == StatusCompleted || to == StatusError || to == StatusRunning
 		case taskEventExit:
 			return to == StatusCompleted || to == StatusError
-		case taskEventKill:
-			return to == StatusKilled
-		case taskEventRestore:
-			return false
+		case taskEventBeginKill:
+			return to == StatusRunning
 		case taskEventSetPID:
 			return to == StatusRunning
 		}
-	case StatusCompleted, StatusError, StatusKilled:
+	case phaseKilling:
 		switch event {
 		case taskEventUpdate:
-			return to == from
+			return to == StatusCompleted || to == StatusError || to == StatusRunning
 		case taskEventExit:
 			return to == StatusCompleted || to == StatusError
-		case taskEventKill:
-			return false
-		case taskEventRestore:
-			return from == StatusKilled && to == StatusRunning
-		case taskEventSetPID:
-			return false
+		case taskEventCommitKill:
+			return to == StatusKilled
+		case taskEventAbortKill:
+			return to == StatusRunning || to == StatusCompleted || to == StatusError
+		}
+	case phaseCompleted, phaseError, phaseKilled:
+		switch event {
+		case taskEventUpdate:
+			return to == from.status()
+		case taskEventExit:
+			return to == StatusCompleted || to == StatusError
 		}
 	}
 	return false
+}
+
+type pendingExit struct {
+	status   Status
+	exitCode int
+}
+
+type killClaim struct {
+	pid  int
+	exit *pendingExit
+	done chan struct{}
 }
 
 type Task struct {
@@ -143,6 +205,7 @@ type ManagerOptions struct {
 type Manager struct {
 	mu          sync.Mutex
 	tasks       map[string]Task
+	killing     map[string]*killClaim
 	warnings    []string
 	rootDir     string
 	now         func() time.Time
@@ -173,7 +236,13 @@ func NewManagerWithOptions(options ManagerOptions) (*Manager, error) {
 	if killProcess == nil {
 		killProcess = terminateProcess
 	}
-	manager := &Manager{tasks: map[string]Task{}, rootDir: rootDir, now: now, killProcess: killProcess}
+	manager := &Manager{
+		tasks:       map[string]Task{},
+		killing:     map[string]*killClaim{},
+		rootDir:     rootDir,
+		now:         now,
+		killProcess: killProcess,
+	}
 	if err := manager.loadTasks(); err != nil {
 		return nil, err
 	}
@@ -275,79 +344,124 @@ func (manager *Manager) SetPID(taskID string, pid int) error {
 	if !ok {
 		return fmt.Errorf("background task not found: %s", taskID)
 	}
-	if task.Status != StatusRunning {
-		// Launch/result parity: an already-terminal task (instant-exit
-		// child whose waiter already recorded the exit) keeps its record
-		// untouched and reports no error, so the launch still succeeds.
-		// The table still calls this transition illegal; this public
-		// method just does not turn it into an error, and never stores
-		// a possibly-recycled pid on a terminal task.
+	if manager.phaseLocked(task) != phaseRunning {
+		// Launch/result parity: an already-terminal (or currently stopping)
+		// task keeps its record untouched and reports no error, so an
+		// instant-exit child launch still succeeds without storing a
+		// possibly-recycled pid on a non-running task.
 		return nil
 	}
 	_, err := manager.transitionLocked(taskID, taskEventSetPID, StatusRunning, 0, pid)
 	return err
 }
 
+func (manager *Manager) phaseLocked(task Task) taskPhase {
+	switch task.Status {
+	case StatusRunning:
+		if manager.killing[task.ID] != nil {
+			return phaseKilling
+		}
+		return phaseRunning
+	case StatusCompleted:
+		return phaseCompleted
+	case StatusError:
+		return phaseError
+	case StatusKilled:
+		return phaseKilled
+	default:
+		return phaseError
+	}
+}
+
 // transitionLocked is the single point that writes the task state fields
-// (Status, PID, CompletedAt, ExitCode). Callers hold manager.mu. It returns
-// applied=true when the task was mutated and persisted; applied=false with a
-// nil error is a legal no-op (idempotent same-terminal update, ignored
-// MarkExited on a terminal task, or a stale restore). Illegal transitions
-// return an error and leave the task — including its persisted JSON —
-// untouched.
+// (Status, PID, CompletedAt, ExitCode) and the in-flight kill claim. Callers
+// hold manager.mu. It returns applied=true when the task or claim was mutated;
+// applied=false with a nil error is a legal no-op (idempotent same-terminal
+// update or ignored MarkExited on a terminal task). Illegal transitions return
+// an error and leave the task — including its persisted JSON — untouched.
 func (manager *Manager) transitionLocked(taskID string, event taskEvent, to Status, exitCode int, pid int) (bool, error) {
 	task, ok := manager.tasks[taskID]
 	if !ok {
 		return false, fmt.Errorf("background task not found: %s", taskID)
 	}
-	from := task.Status
+	from := manager.phaseLocked(task)
 	if !legalTaskTransition(from, event, to) {
 		if event == taskEventExit && validStatus(to) {
-			// Historical MarkExited contract: never clobber a terminal
-			// task, silently. Callers already rely on the nil return.
 			return false, nil
 		}
-		if from != StatusRunning {
-			return false, fmt.Errorf("background task %s is %s", taskID, from)
+		if from != phaseRunning && from != phaseKilling {
+			return false, fmt.Errorf("background task %s is %s", taskID, task.Status)
 		}
 		return false, fmt.Errorf("background task %s cannot transition from %s to %s", taskID, from, to)
 	}
 	switch {
-	case from == StatusRunning && (event == taskEventUpdate || event == taskEventExit) &&
+	case from == phaseRunning && (event == taskEventUpdate || event == taskEventExit) &&
 		(to == StatusCompleted || to == StatusError):
 		task.Status = to
 		task.ExitCode = exitCode
 		if task.CompletedAt.IsZero() {
 			task.CompletedAt = manager.now()
 		}
-	case from == StatusRunning && event == taskEventUpdate && to == StatusRunning:
+	case from == phaseRunning && event == taskEventUpdate && to == StatusRunning:
 		if task.ExitCode == 0 && task.CompletedAt.IsZero() {
 			return false, nil
 		}
 		task.ExitCode = 0
 		task.CompletedAt = time.Time{}
-	case from == StatusRunning && event == taskEventKill && to == StatusKilled:
-		if task.PID != pid {
-			return false, fmt.Errorf("background task %s pid changed before kill completed", taskID)
+	case from == phaseRunning && event == taskEventBeginKill && to == StatusRunning:
+		if pid <= 0 || task.PID != pid {
+			return false, fmt.Errorf("background task %s has no pid", taskID)
+		}
+		if manager.killing == nil {
+			manager.killing = map[string]*killClaim{}
+		}
+		manager.killing[taskID] = &killClaim{pid: pid, done: make(chan struct{})}
+		return true, nil
+	case from == phaseKilling && (event == taskEventExit || event == taskEventUpdate):
+		if to == StatusRunning {
+			return false, nil
+		}
+		claim := manager.killing[taskID]
+		if claim != nil && claim.exit == nil {
+			claim.exit = &pendingExit{status: to, exitCode: exitCode}
+		}
+		return false, nil
+	case from == phaseKilling && event == taskEventCommitKill && to == StatusKilled:
+		claim := manager.killing[taskID]
+		delete(manager.killing, taskID)
+		if claim != nil {
+			defer close(claim.done)
 		}
 		task.Status = StatusKilled
 		task.ExitCode = -1
 		if task.CompletedAt.IsZero() {
 			task.CompletedAt = manager.now()
 		}
-	case from == StatusKilled && event == taskEventRestore && to == StatusRunning:
-		if task.PID != pid {
-			return false, nil
+	case from == phaseKilling && event == taskEventAbortKill:
+		claim := manager.killing[taskID]
+		delete(manager.killing, taskID)
+		if claim != nil {
+			defer close(claim.done)
+		}
+		if claim != nil && claim.exit != nil {
+			task.Status = claim.exit.status
+			task.ExitCode = claim.exit.exitCode
+			if task.CompletedAt.IsZero() {
+				task.CompletedAt = manager.now()
+			}
+			break
 		}
 		task.Status = StatusRunning
 		task.ExitCode = 0
 		task.CompletedAt = time.Time{}
-	case event == taskEventSetPID && to == StatusRunning:
+		manager.tasks[taskID] = task
+		return true, nil
+	case from == phaseRunning && event == taskEventSetPID && to == StatusRunning:
 		if task.PID == pid {
 			return false, nil
 		}
 		task.PID = pid
-	case event == taskEventUpdate && from != StatusRunning && to == from:
+	case event == taskEventUpdate && from != phaseRunning && to == from.status():
 		return false, nil
 	case event == taskEventExit:
 		return false, nil
@@ -395,37 +509,35 @@ func (manager *Manager) Get(taskID string) (Task, bool) {
 func (manager *Manager) Kill(taskID string) error {
 	taskID = strings.TrimSpace(taskID)
 
-	pid, err := manager.killTarget(taskID)
+	pid, err := manager.beginKill(taskID)
 	if err != nil {
 		return err
-	}
-	if !manager.isRunningPID(taskID, pid) {
-		return nil
-	}
-	// Record the kill intent BEFORE terminating. terminateProcess can block until
-	// the child exits, during which the background Wait-goroutine may reap it and
-	// call MarkExited; marking killed first makes that MarkExited a no-op (it only
-	// acts on a running task), so a user-initiated stop stays "killed" instead of
-	// being clobbered to "error".
-	marked, err := manager.markKilledIfStillRunning(taskID, pid)
-	if err != nil {
-		return err
-	}
-	if !marked {
-		// The task exited (or was reused) between the running check and now — the
-		// pid may be stale, so do NOT signal it.
-		return nil
 	}
 	if err := manager.killProcess(pid); err != nil {
-		// Couldn't terminate — undo the optimistic kill mark so the still-running
-		// task is not falsely reported as killed.
 		killErr := fmt.Errorf("kill background task %s: %w", taskID, err)
-		if restoreErr := manager.restoreRunningAfterFailedKill(taskID, pid); restoreErr != nil {
-			return errors.Join(killErr, fmt.Errorf("restore running state for %s: %w", taskID, restoreErr))
+		settled, abortErr := manager.abortKill(taskID)
+		if abortErr != nil {
+			return errors.Join(killErr, fmt.Errorf("settle failed kill for %s: %w", taskID, abortErr))
+		}
+		if settled != StatusRunning {
+			return fmt.Errorf("background task %s is %s", taskID, settled)
 		}
 		return killErr
 	}
-	return nil
+	_, err = manager.commitKill(taskID)
+	return err
+}
+
+// WaitKill blocks until any in-flight Kill on taskID has committed its final
+// state. It returns immediately when taskID has no Kill in progress.
+func (manager *Manager) WaitKill(taskID string) {
+	taskID = strings.TrimSpace(taskID)
+	manager.mu.Lock()
+	claim := manager.killing[taskID]
+	manager.mu.Unlock()
+	if claim != nil {
+		<-claim.done
+	}
 }
 
 func (manager *Manager) KillRunning() error {
@@ -441,64 +553,69 @@ func (manager *Manager) KillRunning() error {
 	return errors.Join(errs...)
 }
 
-func (manager *Manager) killTarget(taskID string) (int, error) {
+// beginKill atomically validates that taskID is running with a valid PID and
+// claims it for termination without publishing a premature terminal status. If
+// another caller is already terminating taskID, it waits for that attempt to
+// settle before re-evaluating so the same PID is never signaled twice.
+func (manager *Manager) beginKill(taskID string) (int, error) {
+	for {
+		manager.mu.Lock()
+		task, ok := manager.tasks[taskID]
+		if !ok {
+			manager.mu.Unlock()
+			return 0, fmt.Errorf("background task not found: %s", taskID)
+		}
+		if claim := manager.killing[taskID]; claim != nil {
+			done := claim.done
+			manager.mu.Unlock()
+			<-done
+			continue
+		}
+		if task.Status != StatusRunning {
+			manager.mu.Unlock()
+			return 0, fmt.Errorf("background task %s is %s", taskID, task.Status)
+		}
+		if task.PID <= 0 {
+			manager.mu.Unlock()
+			return 0, fmt.Errorf("background task %s has no pid", taskID)
+		}
+		pid := task.PID
+		_, err := manager.transitionLocked(taskID, taskEventBeginKill, StatusRunning, 0, pid)
+		manager.mu.Unlock()
+		if err != nil {
+			return 0, err
+		}
+		return pid, nil
+	}
+}
+
+func (manager *Manager) commitKill(taskID string) (bool, error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	return manager.transitionLocked(taskID, taskEventCommitKill, StatusKilled, -1, 0)
+}
+
+func (manager *Manager) abortKill(taskID string) (Status, error) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	task, ok := manager.tasks[taskID]
 	if !ok {
-		return 0, fmt.Errorf("background task not found: %s", taskID)
+		return "", nil
 	}
-	if task.Status != StatusRunning {
-		return 0, fmt.Errorf("background task %s is %s", taskID, task.Status)
+	if manager.phaseLocked(task) != phaseKilling {
+		return task.Status, nil
 	}
-	if task.PID <= 0 {
-		return 0, fmt.Errorf("background task %s has no pid", taskID)
+	target := StatusRunning
+	exitCode := 0
+	if claim := manager.killing[taskID]; claim != nil && claim.exit != nil {
+		target = claim.exit.status
+		exitCode = claim.exit.exitCode
 	}
-	return task.PID, nil
-}
-
-func (manager *Manager) isRunningPID(taskID string, pid int) bool {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	task, ok := manager.tasks[taskID]
-	return ok && task.Status == StatusRunning && task.PID == pid
-}
-
-// markKilledIfStillRunning marks the task killed if it is still running. The
-// bool reports whether it actually marked: false means the task already exited
-// (or was reused), in which case the caller must NOT signal the pid — it may be
-// stale.
-func (manager *Manager) markKilledIfStillRunning(taskID string, pid int) (bool, error) {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	task, ok := manager.tasks[taskID]
-	if !ok {
-		return false, fmt.Errorf("background task not found: %s", taskID)
+	_, err := manager.transitionLocked(taskID, taskEventAbortKill, target, exitCode, 0)
+	if err != nil {
+		return "", err
 	}
-	if task.Status != StatusRunning {
-		return false, nil
-	}
-	return manager.transitionLocked(taskID, taskEventKill, StatusKilled, -1, pid)
-}
-
-// restoreRunningAfterFailedKill reverts a task that was optimistically marked
-// killed back to running when the terminate failed (the process is presumed
-// still alive). It only touches a task still killed with the same pid, so a real
-// exit recorded meanwhile is left untouched. Restoring from any other state is
-// a silent no-op (nil), preserving the historical contract: the table still
-// calls those transitions illegal, but this internal caller does not turn
-// them into a new error. Only a persistence failure is surfaced so the caller
-// can report a failed rollback rather than leaving the task wrongly marked
-// killed.
-func (manager *Manager) restoreRunningAfterFailedKill(taskID string, pid int) error {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
-	task, ok := manager.tasks[taskID]
-	if !ok || task.Status != StatusKilled || task.PID != pid {
-		return nil
-	}
-	_, err := manager.transitionLocked(taskID, taskEventRestore, StatusRunning, 0, pid)
-	return err
+	return manager.tasks[taskID].Status, nil
 }
 
 func (manager *Manager) loadTasks() error {
