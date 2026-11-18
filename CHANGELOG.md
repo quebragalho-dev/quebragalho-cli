@@ -3,6 +3,35 @@
 O que mudou em cada versão do qg, contado em português simples para quem usa
 o CLI. A versão mais nova está no topo.
 
+## 0.0.22 — 2026-11-18
+
+### Novidades
+
+- Releases assinadas: a partir desta versão, cada arquivo publicado vem com uma assinatura Sigstore. Os instaladores conferem a assinatura quando o `cosign` está instalado no computador e, sem ele, seguem conferindo o SHA-256 como antes. O `docs/INSTALL.md` mostra como verificar à mão.
+- `qg exec --resume` envia o histórico de verdade da conversa retomada quando ele cabe na janela de contexto do modelo.
+- Ditado por voz sem rede: os modelos locais de reconhecimento em tempo real rodam dentro do próprio qg, sem abrir um servidor no computador.
+- A statusline personalizada mostra loops ativos, o download do ditado e a atualização disponível.
+
+### Mudanças
+
+- O ambiente isolado bloqueia a leitura de credenciais e tokens (como `~/.ssh`, `~/.aws`, `~/.config/gh` e `~/.npmrc`), mantendo legíveis os plugins, especialistas e comandos do qg.
+- Comandos do git que só leem passam a conferir a configuração do repositório antes de rodar sem pedir aprovação, e pedem aprovação quando o repositório configura hooks que executariam programas.
+- O aviso de `--auto high` sem isolamento deixa claro que o modelo terá acesso total.
+- No Windows, o isolamento ficou mais completo: as pastas `.qg` e `.agents` ficam protegidas mesmo quando ainda não existem, o `qg sandbox setup` vale para qualquer pasta, e o aviso de setup pendente voltou a aparecer.
+- Gravar cada passo da sessão ficou cerca de 3 vezes mais rápido, sem perder a proteção contra queda de energia.
+- O painel do `/autocompact` avisa quando o limite escolhido fica abaixo de 50 mil tokens.
+- Depois de resumir a conversa, a barra lateral e a retomada mostram o contexto que realmente sobrou, e o `/goal` conta os tokens do resumo.
+- No Windows, o comando da statusline termina junto com o qg.
+
+### Correções
+
+- Clicar com o mouse nos seletores não faz mais a lista rolar.
+- Segurar Espaço para ditar funciona mesmo quando o teclado repete a tecla devagar.
+- Voltar no histórico (`rewind`) não repete mais a numeração dos eventos da sessão.
+- Um processo em segundo plano encerrado ao mesmo tempo em que termina sozinho não fica mais com dois estados finais.
+- Ao abrir um novo pedido de permissão, o anterior é negado em vez de ficar pendurado.
+- No Windows: o qg acha os programas instalados fora de `C:\Program Files` e explica como encontrar a janela de apps da Microsoft Store depois de abri-los.
+
 ## 0.0.21 — 2026-11-17
 
 ### Novidades
