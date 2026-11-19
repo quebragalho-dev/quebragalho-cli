@@ -318,6 +318,13 @@ type model struct {
 	lastKeyTime time.Time
 	// burstCount counts consecutive keypresses within 100ms (paste mode).
 	burstCount int
+	// typedPathBurst counts the characters of a run of fast keystrokes that may
+	// be a paste from a terminal without bracketed paste (Windows Terminal),
+	// typedPathLastAt stamps the run's last key, and typedPathSeq versions the
+	// deferred check that follows it. See typedPathCheck.
+	typedPathBurst  int
+	typedPathLastAt time.Time
+	typedPathSeq    int
 	// terminalFocused tracks whether the terminal window currently has focus, per
 	// tea.FocusMsg/tea.BlurMsg. Defaults to true since many terminals/multiplexers
 	// never send focus events at all, and defaulting to "unfocused" would wrongly
@@ -1965,6 +1972,8 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m = m.dragToEdgeScroll(m.edgeScrollDelta, m.edgeScrollMouseX)
 		return m, dragEdgeScrollTickCmd(m.edgeScrollSeq)
+	case typedPathCheckMsg:
+		return m.typedPathCheck(msg)
 	case clipboardReadMsg:
 		// Result of a right-click paste. Insert on success; surface a brief
 		// status if the clipboard couldn't be read (e.g. no clipboard utility on
@@ -2813,6 +2822,10 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if next, ok := m.applyComposerKey(msg); ok {
+			next, checkCmd, scheduled := next.afterComposerKey(msg)
+			if scheduled {
+				return next, checkCmd
+			}
 			return next, nil
 		}
 		if m.composerActive && strings.Contains(m.composer.text, "\n") {
@@ -2824,7 +2837,11 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.input, cmd = m.input.Update(msg)
 		m.resetComposerFromInput()
 		m.recomputeSuggestions()
-		return m, cmd
+		next, checkCmd, scheduled := m.afterComposerKey(msg)
+		if scheduled {
+			return next, tea.Batch(cmd, checkCmd)
+		}
+		return next, cmd
 	case tea.FocusMsg:
 		m.terminalFocused = true
 		// Sync the caret with focus immediately: leaving it to the next
