@@ -174,9 +174,11 @@ if (items) { for (var i = 0; i < items.count; i++) { var u = items.objectAtIndex
 out.join("\n");`
 
 // darwinClipboardFileRunner executa o JXA acima. Var para teste hermético:
-// stubs devolvem a saída do osascript sem rodar nada no Mac.
+// stubs devolvem a saída do osascript sem rodar nada no Mac. O osascript real
+// roda sob o mesmo prazo do resto do clipboard: um JXA pendurado não pode
+// segurar o Ctrl+V.
 var darwinClipboardFileRunner = func(script string) ([]byte, error) {
-	return exec.Command("osascript", "-l", "JavaScript", "-e", script).Output()
+	return runClipboardStdout("osascript", "-l", "JavaScript", "-e", script)
 }
 
 // readClipboardFilesDarwin extracts copied-file paths via the JXA script
@@ -185,6 +187,9 @@ var darwinClipboardFileRunner = func(script string) ([]byte, error) {
 func readClipboardFilesDarwin() ([]string, error) {
 	out, err := darwinClipboardFileRunner(darwinClipboardFileScript)
 	if err != nil {
+		if IsClipboardTimeout(err) {
+			return nil, err
+		}
 		return nil, nil
 	}
 	return splitClipboardLines(string(out)), nil
@@ -195,13 +200,18 @@ func readClipboardFilesDarwin() ([]string, error) {
 // the WinForms helper on hosts where the cmdlet is unavailable. Returns
 // (nil, nil) when no files are copied.
 func readClipboardFilesWindows() ([]string, error) {
-	if out, err := exec.Command("powershell", "-NoProfile", "-Command",
-		"(Get-Clipboard -Format FileDropList) -join \"`n\"").Output(); err == nil {
+	if out, err := runClipboardStdout("powershell", "-NoProfile", "-Command",
+		"(Get-Clipboard -Format FileDropList) -join \"`n\""); err == nil {
 		return splitClipboardLines(string(out)), nil
+	} else if IsClipboardTimeout(err) {
+		return nil, err
 	}
-	out, err := exec.Command("powershell", "-NoProfile", "-Command",
-		`Add-Type -AssemblyName System.Windows.Forms; $f = [System.Windows.Forms.Clipboard]::GetFileDropList(); if ($f -ne $null) { $f | ForEach-Object { $_.FullName } }`).Output()
+	out, err := runClipboardStdout("powershell", "-NoProfile", "-Command",
+		`Add-Type -AssemblyName System.Windows.Forms; $f = [System.Windows.Forms.Clipboard]::GetFileDropList(); if ($f -ne $null) { $f | ForEach-Object { $_.FullName } }`)
 	if err != nil {
+		if IsClipboardTimeout(err) {
+			return nil, err
+		}
 		return nil, nil
 	}
 	return splitClipboardLines(string(out)), nil
@@ -221,22 +231,35 @@ func readClipboardFilesLinux() ([]string, error) {
 		if types, err := runClipboardStdout("wl-paste", "--list-types"); err == nil {
 			for _, line := range strings.Split(string(types), "\n") {
 				if strings.TrimSpace(line) == "text/uri-list" {
-					if data, err := runClipboardStdout("wl-paste", "--type", "text/uri-list"); err == nil {
+					data, err := runClipboardStdout("wl-paste", "--type", "text/uri-list")
+					if err == nil {
 						return parseClipboardURIList(data), nil
+					}
+					if IsClipboardTimeout(err) {
+						return nil, err
 					}
 				}
 			}
+		} else if IsClipboardTimeout(err) {
+			// Travou: o próximo helper só repetiria a espera.
+			return nil, err
 		}
 	}
 	if xclipErr == nil {
 		if types, err := runClipboardStdout("xclip", "-selection", "clipboard", "-t", "TARGETS", "-o"); err == nil {
 			for _, line := range strings.Split(string(types), "\n") {
 				if strings.TrimSpace(line) == "text/uri-list" {
-					if data, err := runClipboardStdout("xclip", "-selection", "clipboard", "-t", "text/uri-list", "-o"); err == nil {
+					data, err := runClipboardStdout("xclip", "-selection", "clipboard", "-t", "text/uri-list", "-o")
+					if err == nil {
 						return parseClipboardURIList(data), nil
+					}
+					if IsClipboardTimeout(err) {
+						return nil, err
 					}
 				}
 			}
+		} else if IsClipboardTimeout(err) {
+			return nil, err
 		}
 	}
 	return nil, nil

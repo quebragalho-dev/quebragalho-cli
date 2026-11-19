@@ -2,6 +2,7 @@ package imageinput
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -9,9 +10,41 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
+
+// defaultClipboardTimeout limita cada chamada a uma ferramenta de clipboard.
+// Sem prazo, um wl-paste travado no GNOME/Wayland deixava o Ctrl+V mudo para
+// sempre — e cada nova tentativa empilhava mais um processo pendurado. O piso é
+// 5 s porque o PowerShell frio do Windows leva 2–3 s só para subir.
+const defaultClipboardTimeout = 5 * time.Second
+
+// clipboardWaitDelay é a folga depois do kill para o Wait parar de esperar os
+// pipes herdados (o neto de um `sh -c osascript` pode segurar o stdout).
+const clipboardWaitDelay = 500 * time.Millisecond
+
+// clipboardTimeout é o prazo efetivo. Var para o teste exercitar o estouro sem
+// esperar os 5 s reais.
+var clipboardTimeout = defaultClipboardTimeout
+
+// ClipboardTimeoutError reporta que a ferramenta de clipboard não respondeu
+// dentro do prazo. É acionável ("tente de novo"), então não pode virar silêncio
+// como "clipboard vazio".
+type ClipboardTimeoutError struct {
+	Tool string
+}
+
+func (e *ClipboardTimeoutError) Error() string {
+	return "A área de transferência não respondeu (" + e.Tool + "); tente de novo."
+}
+
+// IsClipboardTimeout reports whether err came from the clipboard deadline.
+func IsClipboardTimeout(err error) bool {
+	var timeoutErr *ClipboardTimeoutError
+	return errors.As(err, &timeoutErr)
+}
 
 // ReadClipboardImage returns the raw image bytes and media type from the OS
 // clipboard, or (nil, "", nil) when the clipboard has no image. Called when
@@ -65,8 +98,11 @@ func readClipboardImageBytes() ([]byte, error) {
 func readClipboardImageWindows() ([]byte, error) {
 	// Check if the clipboard contains an image.
 	check := `Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; [System.Windows.Forms.Clipboard]::ContainsImage()`
-	out, err := exec.Command("powershell", "-NoProfile", "-Command", check).Output()
+	out, err := runClipboardStdout("powershell", "-NoProfile", "-Command", check)
 	if err != nil {
+		if IsClipboardTimeout(err) {
+			return nil, err
+		}
 		return nil, nil // clipboard not available, treat as no image
 	}
 	if strings.TrimSpace(string(out)) != "True" {
@@ -90,8 +126,10 @@ func readClipboardImageWindows() ([]byte, error) {
 	// single-quoted PowerShell literal needs.
 	escapedTmpPath := strings.ReplaceAll(tmpPath, "'", "''")
 	script := `Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; $img = [System.Windows.Forms.Clipboard]::GetImage(); if ($img -ne $null) { $img.Save('` + escapedTmpPath + `', [System.Drawing.Imaging.ImageFormat]::Png) }`
-	cmd := exec.Command("powershell", "-NoProfile", "-Command", script)
-	if err := cmd.Run(); err != nil {
+	if _, err := runClipboardStdout("powershell", "-NoProfile", "-Command", script); err != nil {
+		if IsClipboardTimeout(err) {
+			return nil, err
+		}
 		return nil, nil
 	}
 	data, err := os.ReadFile(tmpPath)
@@ -114,26 +152,20 @@ func readClipboardImageWindows() ([]byte, error) {
 // and stays green with that decision reverted.
 var (
 	darwinClipboardInfo = func() (string, error) {
-		out, err := exec.Command("sh", "-c", `osascript -e 'clipboard info'`).Output()
+		out, err := runClipboardStdout("sh", "-c", `osascript -e 'clipboard info'`)
 		return string(out), err
 	}
 	darwinClipboardExtract = func() ([]byte, error) {
 		// pngpaste if available, falling back to a Python one-liner. Neither
 		// ships with macOS: pngpaste is Homebrew-only and Apple dropped the
 		// bundled PyObjC, so a stock Mac fails here every time.
-		cmd := exec.Command("sh", "-c", `pngpaste - 2>/dev/null || python3 -c "
+		return runClipboardStdout("sh", "-c", `pngpaste - 2>/dev/null || python3 -c "
 import AppKit, sys
 pb = AppKit.NSPasteboard.generalPasteboard()
 data = pb.dataForType_(AppKit.NSPasteboardTypePNG)
 if data:
     sys.stdout.buffer.write(data.bytes())
 "`)
-		var stdout bytes.Buffer
-		cmd.Stdout = &stdout
-		if err := cmd.Run(); err != nil {
-			return nil, err
-		}
-		return stdout.Bytes(), nil
 	}
 )
 
@@ -151,6 +183,9 @@ func darwinClipboardOffersImage(info string) bool {
 func readClipboardImageDarwin() ([]byte, error) {
 	info, err := darwinClipboardInfo()
 	if err != nil {
+		if IsClipboardTimeout(err) {
+			return nil, err
+		}
 		return nil, nil
 	}
 	if !darwinClipboardOffersImage(info) {
@@ -162,6 +197,9 @@ func readClipboardImageDarwin() ([]byte, error) {
 	// absence is what left users staring at a paste that silently did nothing.
 	data, err := darwinClipboardExtract()
 	if err != nil {
+		if IsClipboardTimeout(err) {
+			return nil, err
+		}
 		return nil, ErrClipboardImageUnreadable
 	}
 	if len(data) == 0 {
@@ -182,31 +220,55 @@ func readClipboardImageLinux() ([]byte, error) {
 	// Try Wayland first.
 	if types, err := runClipboardStdout("wl-paste", "--list-types"); err == nil {
 		for _, t := range imageMIMETypes(types) {
-			if data, err := runClipboardStdout("wl-paste", "--type", t); err == nil && len(data) > 0 {
+			data, err := runClipboardStdout("wl-paste", "--type", t)
+			if err == nil && len(data) > 0 {
 				return data, nil
 			}
+			if IsClipboardTimeout(err) {
+				return nil, err
+			}
 		}
+	} else if IsClipboardTimeout(err) {
+		// Travou: o próximo helper só repetiria a espera.
+		return nil, err
 	}
 	// Fall back to X11 xclip.
 	if types, err := runClipboardStdout("xclip", "-selection", "clipboard", "-t", "TARGETS", "-o"); err == nil {
 		for _, t := range imageMIMETypes(types) {
-			if data, err := runClipboardStdout("xclip", "-selection", "clipboard", "-t", t, "-o"); err == nil && len(data) > 0 {
+			data, err := runClipboardStdout("xclip", "-selection", "clipboard", "-t", t, "-o")
+			if err == nil && len(data) > 0 {
 				return data, nil
 			}
+			if IsClipboardTimeout(err) {
+				return nil, err
+			}
 		}
+	} else if IsClipboardTimeout(err) {
+		return nil, err
 	}
 	return nil, nil
 }
 
-// runClipboardStdout runs a clipboard helper and returns only its stdout.
-// Stderr is discarded (the helpers are noisy when the clipboard is empty or the
-// tool is missing); a missing tool surfaces as the command error, treated as
-// "no image" by the callers.
+// runClipboardStdout runs a clipboard helper under the clipboard deadline and
+// returns only its stdout. Stderr is discarded (the helpers are noisy when the
+// clipboard is empty or the tool is missing); a missing tool surfaces as the
+// command error, treated as "no image" by the callers.
+//
+// On expiry the process is killed (CommandContext) and a *ClipboardTimeoutError
+// comes back, so callers can tell "stuck" from "absent" instead of going mute.
 func runClipboardStdout(name string, args ...string) ([]byte, error) {
-	cmd := exec.Command(name, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), clipboardTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	// Sem WaitDelay, um neto que herdou o stdout segura o Wait mesmo depois do
+	// kill, e a TUI voltaria a travar.
+	cmd.WaitDelay = clipboardWaitDelay
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, &ClipboardTimeoutError{Tool: name}
+		}
 		return nil, err
 	}
 	return stdout.Bytes(), nil

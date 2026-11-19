@@ -1984,7 +1984,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.routePaste(msg.content)
 	case clipboardImageMsg:
 		if msg.err != nil {
-			m = m.appendImageNotice("Falha ao ler a imagem da área de transferência: " + msg.err.Error())
+			m = m.appendImageNotice(clipboardNoticeText(msg.err))
 		}
 		if msg.data != nil {
 			m = m.attachClipboardImage(msg.data, msg.mediaType)

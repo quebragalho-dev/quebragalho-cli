@@ -38,6 +38,17 @@ var (
 	saveClipboardTempFile = imageinput.WriteClipboardTemp
 )
 
+// clipboardNoticeText monta o aviso de falha ao ler o clipboard. O estouro de
+// prazo já é uma frase completa em português ("A área de transferência não
+// respondeu (wl-paste); tente de novo."), então vai sozinho; os demais erros
+// mantêm o prefixo do que falhou.
+func clipboardNoticeText(err error) string {
+	if imageinput.IsClipboardTimeout(err) {
+		return err.Error()
+	}
+	return "Falha ao ler a imagem da área de transferência: " + err.Error()
+}
+
 // readClipboardImageCmd reads the OS clipboard for image and file content off
 // the Update goroutine. Returns a clipboardImageMsg with whatever was found,
 // or nil (no command) when the clipboard holds neither — the caller treats nil
