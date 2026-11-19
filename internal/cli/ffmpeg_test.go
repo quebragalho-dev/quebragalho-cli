@@ -42,6 +42,12 @@ func TestFFmpegStatusShowsSystemBinary(t *testing.T) {
 }
 
 func TestFFmpegBaixarRejectsTamperedBundle(t *testing.T) {
+	// Fixa uma plataforma com pacote (linux/amd64) para o teste não depender
+	// do host: no darwin/arm64 não há build fixado e o comando falharia com
+	// "sem suporte" antes de chegar à verificação SHA-256.
+	ffmpegPlatformSeam.goos, ffmpegPlatformSeam.goarch = "linux", "amd64"
+	t.Cleanup(func() { ffmpegPlatformSeam.goos, ffmpegPlatformSeam.goarch = "", "" })
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("bytes-adulterados"))
 	}))
@@ -55,6 +61,24 @@ func TestFFmpegBaixarRejectsTamperedBundle(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "SHA-256") {
 		t.Fatalf("erro deveria citar a verificação SHA-256, foi: %s", stderr.String())
+	}
+}
+
+func TestFFmpegBaixarUnsupportedPlatformPointsToManualInstall(t *testing.T) {
+	// O outro lado do seam: numa plataforma sem pacote fixado (darwin),
+	// o comando continua recusando com a orientação de instalação manual.
+	ffmpegPlatformSeam.goos, ffmpegPlatformSeam.goarch = "darwin", "arm64"
+	t.Cleanup(func() { ffmpegPlatformSeam.goos, ffmpegPlatformSeam.goarch = "", "" })
+
+	var stdout, stderr bytes.Buffer
+	code := runFFmpegCommand([]string{"baixar", "--root", t.TempDir()}, &stdout, &stderr)
+	if code == exitSuccess {
+		t.Fatal("baixar sem pacote fixado deveria falhar")
+	}
+	for _, want := range []string{"não tem suporte", "darwin/arm64", "brew install ffmpeg"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("erro deveria citar %q, foi: %s", want, stderr.String())
+		}
 	}
 }
 

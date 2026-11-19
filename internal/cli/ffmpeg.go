@@ -90,8 +90,17 @@ func ffmpegVersionLine(ffmpegPath string) string {
 	return first
 }
 
+// ffmpegPlatformSeam fixa o GOOS/GOARCH do `qg ffmpeg baixar` nos testes
+// (vazio = plataforma do host, o único caminho da produção). Sem ele, o
+// teste do bundle adulterado dependeria do host: no darwin (sem pacote
+// fixado) ele falharia com "sem suporte" em vez de exercer a SHA-256.
+var ffmpegPlatformSeam struct {
+	goos   string
+	goarch string
+}
+
 func runFFmpegDownload(root, baseURL string, stdout io.Writer, stderr io.Writer) int {
-	opts := media.FFmpegInstallOptions{Root: root, BaseURL: baseURL}
+	opts := media.FFmpegInstallOptions{Root: root, BaseURL: baseURL, GOOS: ffmpegPlatformSeam.goos, GOARCH: ffmpegPlatformSeam.goarch}
 	if strings.TrimSpace(opts.Root) == "" {
 		defaultRoot, err := media.DefaultFFmpegRoot()
 		if err != nil {
