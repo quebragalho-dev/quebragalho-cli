@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -38,12 +39,13 @@ var (
 	saveClipboardTempFile = imageinput.WriteClipboardTemp
 )
 
-// clipboardNoticeText monta o aviso de falha ao ler o clipboard. O estouro de
-// prazo já é uma frase completa em português ("A área de transferência não
-// respondeu (wl-paste); tente de novo."), então vai sozinho; os demais erros
-// mantêm o prefixo do que falhou.
+// clipboardNoticeText monta o aviso de falha ao ler o clipboard. Erros que já
+// são uma frase acionável em português (ferramenta ausente, ferramenta que não
+// respondeu) aparecem sozinhos — prefixá-los repetia "não foi possível ler a
+// área de transferência" duas vezes. Os demais mantêm o prefixo, que diz qual
+// leitura falhou.
 func clipboardNoticeText(err error) string {
-	if imageinput.IsClipboardTimeout(err) {
+	if imageinput.IsClipboardTimeout(err) || errors.Is(err, imageinput.ErrClipboardToolMissing) {
 		return err.Error()
 	}
 	return "Falha ao ler a imagem da área de transferência: " + err.Error()

@@ -17,9 +17,12 @@ import (
 // o usuário precisa instalar algo, então o silêncio seria a resposta errada.
 //
 // Nomeia os pacotes de cada servidor gráfico porque o qg não sabe em qual a
-// sessão roda; instalar os dois cobre Wayland e X11.
+// sessão roda; instalar os dois cobre Wayland e X11. A frase já é completa e
+// acionável, então quem a exibe não prefixa nada: o aviso saía duplicado
+// ("Falha ao ler a imagem...: não foi possível ler a área de transferência:
+// instale ...").
 var ErrClipboardToolMissing = errors.New(
-	"não foi possível ler a área de transferência: instale wl-clipboard (Wayland) ou xclip (X11)")
+	"Para colar imagens no Linux, instale wl-clipboard (Wayland) ou xclip (X11).")
 
 // ClipboardFileURLToPath converts a file:// URI from the clipboard
 // (text/uri-list on Linux) to a local path, decoding %XX escapes. It reports
