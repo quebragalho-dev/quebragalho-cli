@@ -88,12 +88,15 @@ func typedPathKey(msg tea.KeyMsg) bool {
 // bracketed paste, so images, videos and PDFs take the same path as Ctrl+V and
 // drag-and-drop. Anything else is left exactly as typed: text pasted to be read
 // or edited stays text.
+//
+// The seq guard alone decides staleness, deliberately without a second timing
+// check: this runs typedPathCheckDelay after the run's last key, so comparing
+// the clock here would always look "too late". The burst window is enforced
+// where the keys arrive (afterComposerKey), and any later key — typing or not —
+// bumps the seq, which is what cancels a pending check.
 func (m model) typedPathCheck(msg typedPathCheckMsg) (tea.Model, tea.Cmd) {
 	if msg.seq != m.typedPathSeq || m.typedPathBurst < typedPathBurstMinKeys {
 		return m, nil
-	}
-	if m.now().Sub(m.typedPathLastAt) > typedPathBurstGap {
-		return m, nil // the run ended long ago: human typing, not a paste
 	}
 	if !m.noBlockingModal() || m.transcriptDetailed || m.subchatReadOnly() || m.picker != nil || m.pendingAskUser != nil {
 		return m, nil

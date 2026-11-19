@@ -128,6 +128,60 @@ func TestTypedPathBurstAttachesPDF(t *testing.T) {
 	}
 }
 
+// A checagem adiada chega depois do atraso real, quando o relógio já passou da
+// janela de rajada: ela ainda precisa anexar. Este é o caminho que o teste de
+// rajada acima não cobre, porque lá o relógio fica parado na última tecla.
+func TestTypedPathCheckFiresAfterTheDelay(t *testing.T) {
+	dir := t.TempDir()
+	img := writeTestPNG(t, dir, "print.png")
+	m := newModel(context.Background(), Options{Cwd: dir, ModelName: "muse-spark-1.3-contributor"})
+
+	next, cmd := typeBurst(m, img, time.Unix(100, 0))
+	check := typedPathCheckOf(t, cmd)
+
+	// O tea.Tick entrega o msg só depois de typedPathCheckDelay: quando a
+	// checagem roda, o relógio já passou da janela de rajada contada da última
+	// tecla. O avanço é grande o suficiente para não depender do tempo que o
+	// teste levou até aqui.
+	later := next.typedPathLastAt.Add(typedPathCheckDelay + 5*time.Second)
+	next.now = func() time.Time { return later }
+
+	checked, _ := next.Update(check)
+	attached := checked.(model)
+	if len(attached.pendingImages) != 1 {
+		t.Fatalf("a checagem adiada deveria anexar mesmo rodando depois do atraso, pendentes = %d", len(attached.pendingImages))
+	}
+	if attached.composerValue() != "" {
+		t.Fatalf("composer deveria ficar limpo, veio %q", attached.composerValue())
+	}
+}
+
+// Uma tecla depois da rajada cancela a checagem pendente: o caminho deixou de
+// ser o composer inteiro, então nada é convertido.
+func TestTypedPathCheckCancelledByLaterKey(t *testing.T) {
+	dir := t.TempDir()
+	img := writeTestPNG(t, dir, "print.png")
+	m := newModel(context.Background(), Options{Cwd: dir, ModelName: "muse-spark-1.3-contributor"})
+
+	next, cmd := typeBurst(m, img, time.Unix(100, 0))
+	check := typedPathCheckOf(t, cmd)
+
+	// O usuário continua digitando (dentro da janela de rajada) antes do tick.
+	now := time.Unix(100, 0).Add(5 * time.Millisecond)
+	next.now = func() time.Time { return now }
+	typed, _ := next.Update(testKeyText("x"))
+	next = typed.(model)
+
+	checked, _ := next.Update(check)
+	after := checked.(model)
+	if len(after.pendingImages) != 0 {
+		t.Fatal("tecla posterior à rajada deveria cancelar a checagem")
+	}
+	if after.composerValue() != img+"x" {
+		t.Fatalf("composer = %q, want o caminho mais o caractere", after.composerValue())
+	}
+}
+
 // typeBurst entrega o texto como teclas individuais dentro da janela de rajada
 // e devolve o modelo e o comando da última tecla. O relógio é injetado, sem
 // sleeps.
