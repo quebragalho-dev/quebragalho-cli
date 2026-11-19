@@ -70,6 +70,16 @@ type transcriptRow struct {
 type transcriptAttachmentSummary struct {
 	images    int
 	documents int
+	// videos resume cada vídeo/GIF anexado no turno (quadros + tipo para o
+	// chip "[Vídeo #N · K quadros]"/"[GIF #N · K quadros]"); vazio = nenhum.
+	videos []videoAttachmentSummary
+}
+
+// videoAttachmentSummary registra um vídeo ou GIF animado que acompanhou um
+// turno do usuário: quantos quadros foram e se era GIF.
+type videoAttachmentSummary struct {
+	frames int
+	gif    bool
 }
 
 const (
@@ -78,7 +88,29 @@ const (
 )
 
 func (summary transcriptAttachmentSummary) empty() bool {
-	return summary.images <= 0 && summary.documents <= 0
+	return summary.images <= 0 && summary.documents <= 0 && len(summary.videos) == 0
+}
+
+// attachmentSummaryPayload serializa o resumo de anexos para o evento da
+// sessão (relato JSON); sem vídeos, o formato é o de antes.
+func attachmentSummaryPayload(summary transcriptAttachmentSummary) map[string]any {
+	payload := map[string]any{
+		"images":    summary.images,
+		"documents": summary.documents,
+	}
+	if len(summary.videos) == 0 {
+		return payload
+	}
+	videos := make([]any, 0, len(summary.videos))
+	for _, video := range summary.videos {
+		entry := map[string]any{"frames": video.frames}
+		if video.gif {
+			entry["gif"] = true
+		}
+		videos = append(videos, entry)
+	}
+	payload["videos"] = videos
+	return payload
 }
 
 type transcriptActionKind int

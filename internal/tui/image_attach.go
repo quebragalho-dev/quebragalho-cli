@@ -404,6 +404,9 @@ type pendingVideoInfo struct {
 	label  string
 	text   string
 	frames int
+	// gif diz se os quadros vieram de um GIF animado ([GIF #N]) ou de um
+	// contêiner de vídeo ([Vídeo #N]).
+	gif bool
 }
 
 // videoFramesMsg carries a finished background frame extraction: on success
@@ -457,12 +460,14 @@ func (m model) handleVideoAttach(path string) (model, tea.Cmd) {
 	if err != nil {
 		return m.appendImageNotice(err.Error()), nil
 	}
-	return m.stageVideoFrames(label, frames, duration), nil
+	return m.stageVideoFrames(label, frames, duration, true), nil
 }
 
 // stageVideoFrames stages extracted frames as pending images with their
-// context line, refreshing the first-frame preview.
-func (m model) stageVideoFrames(label string, frames []media.Frame, duration float64) model {
+// context line, refreshing the first-frame preview. animatedGIF marks frames
+// decoded from an animated GIF (a [GIF #N] chip) rather than a video
+// container (a [Vídeo #N] chip); the staged bytes are identical either way.
+func (m model) stageVideoFrames(label string, frames []media.Frame, duration float64, animatedGIF bool) model {
 	for _, frame := range frames {
 		m.appendPendingImage(qgruntime.ImageBlock{MediaType: "image/jpeg", Data: frame.Data}, label, "")
 	}
@@ -470,6 +475,7 @@ func (m model) stageVideoFrames(label string, frames []media.Frame, duration flo
 		label:  label,
 		text:   media.SummarizeFrames(label, duration, frames),
 		frames: len(frames),
+		gif:    animatedGIF,
 	})
 	m.refreshPendingImageThumbnail()
 	return m
@@ -644,13 +650,82 @@ func (m model) visionDropWarning() string {
 		len(m.pendingImages), displayValue(m.modelName, "o modelo atual"))
 }
 
-func renderAttachmentChips(imageLabels []string, docs []pendingDocument) string {
-	chips := make([]string, 0, len(imageLabels)+len(docs))
-	for i := range imageLabels {
-		chips = append(chips, fmt.Sprintf("[Image #%d]", i+1))
+func renderAttachmentChips(imageLabels []string, docs []pendingDocument, videos []pendingVideoInfo) string {
+	chips := make([]string, 0, len(imageLabels)+len(docs)+len(videos))
+	imageNum, videoNum, gifNum := 0, 0, 0
+	nextVideo := 0
+	index := 0
+	for index < len(imageLabels) {
+		// Os quadros de um vídeo entram em pendingImages contíguos na ordem
+		// em que cada extração concluiu — a mesma ordem de pendingVideoInfos.
+		// Quando a sequência casa, os K quadros viram um só chip; senão a
+		// entrada conta como imagem avulsa para nenhum chip se perder.
+		if nextVideo < len(videos) && videos[nextVideo].frames > 0 &&
+			hasVideoRun(imageLabels, index, videos[nextVideo]) {
+			info := videos[nextVideo]
+			if info.gif {
+				gifNum++
+				chips = append(chips, fmt.Sprintf("[GIF #%d · %s]", gifNum, quadroLabel(info.frames)))
+			} else {
+				videoNum++
+				chips = append(chips, fmt.Sprintf("[Vídeo #%d · %s]", videoNum, quadroLabel(info.frames)))
+			}
+			index += info.frames
+			nextVideo++
+			continue
+		}
+		imageNum++
+		chips = append(chips, fmt.Sprintf("[Image #%d]", imageNum))
+		index++
 	}
 	for i := range docs {
 		chips = append(chips, fmt.Sprintf("[Doc #%d]", i+1))
 	}
 	return strings.Join(chips, " ")
+}
+
+// hasVideoRun diz se imageLabels tem, a partir de start, os frames de info
+// (rótulos contíguos iguais ao do vídeo, na quantidade extraída).
+func hasVideoRun(imageLabels []string, start int, info pendingVideoInfo) bool {
+	if info.frames <= 0 || start+info.frames > len(imageLabels) {
+		return false
+	}
+	for _, label := range imageLabels[start : start+info.frames] {
+		if label != info.label {
+			return false
+		}
+	}
+	return true
+}
+
+// quadroLabel devolve "1 quadro" ou "N quadros" para o chip de vídeo/GIF.
+func quadroLabel(frames int) string {
+	if frames == 1 {
+		return "1 quadro"
+	}
+	return fmt.Sprintf("%d quadros", frames)
+}
+
+// pendingVideoFrameCount soma os quadros com extração concluída.
+func pendingVideoFrameCount(videos []pendingVideoInfo) int {
+	total := 0
+	for _, info := range videos {
+		if info.frames > 0 {
+			total += info.frames
+		}
+	}
+	return total
+}
+
+// pendingVideoSummaries converte os vídeos com quadros para o resumo do
+// transcript/sessão, na ordem de anexo; entradas vazias não aparecem.
+func pendingVideoSummaries(videos []pendingVideoInfo) []videoAttachmentSummary {
+	var out []videoAttachmentSummary
+	for _, info := range videos {
+		if info.frames <= 0 {
+			continue
+		}
+		out = append(out, videoAttachmentSummary{frames: info.frames, gif: info.gif})
+	}
+	return out
 }

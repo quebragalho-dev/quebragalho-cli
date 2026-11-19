@@ -562,15 +562,27 @@ func renderUserRow(row transcriptRow, width int) string {
 
 func renderUserAttachmentSummary(summary transcriptAttachmentSummary) string {
 	visibleImages := min(summary.images, attachmentSummaryVisibleItems)
+	visibleVideos := min(len(summary.videos), attachmentSummaryVisibleItems)
 	visibleDocuments := min(summary.documents, attachmentSummaryVisibleItems)
-	parts := make([]string, 0, visibleImages+visibleDocuments+1)
+	parts := make([]string, 0, visibleImages+visibleVideos+visibleDocuments+1)
 	for index := 1; index <= visibleImages; index++ {
 		parts = append(parts, fmt.Sprintf("[Image #%d]", index))
+	}
+	videoNum, gifNum := 0, 0
+	for index := 0; index < visibleVideos; index++ {
+		video := summary.videos[index]
+		if video.gif {
+			gifNum++
+			parts = append(parts, fmt.Sprintf("[GIF #%d · %s]", gifNum, quadroLabel(video.frames)))
+		} else {
+			videoNum++
+			parts = append(parts, fmt.Sprintf("[Vídeo #%d · %s]", videoNum, quadroLabel(video.frames)))
+		}
 	}
 	for index := 1; index <= visibleDocuments; index++ {
 		parts = append(parts, fmt.Sprintf("[Document #%d]", index))
 	}
-	if hidden := summary.images + summary.documents - visibleImages - visibleDocuments; hidden > 0 {
+	if hidden := summary.images + len(summary.videos) + summary.documents - visibleImages - visibleVideos - visibleDocuments; hidden > 0 {
 		parts = append(parts, fmt.Sprintf("[+%d attachments]", hidden))
 	}
 	return strings.Join(parts, " ")

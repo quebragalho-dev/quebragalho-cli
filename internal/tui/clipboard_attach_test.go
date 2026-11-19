@@ -37,7 +37,7 @@ func TestCtrlVPastesClipboardImageAsAttachment(t *testing.T) {
 	if got.composerValue() != "veja isso" {
 		t.Fatalf("composer foi alterado: %q", got.composerValue())
 	}
-	if chips := renderAttachmentChips(got.pendingImageLabels, got.pendingDocuments); !strings.Contains(chips, "[Image #1]") {
+	if chips := renderAttachmentChips(got.pendingImageLabels, got.pendingDocuments, got.pendingVideoInfos); !strings.Contains(chips, "[Image #1]") {
 		t.Fatalf("sem chip de prévia: %q", chips)
 	}
 }

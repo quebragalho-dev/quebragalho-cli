@@ -55,10 +55,10 @@ func (m model) attachmentThumbnailLines(width int) []string {
 }
 
 func (m model) attachmentThumbnailSupplementalChips() string {
-	if len(m.pendingImageLabels) <= 1 && len(m.pendingDocuments) == 0 {
+	if len(m.pendingVideoInfos) == 0 && len(m.pendingImageLabels) <= 1 && len(m.pendingDocuments) == 0 {
 		return ""
 	}
-	return renderAttachmentChips(m.pendingImageLabels, m.pendingDocuments)
+	return renderAttachmentChips(m.pendingImageLabels, m.pendingDocuments, m.pendingVideoInfos)
 }
 
 func (m model) attachmentComposerPrefixRows(width int) int {
@@ -69,7 +69,7 @@ func (m model) attachmentComposerPrefixRows(width int) int {
 		}
 		return rows
 	}
-	if renderAttachmentChips(m.pendingImageLabels, m.pendingDocuments) != "" {
+	if renderAttachmentChips(m.pendingImageLabels, m.pendingDocuments, m.pendingVideoInfos) != "" {
 		return 1
 	}
 	return 0

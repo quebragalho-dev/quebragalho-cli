@@ -484,10 +484,10 @@ func TestSubmitPrependsDocumentTextThenClears(t *testing.T) {
 }
 
 func TestRenderAttachmentChips(t *testing.T) {
-	if got := renderAttachmentChips(nil, nil); got != "" {
+	if got := renderAttachmentChips(nil, nil, nil); got != "" {
 		t.Fatalf("empty attachments should render no chips, got %q", got)
 	}
-	got := renderAttachmentChips([]string{"a.png", "b.png"}, []pendingDocument{{label: "spec.pdf"}})
+	got := renderAttachmentChips([]string{"a.png", "b.png"}, []pendingDocument{{label: "spec.pdf"}}, nil)
 	if !strings.Contains(got, "[Image #1]") || !strings.Contains(got, "[Image #2]") {
 		t.Fatalf("chip row %q should include numbered images", got)
 	}

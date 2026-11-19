@@ -1443,7 +1443,38 @@ func attachmentSummaryFromPayload(payload map[string]any) transcriptAttachmentSu
 	return transcriptAttachmentSummary{
 		images:    payloadNonNegativeInt(attachments, "images"),
 		documents: payloadNonNegativeInt(attachments, "documents"),
+		videos:    payloadVideoSummaries(attachments),
 	}
+}
+
+// payloadVideoSummaries lê a lista "videos" do relato da sessão
+// ([{"frames": N, "gif": bool}]); relatos antigos não têm a chave e
+// entradas malformadas são ignoradas, sem derrubar o resto do resumo.
+func payloadVideoSummaries(payload map[string]any) []videoAttachmentSummary {
+	raw, ok := payload["videos"].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]videoAttachmentSummary, 0, len(raw))
+	for _, item := range raw {
+		if len(out) >= persistedAttachmentCountLimit {
+			break
+		}
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		frames, ok := entry["frames"].(float64)
+		if !ok || frames <= 0 || frames != math.Trunc(frames) {
+			continue
+		}
+		if frames > persistedAttachmentCountLimit {
+			frames = persistedAttachmentCountLimit
+		}
+		gif, _ := entry["gif"].(bool)
+		out = append(out, videoAttachmentSummary{frames: int(frames), gif: gif})
+	}
+	return out
 }
 
 func payloadNonNegativeInt(payload map[string]any, key string) int {

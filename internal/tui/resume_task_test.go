@@ -48,6 +48,22 @@ func TestHydrationPreservesSentAttachmentSummary(t *testing.T) {
 	}
 }
 
+func TestHydrationRestoresVideoAttachmentSummaries(t *testing.T) {
+	rows := transcriptRowsFromSessionEvents([]sessions.Event{{
+		Type:    sessions.EventMessage,
+		Payload: json.RawMessage(`{"role":"user","content":"descreva o vídeo","attachments":{"images":1,"documents":0,"videos":[{"frames":8},{"frames":3,"gif":true}]}}`),
+	}})
+	if len(rows) != 1 || rows[0].kind != rowUser {
+		t.Fatalf("hidratou %#v, queria uma linha de usuário", rows)
+	}
+	if len(rows[0].attachments.videos) != 2 || rows[0].attachments.videos[1].gif != true {
+		t.Fatalf("resumo hidratado = %#v", rows[0].attachments)
+	}
+	if got := renderUserAttachmentSummary(rows[0].attachments); got != "[Image #1] [Vídeo #1 · 8 quadros] [GIF #1 · 3 quadros]" {
+		t.Fatalf("resumo hidratado = %q", got)
+	}
+}
+
 func TestHydrationCapsMalformedAttachmentCounts(t *testing.T) {
 	rows := transcriptRowsFromSessionEvents([]sessions.Event{{
 		Type:    sessions.EventMessage,

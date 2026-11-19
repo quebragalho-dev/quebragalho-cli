@@ -5181,7 +5181,7 @@ func (m model) composerBox(width int) string {
 			pad := strings.Repeat(" ", maxInt(0, innerWidth-lipgloss.Width(fitted)))
 			rendered = append(rendered, qgTheme.lineStrong.Render("│ ")+fitted+pad+qgTheme.lineStrong.Render(" │"))
 		}
-	} else if chips := renderAttachmentChips(m.pendingImageLabels, m.pendingDocuments); chips != "" {
+	} else if chips := renderAttachmentChips(m.pendingImageLabels, m.pendingDocuments, m.pendingVideoInfos); chips != "" {
 		fitted := fitStyledLine(qgTheme.muted.Render(chips), innerWidth)
 		pad := strings.Repeat(" ", maxInt(0, innerWidth-lipgloss.Width(fitted)))
 		rendered = append(rendered, qgTheme.lineStrong.Render("│ ")+fitted+pad+qgTheme.lineStrong.Render(" │"))
@@ -6303,14 +6303,18 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 		m.lastDocuments = m.pendingDocuments
 		m.lastVideos = m.pendingVideoInfos
 		attachments = transcriptAttachmentSummary{
-			images:    len(m.pendingImages),
+			// Os quadros do vídeo viajam em pendingImages mas aparecem como um
+			// só chip por vídeo: as avulsas contam sem eles.
+			images:    maxInt(0, len(m.pendingImages)-pendingVideoFrameCount(m.pendingVideoInfos)),
 			documents: len(m.pendingDocuments),
+			videos:    pendingVideoSummaries(m.pendingVideoInfos),
 		}
 		// A switched model may no longer accept a staged image. The matching
 		// system notice below explains the drop; the sent user row must not claim
 		// the image was included.
-		if attachments.images > 0 && !m.modelSupportsVisionTUI() {
+		if !m.modelSupportsVisionTUI() {
 			attachments.images = 0
+			attachments.videos = nil
 		}
 	} else {
 		m.transcript = appendTranscriptRow(m.transcript, peerTranscriptRow(peerDisplayName(peer.From), peer.Body))
@@ -6449,10 +6453,7 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 				"content": content,
 			}
 			if index == 0 && peer == nil && !attachments.empty() {
-				messagePayload["attachments"] = map[string]int{
-					"images":    attachments.images,
-					"documents": attachments.documents,
-				}
+				messagePayload["attachments"] = attachmentSummaryPayload(attachments)
 			}
 			if peer != nil {
 				messagePayload["origin"] = "cross_session"
@@ -6693,7 +6694,7 @@ func (m model) completeVideoFrames(msg videoFramesMsg) (model, tea.Cmd) {
 	if msg.err != nil {
 		m = m.appendImageNotice(msg.err.Error())
 	} else {
-		m = m.stageVideoFrames(msg.label, msg.frames, msg.duration)
+		m = m.stageVideoFrames(msg.label, msg.frames, msg.duration, false)
 	}
 	// A fila ficou parada esperando os quadros: tenta drenar agora que
 	// eles chegaram (ou falharam com aviso), senão ela só andaria num
