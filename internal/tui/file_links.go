@@ -527,6 +527,7 @@ func linkifyTranscriptLines(text string, cwd string) string {
 	for i, line := range lines {
 		lines[i] = linkifyStyledLineSpans(line, byLine[i])
 	}
+
 	return strings.Join(lines, "\n")
 }
 
@@ -634,49 +635,6 @@ type fileLinkMultiSpan struct {
 // back to per-row detection.
 const maxLinkChainLines = 4
 
-// joinLinkChain tries to join rows start..end (inclusive, consecutive wrapped
-// rows) into one existing path. Separators are enumerated per junction —
-// all-space first (word-wrap splits), then direct (hard splits), then mixed —
-// and the first existing candidate wins. It returns the absolute path plus one
-// piece per row for rendering and click hit-testing.
-func joinLinkChain(lines []string, start, end int, cwd string) (string, []fileLinkPiece, bool) {
-	if end-start+1 > maxLinkChainLines {
-		return "", nil, false
-	}
-	frags := make([]linkChainFragment, 0, end-start+1)
-	for i := start; i <= end; i++ {
-		frag, ok := linkRowFragment(lines, i, i == start, i == end)
-		if !ok {
-			return "", nil, false
-		}
-		frags = append(frags, frag)
-	}
-	texts := make([]string, 0, len(frags))
-	for _, frag := range frags {
-		texts = append(texts, frag.text)
-	}
-	for _, seps := range linkSeparatorCombos(len(texts) - 1) {
-		candidate := texts[0]
-		for j, text := range texts[1:] {
-			candidate += seps[j] + text
-			if len([]rune(candidate)) > maxLinkRunes {
-				break
-			}
-		}
-		if len([]rune(candidate)) > maxLinkRunes {
-			continue
-		}
-		if abs, ok := resolveFileLink(candidate, cwd); ok {
-			parts := make([]fileLinkPiece, 0, len(frags))
-			for j, frag := range frags {
-				parts = append(parts, fileLinkPiece{line: start + j, start: frag.start, end: frag.end, raw: frag.text})
-			}
-			return abs, parts, true
-		}
-	}
-	return "", nil, false
-}
-
 // linkChainFragment is one row's contribution to a joined path, with byte
 // offsets into the row's plain text.
 type linkChainFragment struct {
@@ -684,92 +642,164 @@ type linkChainFragment struct {
 	start, end int
 }
 
-// linkRowFragment extracts the joinable fragment of one chain row: the tail
-// token of the first row, the whole stripped middle row, and the head
-// expansion of the last row. Positions are verified against leading and
-// trailing content so prose never glues onto a path.
-func linkRowFragment(lines []string, index int, first, last bool) (linkChainFragment, bool) {
-	line := lines[index]
-	if strings.TrimSpace(line) == "" {
-		return linkChainFragment{}, false
+// maxLinkTailChunks caps how many trailing chunks a tail candidate may span;
+// maxLinkHeads caps how many head candidates one row may offer. Together with
+// maxLinkRunes they bound the stat probes on hostile input.
+const (
+	maxLinkTailChunks = 8
+	maxLinkHeads      = 8
+)
+
+// joinLinkChain tries to join rows start..end (inclusive, consecutive wrapped
+// rows) into one existing path. The tail expands left over the first row
+// (a hard wrap can sever mid-word, leaving a bare fragment behind), middle
+// rows contribute their whole stripped text, and the head must reach the
+// last row's start. Separators are enumerated per junction — all-space first
+// (word-wrap splits), then direct (hard splits), then mixed — and the first
+// existing candidate wins. It returns the absolute path plus one piece per
+// row for rendering and click hit-testing.
+func joinLinkChain(lines []string, start, end int, cwd string) (string, []fileLinkPiece, bool) {
+	if end-start+1 > maxLinkChainLines {
+		return "", nil, false
 	}
-	if first && last {
-		return linkChainFragment{}, false
+	middle := make([]linkChainFragment, 0, end-start-1)
+	for i := start + 1; i < end; i++ {
+		frag, ok := linkMiddleFragment(lines[i])
+		if !ok {
+			return "", nil, false
+		}
+		middle = append(middle, frag)
 	}
-	if !first && !last {
-		stripped := stripGutterPrefix(strings.TrimSpace(line))
-		if stripped == "" {
-			return linkChainFragment{}, false
-		}
-		start := strings.Index(line, stripped)
-		if start < 0 {
-			return linkChainFragment{}, false
-		}
-		// Only whitespace and gutter bars may precede a middle piece.
-		if trimmed := strings.Trim(line[:start], " \t\u2502\u2503|"); trimmed != "" {
-			return linkChainFragment{}, false
-		}
-		return linkChainFragment{text: stripped, start: start, end: start + len(stripped)}, true
+	heads := linkHeadFragments(lines[end])
+	if len(heads) == 0 {
+		return "", nil, false
 	}
-	if first {
-		tail := linkTailFragment(line)
-		if tail == "" {
-			return linkChainFragment{}, false
-		}
-		start := strings.LastIndex(line, tail)
-		if start < 0 {
-			return linkChainFragment{}, false
-		}
-		end := start + len(tail)
-		// Only whitespace and trailing punctuation may follow a tail piece.
-		if rest := strings.Trim(line[end:], " \t.,;:!?)]}>\"'"); rest != "" {
-			return linkChainFragment{}, false
-		}
-		return linkChainFragment{text: tail, start: start, end: end}, true
+	tails := linkTailFragments(lines[start])
+	if len(tails) == 0 {
+		return "", nil, false
 	}
-	head, start := linkHeadFragment(line)
-	if head == "" {
-		return linkChainFragment{}, false
+	for _, tail := range tails {
+		for _, head := range heads {
+			frags := append([]linkChainFragment{tail}, middle...)
+			frags = append(frags, head)
+			texts := make([]string, 0, len(frags))
+			for _, frag := range frags {
+				texts = append(texts, frag.text)
+			}
+			for _, seps := range linkSeparatorCombos(len(texts) - 1) {
+				candidate := texts[0]
+				for j, text := range texts[1:] {
+					candidate += seps[j] + text
+					if len([]rune(candidate)) > maxLinkRunes {
+						break
+					}
+				}
+				if len([]rune(candidate)) > maxLinkRunes {
+					continue
+				}
+				if abs, ok := resolveFileLink(candidate, cwd); ok {
+					parts := make([]fileLinkPiece, 0, len(frags))
+					for j, frag := range frags {
+						parts = append(parts, fileLinkPiece{line: start + j, start: frag.start, end: frag.end, raw: frag.text})
+					}
+					return abs, parts, true
+				}
+			}
+		}
 	}
-	return linkChainFragment{text: head, start: start, end: start + len(head)}, true
+	return "", nil, false
 }
 
-// linkTailFragment returns the last whitespace-delimited token of a row,
-// punctuation-trimmed. Any non-empty tail can start a join — a word-wrapped
-// path usually breaks mid-word with no path-like marker — and the existence
-// check on the joined candidate arbitrates.
-func linkTailFragment(line string) string {
-	chunks := splitLinkChunks(line)
+// linkTailFragments lists the start row's tail pieces, longest first: every
+// suffix of the row (by chunk starts, plus a boundary-stripped variant of the
+// first), because a hard wrap can sever mid-word and leave a bare fragment
+// behind. The existence check on the joined candidate arbitrates.
+func linkTailFragments(line string) []linkChainFragment {
+	trimmed := strings.TrimRight(line, " \t")
+	// One trailing punctuation run belongs to prose, not to the path.
+	if stripped := strings.TrimRight(trimmed, ".,;:!?)]}>\"'"); stripped != trimmed {
+		trimmed = stripped
+	}
+	if trimmed == "" {
+		return nil
+	}
+	chunks := splitLinkChunks(trimmed)
 	if len(chunks) == 0 {
-		return ""
+		return nil
 	}
-	return stripLinkPunctuation(chunks[len(chunks)-1].text)
+	begin := 0
+	if len(chunks) > maxLinkTailChunks {
+		begin = len(chunks) - maxLinkTailChunks
+	}
+	var out []linkChainFragment
+	seen := map[int]bool{}
+	push := func(text string, off int) {
+		if text == "" || len([]rune(text)) > maxLinkRunes || seen[off] {
+			return
+		}
+		seen[off] = true
+		out = append(out, linkChainFragment{text: text, start: off, end: off + len(text)})
+	}
+	for i := begin; i < len(chunks); i++ {
+		// Candidate text runs to the trimmed line end, preserving the
+		// original spacing; offsets stay in original-line coordinates
+		// because only trailing characters were removed.
+		raw := trimmed[chunks[i].start:]
+		core := strings.TrimLeft(raw, " \"'`([{<")
+		if core == "" {
+			continue
+		}
+		push(core, chunks[i].start+(len(raw)-len(core)))
+	}
+	return out
 }
 
-// linkHeadFragment returns the path head at the start of a wrapped row plus
-// its byte offset in the original line: the leftmost expansion that reaches
-// the row start (modulo indentation and gutter), e.g. ("de Tela teste.mov", 0)
-// for "de Tela teste.mov aqui". Anything before it must be filler only.
-func linkHeadFragment(line string) (string, int) {
+// linkMiddleFragment takes a middle row whole (gutter- and whitespace-free):
+// wrapped continuation rows carry path text only. A blank row is not a
+// middle: badLinkChainGap already refused chains across paragraphs.
+func linkMiddleFragment(line string) (linkChainFragment, bool) {
 	stripped := stripGutterPrefix(strings.TrimSpace(line))
 	if stripped == "" {
-		return "", -1
+		return linkChainFragment{}, false
+	}
+	start := strings.Index(line, stripped)
+	if start < 0 {
+		return linkChainFragment{}, false
+	}
+	if before := line[:start]; strings.Trim(before, " \t\u2502\u2503|") != "" {
+		return linkChainFragment{}, false
+	}
+	return linkChainFragment{text: stripped, start: start, end: start + len(stripped)}, true
+}
+
+// linkHeadFragments lists every path head that starts a wrapped row, longest
+// first. A row may anchor on more than one chunk — "…/work/Gravação de Tela
+// teste.mov" carries both a separator-bearing chunk and a dotted extension —
+// and when the row above was cut mid-token only the expansion that swallows
+// the whole row completes the path. Every head must start at the row start
+// (modulo indentation and gutter); the existence check arbitrates the rest.
+func linkHeadFragments(line string) []linkChainFragment {
+	stripped := stripGutterPrefix(strings.TrimSpace(line))
+	if stripped == "" {
+		return nil
 	}
 	lineOff := strings.Index(line, stripped)
 	if lineOff < 0 {
-		return "", -1
+		return nil
 	}
 	chunks := splitLinkChunks(stripped)
 	if len(chunks) == 0 {
-		return "", -1
+		return nil
 	}
+	var heads []linkChainFragment
+	seen := map[string]bool{}
 	for i := range chunks {
 		anchor := stripLinkPunctuation(chunks[i].text)
 		if !looksLikeFilePathToken(anchor) {
 			continue
 		}
 		head, rel, ok := expandLinkHeadLeft(chunks, i)
-		if !ok || head == "" {
+		if !ok || head == "" || seen[head] {
 			continue
 		}
 		start := lineOff + rel
@@ -778,22 +808,34 @@ func linkHeadFragment(line string) (string, int) {
 		if before := line[:start]; strings.Trim(before, " \t\u2502\u2503|([{<\"'") != "" {
 			continue
 		}
-		return head, start
+		seen[head] = true
+		heads = append(heads, linkChainFragment{text: head, start: start, end: start + len(head)})
 	}
-	return "", -1
+	// Longest first: the most complete path gets the first stat probes.
+	sort.SliceStable(heads, func(i, j int) bool { return len(heads[i].text) > len(heads[j].text) })
+	if len(heads) > maxLinkHeads {
+		heads = heads[:maxLinkHeads]
+	}
+	return heads
 }
 
 // expandLinkHeadLeft grows the anchor chunk leftwards over whole chunks,
-// mirroring the single-row scanner: punctuation-only chunks end the walk, and
-// a chunk with stripped leading boundary chars contributes its remainder and
-// then ends it. It reports the head text plus its byte offset in the stripped
-// row; reaching chunk 0 means the row starts with path text.
+// mirroring the single-row scanner: a punctuation-only chunk ends the walk,
+// and a chunk with stripped leading boundary chars contributes its remainder
+// and then ends it. It reports the head text plus its byte offset within the
+// stripped row.
 func expandLinkHeadLeft(chunks []linkChunk, anchorIndex int) (string, int, bool) {
-	head := stripLinkPunctuation(chunks[anchorIndex].text)
-	if head == "" {
+	raw := chunks[anchorIndex].text
+	anchor := stripLinkPunctuation(raw)
+	if anchor == "" {
 		return "", 0, false
 	}
+	head := anchor
+	// The head starts after any leading boundary run of its own chunk.
 	start := chunks[anchorIndex].start
+	if lead := len(chunks[anchorIndex].text) - len(strings.TrimLeft(chunks[anchorIndex].text, " \"'`([{<")); lead > 0 {
+		start += lead
+	}
 	for i := anchorIndex - 1; i >= 0; i-- {
 		raw := chunks[i].text
 		prev := stripLinkPunctuation(raw)
@@ -803,8 +845,7 @@ func expandLinkHeadLeft(chunks []linkChunk, anchorIndex int) (string, int, bool)
 		trimmed := strings.TrimLeft(raw, " \"'`([{<")
 		if trimmed != raw {
 			// Opening boundary: the head may start right after it, but
-			// nothing further left belongs to the path. trimmed cannot
-			// be empty here: prev (punctuation-trimmed) was not.
+			// nothing further left belongs to the path.
 			start = chunks[i].start + (len(raw) - len(trimmed))
 			head = trimmed + " " + head
 			if len([]rune(head)) > maxLinkRunes {

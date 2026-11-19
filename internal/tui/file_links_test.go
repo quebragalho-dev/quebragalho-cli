@@ -385,3 +385,126 @@ func TestFileLinkClickJoinedOpensWholeFile(t *testing.T) {
 		t.Fatalf("opened = %#v, want [%q]", opened, want)
 	}
 }
+
+// hardSplitLinkPath creates a real file of wantRunes characters: one long
+// space-free directory run plus a basename with spaces, so the answer wrap has
+// to sever the directory run mid-word — the shape a session scratchpad path
+// takes.
+func hardSplitLinkPath(t *testing.T, root string, wantRunes int) string {
+	t.Helper()
+	tail := filepath.Join("e2e-links", "work", "Gravação de Tela teste.mov")
+	pad := wantRunes - len([]rune(filepath.Join(root, tail)))
+	if pad < 24 {
+		pad = 24
+	}
+	path := filepath.Join(root, strings.Repeat("a", pad), tail)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	return path
+}
+
+// TestAssistantWrapLinksHardSplitPath covers a backticked absolute path that the
+// answer wrap splits mid-token: every wrapped piece must carry the OSC 8 target
+// of the whole path, and Ctrl+click on either piece must open it.
+func TestAssistantWrapLinksHardSplitPath(t *testing.T) {
+	root := t.TempDir()
+	path := hardSplitLinkPath(t, root, 160)
+	// A cwd with nothing in it: the second row's text alone must not resolve as
+	// a relative path, so only the cross-row join can produce the link.
+	cwd := t.TempDir()
+
+	rendered := renderAssistantRow(transcriptRow{kind: rowAssistant, text: "`" + path + "`", final: true}, 230)
+	lines := strings.Split(rendered, "\n")
+	if len(lines) != 2 {
+		t.Fatalf("rendered rows = %d, want the path split over 2 rows: %q", len(lines), rendered)
+	}
+	plain := make([]string, len(lines))
+	for i, line := range lines {
+		plain[i] = string(stripStyledText(line))
+	}
+	// A hard split leaves no space at the break: the remainder of the
+	// space-free run opens the second row.
+	if strings.HasSuffix(plain[0], " ") || !strings.HasPrefix(plain[1], "a") {
+		t.Fatalf("want a mid-token break, got rows %q", plain)
+	}
+
+	url := fileLinkURL(path)
+	linked := strings.Split(linkifyTranscriptLines(rendered, cwd), "\n")
+	for i, line := range linked {
+		if !strings.Contains(line, "\x1b]8;;"+url+"\x1b\\") {
+			t.Fatalf("row %d must carry the whole-path OSC 8 target, got %q", i, line)
+		}
+	}
+
+	rows := []transcriptSelectableLine{
+		{bodyY: 0, text: plain[0]},
+		{bodyY: 1, text: plain[1]},
+	}
+	var opened []string
+	restore := fileLinkOpener
+	fileLinkOpener = func(p string) error {
+		opened = append(opened, p)
+		return nil
+	}
+	defer func() { fileLinkOpener = restore }()
+
+	for _, click := range []struct {
+		name     string
+		row, col int
+	}{
+		{"first piece", 0, strings.Index(plain[0], "aaaa")},
+		{"second piece", 1, strings.Index(plain[1], "Tela")},
+	} {
+		opened = nil
+		handled, err := handleFileLinkClickWindow(rows, click.row, click.col, cwd, tea.ModCtrl)
+		if err != nil {
+			t.Fatalf("%s: opener error: %v", click.name, err)
+		}
+		if !handled {
+			t.Fatalf("%s: click on a wrapped piece must be handled", click.name)
+		}
+		if len(opened) != 1 || opened[0] != path {
+			t.Fatalf("%s: opened = %#v, want [%q]", click.name, opened, path)
+		}
+	}
+}
+
+// TestAssistantWrapLinksHardSplitMissingFile keeps the same wrap shape but
+// names nothing on disk: no piece may become a link.
+func TestAssistantWrapLinksHardSplitMissingFile(t *testing.T) {
+	root := t.TempDir()
+	path := hardSplitLinkPath(t, root, 160)
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	cwd := t.TempDir()
+
+	rendered := renderAssistantRow(transcriptRow{kind: rowAssistant, text: "`" + path + "`", final: true}, 230)
+	if linked := linkifyTranscriptLines(rendered, cwd); strings.Contains(linked, "\x1b]8;;") {
+		t.Fatalf("missing path must stay unlinked, got %q", linked)
+	}
+	plain := make([]string, 0, 2)
+	for _, line := range strings.Split(rendered, "\n") {
+		plain = append(plain, string(stripStyledText(line)))
+	}
+	if len(plain) != 2 {
+		t.Fatalf("rendered rows = %d, want 2: %q", len(plain), rendered)
+	}
+	rows := []transcriptSelectableLine{
+		{bodyY: 0, text: plain[0]},
+		{bodyY: 1, text: plain[1]},
+	}
+	restore := fileLinkOpener
+	fileLinkOpener = func(string) error {
+		t.Fatal("opener must not run for a missing path")
+		return nil
+	}
+	defer func() { fileLinkOpener = restore }()
+	if handled, err := handleFileLinkClickWindow(rows, 1, strings.Index(plain[1], "Tela"), cwd, tea.ModCtrl); handled || err != nil {
+		t.Fatalf("handled = %v, err = %v; want no link for a missing path", handled, err)
+	}
+}
