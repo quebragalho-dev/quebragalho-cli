@@ -1998,16 +1998,18 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case videoFramesMsg:
-		ext, ok := m.pendingVideoExtractions[msg.id]
-		if !ok {
+		// Uma extração iniciada antes do /btw pertence ao pai: conclui nela
+		// para os quadros esperarem o próximo turno do pai em vez de caírem
+		// na conversa isolada (ou sumirem em silêncio).
+		if m.btw.active && m.btw.parent != nil {
+			if _, ok := m.btw.parent.pendingVideoExtractions[msg.id]; ok {
+				parent := *m.btw.parent
+				parent, _ = parent.completeVideoFrames(msg)
+				m.btw.parent = &parent
+			}
 			return m, nil
 		}
-		delete(m.pendingVideoExtractions, msg.id)
-		ext.cancel()
-		if msg.err != nil {
-			return m.appendImageNotice(msg.err.Error()), nil
-		}
-		return m.stageVideoFrames(msg.label, msg.frames, msg.duration), nil
+		return m.completeVideoFrames(msg)
 	case tea.PasteMsg:
 		// While attached to a live terminal, a paste forwards verbatim to the
 		// PTY stdin — never into the composer or transcript.
@@ -6676,6 +6678,27 @@ func (m model) launchParkedSendNowAfterCompaction() (model, tea.Cmd) {
 	stored := m.parkedSendNowContinuationStored
 	m.parkedSendNowContinuationStored = false
 	return m.launchPendingSendNow(stored)
+}
+
+// completeVideoFrames conclui uma extração em andamento: descarta se o id
+// já saiu da fila (clear, nova sessão, /btw cancelado) e senão anexa os
+// quadros (ou avisa o erro), tentando drenar a fila que esperava por eles.
+func (m model) completeVideoFrames(msg videoFramesMsg) (model, tea.Cmd) {
+	ext, ok := m.pendingVideoExtractions[msg.id]
+	if !ok {
+		return m, nil
+	}
+	delete(m.pendingVideoExtractions, msg.id)
+	ext.cancel()
+	if msg.err != nil {
+		m = m.appendImageNotice(msg.err.Error())
+	} else {
+		m = m.stageVideoFrames(msg.label, msg.frames, msg.duration)
+	}
+	// A fila ficou parada esperando os quadros: tenta drenar agora que
+	// eles chegaram (ou falharam com aviso), senão ela só andaria num
+	// próximo evento qualquer.
+	return m.launchQueuedMessageIfReady()
 }
 
 func (m model) launchQueuedMessageIfReady() (model, tea.Cmd) {

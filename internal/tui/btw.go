@@ -150,8 +150,7 @@ func (m model) handleBTWCommand(question string) (model, tea.Cmd) {
 		side.pendingImageTemps = nil // sem delete: os temporários pertencem ao pai
 		side.pendingImageThumbnails = nil
 		side.pendingDocuments = nil
-		side.cancelPendingVideoExtractions()
-
+		side.pendingVideoExtractions = nil
 		side.pendingVideoInfos = nil
 	}
 	side.loops = nil

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/quebragalho-dev/quebragalho-cli/internal/media"
+	"github.com/quebragalho-dev/quebragalho-cli/internal/sessions"
 	"runtime"
 	"strings"
 	"testing"
@@ -449,5 +450,111 @@ func TestQueuedDrainWaitsForInFlightVideoExtraction(t *testing.T) {
 	}
 	if len(next.queuedMessages) != 1 {
 		t.Fatal("fila deveria ser mantida intacta")
+	}
+}
+
+// videoBTWModel monta um modelo com sessão ativa (para /btw funcionar) e
+// visão (para anexar vídeo), com o cwd no diretório do teste.
+func videoBTWModel(t *testing.T, root string) model {
+	t.Helper()
+	store := sessions.NewStore(sessions.StoreOptions{RootDir: t.TempDir()})
+	releaseSessionLocksUnder(t, store.RootDir)
+	parent, err := store.Create(sessions.CreateInput{
+		SessionID: "video-main-session",
+		Title:     "tarefa com vídeo",
+		Cwd:       root,
+		ModelID:   "muse-spark-1.3-contributor",
+		Provider:  "test-provider",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Get(parent.SessionID)
+	if err != nil || loaded == nil {
+		t.Fatalf("load parent session: %v", err)
+	}
+	m := newModel(context.Background(), Options{
+		Cwd:          root,
+		ModelName:    "muse-spark-1.3-contributor",
+		ProviderName: "test-provider",
+		SessionStore: store,
+	})
+	m.activeSession = *loaded
+	return m
+}
+
+// /btw durante a extração do pai não cancela: os quadros chegam e entram
+// na fila do pai.
+func TestBTWDoesNotCancelParentVideoExtraction(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", root)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("FAKE_FFMPEG_LOG", filepath.Join(root, "argv.log"))
+	writeFakeFFmpegTUI(t, root, "ffmpeg")
+	writeFakeFFmpegTUI(t, root, "ffprobe")
+	video := filepath.Join(root, "clip.mp4")
+	if err := os.WriteFile(video, []byte("fake-video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := videoBTWModel(t, root)
+	attached, cmd := m.handleImageCommand(video)
+	if cmd == nil {
+		t.Fatal("setup: extração deveria estar em andamento")
+	}
+	var wantID uint64
+	for id := range attached.pendingVideoExtractions {
+		wantID = id
+	}
+	if wantID == 0 {
+		t.Fatal("setup: extração deveria estar registrada")
+	}
+	side, _ := attached.handleBTWCommand("")
+	if !side.btw.active {
+		t.Fatalf("setup: btw deveria estar ativo, aviso: %q", lastTranscriptText(side))
+	}
+	if _, ok := attached.pendingVideoExtractions[wantID]; !ok {
+		t.Fatal("/btw cancelou a extração do pai")
+	}
+	msg, ok := execCmd(cmd).(videoFramesMsg)
+	if !ok {
+		t.Fatalf("esperava videoFramesMsg, veio %T", msg)
+	}
+	updated, _ := side.Update(msg)
+	returned, _ := updated.(model).leaveBTW()
+	if len(returned.pendingImages) == 0 || len(returned.pendingVideoInfos) == 0 {
+		t.Fatalf("quadros deveriam entrar na fila do pai: %d imagens, %d infos",
+			len(returned.pendingImages), len(returned.pendingVideoInfos))
+	}
+}
+
+// Fila parada na extração anda sozinha quando os quadros chegam.
+func TestQueuedDrainRunsAfterVideoFramesArrive(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PATH", root)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("FAKE_FFMPEG_LOG", filepath.Join(root, "argv.log"))
+	writeFakeFFmpegTUI(t, root, "ffmpeg")
+	writeFakeFFmpegTUI(t, root, "ffprobe")
+	video := filepath.Join(root, "clip.mp4")
+	if err := os.WriteFile(video, []byte("fake-video"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := videoAttachModel(t, root)
+	attached, cmd := m.handleImageCommand(video)
+	if cmd == nil {
+		t.Fatal("setup: extração deveria estar em andamento")
+	}
+	attached.queuedMessages = []string{"descreva o vídeo"}
+	msg, ok := execCmd(cmd).(videoFramesMsg)
+	if !ok {
+		t.Fatalf("esperava videoFramesMsg, veio %T", msg)
+	}
+	updated, _ := attached.Update(msg)
+	got := updated.(model)
+	if len(got.queuedMessages) != 0 {
+		t.Fatal("a fila deveria ter andado com a chegada dos quadros")
+	}
+	if len(got.pendingImages) == 0 {
+		t.Fatalf("quadros deveriam ter sido anexados, aviso: %q", lastTranscriptText(got))
 	}
 }
