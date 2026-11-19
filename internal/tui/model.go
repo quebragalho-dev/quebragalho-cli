@@ -2469,7 +2469,7 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-		case keyCtrl(msg, 'v'), keySuper(msg, 'v'):
+		case keyCtrl(msg, 'v'), keySuper(msg, 'v'), keyAlt(msg) && keyIs(msg, 'v'):
 			// Ctrl+V probes the clipboard for an IMAGE only. Text pasting stays
 			// exclusively on the terminal's bracketed-paste path (Bubble's own
 			// Ctrl+V binding is disabled in newModel for exactly that reason), so
@@ -2487,6 +2487,12 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// application: one that handles Cmd+V itself pastes the clipboard TEXT
 			// and sends no key event, so an image-only clipboard still produces
 			// nothing for this to react to.
+			//
+			// Alt+V is the same probe, for Windows Terminal: it binds Ctrl+V to its
+			// own "paste" action by default, so the key never reaches qg and a
+			// clipboard holding only a screenshot (no text to paste) produced no
+			// event at all. Alt+V is free here and in the composer, and works on
+			// every system — on the others it is simply a second shortcut.
 			if m.noBlockingModal() {
 				return m, readClipboardImageCmd()
 			}
