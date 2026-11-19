@@ -85,6 +85,33 @@ func FFmpegAssetFor(goos, goarch string) (FFmpegAsset, bool) {
 	return asset, ok
 }
 
+// FFmpegMissingHint diz, em português, como instalar o ffmpeg na plataforma
+// pedida. A orientação é só a daquele sistema — listar os três de uma vez
+// confundia quem só precisa da sua — e o download gerenciado só aparece quando
+// existe pacote fixado (FFmpegAssetFor), o que exclui o macOS.
+func FFmpegMissingHint(goos, goarch string) string {
+	_, downloadable := FFmpegAssetFor(goos, goarch)
+	switch strings.TrimSpace(goos) {
+	case "darwin":
+		return "brew install ffmpeg"
+	case "windows":
+		if downloadable {
+			return "qg ffmpeg baixar (~115–170 MB) ou winget install Gyan.FFmpeg"
+		}
+		return "winget install Gyan.FFmpeg"
+	case "linux":
+		if downloadable {
+			return "qg ffmpeg baixar (download único, ~115–135 MB) ou sudo apt install ffmpeg"
+		}
+		return "sudo apt install ffmpeg"
+	default:
+		if downloadable {
+			return "qg ffmpeg baixar"
+		}
+		return "instale o ffmpeg manualmente"
+	}
+}
+
 // DefaultFFmpegRoot devolve a pasta padrão do QG para o ffmpeg baixado:
 // <config do qg>/tools/ffmpeg, a mesma raiz dos outros componentes gerenciados.
 func DefaultFFmpegRoot() (string, error) {

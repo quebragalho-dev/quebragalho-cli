@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -65,7 +66,7 @@ func runFFmpegCommand(args []string, stdout io.Writer, stderr io.Writer) int {
 func runFFmpegStatus(stdout io.Writer, stderr io.Writer) int {
 	ffmpegPath, ffprobePath, ok := media.ResolveFFmpeg()
 	if !ok {
-		_, _ = fmt.Fprintln(stderr, "ffmpeg não encontrado: instale manualmente (brew install ffmpeg no macOS, winget install Gyan.FFmpeg no Windows, sudo apt install ffmpeg no Linux) ou baixe o build gerenciado com: qg ffmpeg baixar")
+		_, _ = fmt.Fprintln(stderr, "ffmpeg não encontrado: "+ffmpegMissingHint()+".")
 		return exitCrash
 	}
 	version := ffmpegVersionLine(ffmpegPath)
@@ -88,6 +89,26 @@ func ffmpegVersionLine(ffmpegPath string) string {
 	}
 	first, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
 	return first
+}
+
+// ffmpegStatusPlatformSeam fixa o GOOS/GOARCH do aviso de `qg ffmpeg status`
+// nos testes (vazio = plataforma do host, o único caminho da produção). Sem
+// ele, o teste da orientação dependeria do host que roda a suíte.
+var ffmpegStatusPlatformSeam struct {
+	goos   string
+	goarch string
+}
+
+// ffmpegMissingHint devolve a orientação de instalação do sistema atual.
+func ffmpegMissingHint() string {
+	goos, goarch := ffmpegStatusPlatformSeam.goos, ffmpegStatusPlatformSeam.goarch
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	if goarch == "" {
+		goarch = runtime.GOARCH
+	}
+	return media.FFmpegMissingHint(goos, goarch)
 }
 
 // ffmpegPlatformSeam fixa o GOOS/GOARCH do `qg ffmpeg baixar` nos testes

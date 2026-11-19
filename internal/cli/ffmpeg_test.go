@@ -6,8 +6,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/media"
 )
 
 func TestFFmpegStatusWithoutBinary(t *testing.T) {
@@ -17,7 +20,8 @@ func TestFFmpegStatusWithoutBinary(t *testing.T) {
 	if code := runFFmpegCommand([]string{"status"}, &stdout, &stderr); code == exitSuccess {
 		t.Fatal("status sem ffmpeg deveria falhar")
 	}
-	for _, want := range []string{"ffmpeg não encontrado", "qg ffmpeg baixar", "brew install ffmpeg"} {
+	// A orientação é só a do sistema atual (a do host), não a lista dos três.
+	for _, want := range []string{"ffmpeg não encontrado", media.FFmpegMissingHint(runtime.GOOS, runtime.GOARCH)} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("stderr deveria conter %q, foi: %q", want, stderr.String())
 		}

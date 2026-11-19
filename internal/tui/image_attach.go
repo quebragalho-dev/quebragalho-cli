@@ -25,6 +25,15 @@ import (
 
 const attachmentThumbnailMaxPixels = 16 << 20
 
+// tuiFFmpegGOOS/GOARCH decidem qual orientação de instalação do ffmpeg o aviso
+// mostra. Vars para o teste fixar o sistema (vazio = plataforma do host, o
+// único caminho da produção): a lista dos três sistemas confundia quem só
+// precisa do seu, e mandava baixar no macOS, onde não há pacote fixado.
+var (
+	tuiFFmpegGOOS   = runtime.GOOS
+	tuiFFmpegGOARCH = runtime.GOARCH
+)
+
 // droppableImageExts are the image extensions a dragged-and-dropped file may
 // carry (matched case-insensitively); PDFs are recognized separately.
 var droppableImageExts = map[string]bool{
@@ -444,7 +453,7 @@ func (m model) handleVideoAttach(path string) (model, tea.Cmd) {
 	if media.IsVideoPath(path) {
 		ffmpegPath, ffprobePath, ok := media.ResolveFFmpeg()
 		if !ok {
-			return m.appendImageNotice("ffmpeg não encontrado para extrair os quadros do vídeo. Baixe com: qg ffmpeg baixar (download único, ~115–170 MB conforme a plataforma). Ou instale manualmente: brew install ffmpeg (macOS), winget install Gyan.FFmpeg (Windows) ou sudo apt install ffmpeg (Linux)."), nil
+			return m.appendImageNotice("ffmpeg não encontrado para extrair os quadros do vídeo. " + media.FFmpegMissingHint(tuiFFmpegGOOS, tuiFFmpegGOARCH) + "."), nil
 		}
 		m = m.showTransientNoticeInline("Extraindo quadros de "+label+"…", transientNoticeInfo)
 		m.videoExtractSeq++

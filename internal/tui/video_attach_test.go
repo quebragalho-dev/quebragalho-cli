@@ -171,7 +171,8 @@ func TestVideoAttachWithoutFFmpegExplainsInstall(t *testing.T) {
 		t.Fatal("sem ffmpeg, nada deveria anexar")
 	}
 	notice := lastTranscriptText(next)
-	for _, want := range []string{"ffmpeg não encontrado", "qg ffmpeg baixar", "brew install ffmpeg"} {
+	// A orientação é só a do sistema atual (a do host), não a lista dos três.
+	for _, want := range []string{"ffmpeg não encontrado", media.FFmpegMissingHint(runtime.GOOS, runtime.GOARCH)} {
 		if !strings.Contains(notice, want) {
 			t.Fatalf("aviso deveria conter %q, foi: %q", want, notice)
 		}
