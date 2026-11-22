@@ -9,6 +9,8 @@ import (
 // O aviso de ffmpeg ausente listava os três sistemas de uma vez e mandava
 // "qg ffmpeg baixar" até no macOS, onde não existe pacote fixado. A orientação
 // agora é só a do sistema atual, e o download só entra onde ele funciona.
+// A frase também diz a ação ("Instale com:", "Baixe com:"): o comando solto
+// deixava o aviso parecendo um erro sem conserto.
 func TestFFmpegMissingHintPerPlatform(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -20,20 +22,20 @@ func TestFFmpegMissingHintPerPlatform(t *testing.T) {
 		{
 			name: "macOS instala pelo Homebrew",
 			goos: "darwin", goarch: "arm64",
-			want: "brew install ffmpeg",
+			want: "Instale com: brew install ffmpeg",
 			// O download não é suportado no darwin: citá-lo seria mentira.
 			notExpected: []string{"qg ffmpeg baixar", "apt install", "winget"},
 		},
 		{
 			name: "Linux baixa ou usa o apt",
 			goos: "linux", goarch: "amd64",
-			want:        "qg ffmpeg baixar (download único, ~115–135 MB) ou sudo apt install ffmpeg",
+			want:        "Baixe com: qg ffmpeg baixar (download único, ~115–135 MB) ou instale com: sudo apt install ffmpeg",
 			notExpected: []string{"brew", "winget"},
 		},
 		{
 			name: "Windows baixa ou usa o winget",
 			goos: "windows", goarch: "amd64",
-			want:        "qg ffmpeg baixar (~115–170 MB) ou winget install Gyan.FFmpeg",
+			want:        "Baixe com: qg ffmpeg baixar (download único, ~115–170 MB) ou instale com: winget install Gyan.FFmpeg",
 			notExpected: []string{"brew", "apt install"},
 		},
 	}
@@ -41,8 +43,8 @@ func TestFFmpegMissingHintPerPlatform(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			hint := FFmpegMissingHint(tc.goos, tc.goarch)
-			if !strings.Contains(hint, tc.want) {
-				t.Fatalf("aviso = %q, want conter %q", hint, tc.want)
+			if hint != tc.want {
+				t.Fatalf("aviso = %q, want %q", hint, tc.want)
 			}
 			for _, unexpected := range tc.notExpected {
 				if strings.Contains(hint, unexpected) {

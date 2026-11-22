@@ -88,27 +88,29 @@ func FFmpegAssetFor(goos, goarch string) (FFmpegAsset, bool) {
 // FFmpegMissingHint diz, em português, como instalar o ffmpeg na plataforma
 // pedida. A orientação é só a daquele sistema — listar os três de uma vez
 // confundia quem só precisa da sua — e o download gerenciado só aparece quando
-// existe pacote fixado (FFmpegAssetFor), o que exclui o macOS.
+// existe pacote fixado (FFmpegAssetFor), o que exclui o macOS. A frase já vem
+// com o verbo da ação ("Instale com:", "Baixe com:") para quem a concatena só
+// precisar do contexto e do ponto final.
 func FFmpegMissingHint(goos, goarch string) string {
 	_, downloadable := FFmpegAssetFor(goos, goarch)
 	switch strings.TrimSpace(goos) {
 	case "darwin":
-		return "brew install ffmpeg"
+		return "Instale com: brew install ffmpeg"
 	case "windows":
 		if downloadable {
-			return "qg ffmpeg baixar (~115–170 MB) ou winget install Gyan.FFmpeg"
+			return "Baixe com: qg ffmpeg baixar (download único, ~115–170 MB) ou instale com: winget install Gyan.FFmpeg"
 		}
-		return "winget install Gyan.FFmpeg"
+		return "Instale com: winget install Gyan.FFmpeg"
 	case "linux":
 		if downloadable {
-			return "qg ffmpeg baixar (download único, ~115–135 MB) ou sudo apt install ffmpeg"
+			return "Baixe com: qg ffmpeg baixar (download único, ~115–135 MB) ou instale com: sudo apt install ffmpeg"
 		}
-		return "sudo apt install ffmpeg"
+		return "Instale com: sudo apt install ffmpeg"
 	default:
 		if downloadable {
-			return "qg ffmpeg baixar"
+			return "Baixe com: qg ffmpeg baixar (download único)"
 		}
-		return "instale o ffmpeg manualmente"
+		return "Instale o ffmpeg manualmente"
 	}
 }
 

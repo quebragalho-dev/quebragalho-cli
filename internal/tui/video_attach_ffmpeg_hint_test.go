@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// O aviso de ffmpeg ausente mostra só a orientação do sistema atual. No macOS
-// não existe pacote fixado, então "qg ffmpeg baixar" não pode aparecer; no
-// Linux e no Windows ele entra junto da alternativa do gerenciador de pacotes.
-// O GOOS é injetado para o teste não depender do host.
+// O aviso de ffmpeg ausente mostra só a orientação do sistema atual, com o
+// verbo da ação. No macOS não existe pacote fixado, então "qg ffmpeg baixar"
+// não pode aparecer; no Linux e no Windows ele entra junto da alternativa do
+// gerenciador de pacotes. O GOOS é injetado para o teste não depender do host.
 func TestVideoAttachFFmpegHintMatchesPlatform(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -22,17 +22,17 @@ func TestVideoAttachFFmpegHintMatchesPlatform(t *testing.T) {
 	}{
 		{
 			name: "macOS só Homebrew", goos: "darwin", goarch: "arm64",
-			want:        "brew install ffmpeg",
+			want:        "ffmpeg não encontrado para extrair os quadros do vídeo. Instale com: brew install ffmpeg.",
 			notExpected: []string{"qg ffmpeg baixar", "winget", "apt install"},
 		},
 		{
 			name: "Linux baixa ou apt", goos: "linux", goarch: "amd64",
-			want:        "qg ffmpeg baixar (download único, ~115–135 MB) ou sudo apt install ffmpeg",
+			want:        "ffmpeg não encontrado para extrair os quadros do vídeo. Baixe com: qg ffmpeg baixar (download único, ~115–135 MB) ou instale com: sudo apt install ffmpeg.",
 			notExpected: []string{"brew", "winget"},
 		},
 		{
 			name: "Windows baixa ou winget", goos: "windows", goarch: "amd64",
-			want:        "qg ffmpeg baixar (~115–170 MB) ou winget install Gyan.FFmpeg",
+			want:        "ffmpeg não encontrado para extrair os quadros do vídeo. Baixe com: qg ffmpeg baixar (download único, ~115–170 MB) ou instale com: winget install Gyan.FFmpeg.",
 			notExpected: []string{"brew", "apt install"},
 		},
 	}

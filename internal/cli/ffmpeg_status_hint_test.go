@@ -6,8 +6,9 @@ import (
 	"testing"
 )
 
-// Sem ffmpeg, `qg ffmpeg status` mostra a orientação do sistema atual. No macOS
-// o download gerenciado não existe, então citá-lo seria um beco sem saída.
+// Sem ffmpeg, `qg ffmpeg status` mostra a orientação do sistema atual — a mesma
+// frase completa do anexo de vídeo, com o verbo da ação. No macOS o download
+// gerenciado não existe, então citá-lo seria um beco sem saída.
 func TestFFmpegStatusHintMatchesPlatform(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -20,7 +21,7 @@ func TestFFmpegStatusHintMatchesPlatform(t *testing.T) {
 		t.Fatal("status sem ffmpeg deveria falhar")
 	}
 	got := stderr.String()
-	for _, want := range []string{"ffmpeg não encontrado", "brew install ffmpeg"} {
+	for _, want := range []string{"ffmpeg não encontrado.", "Instale com: brew install ffmpeg."} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stderr deveria conter %q, foi: %q", want, got)
 		}

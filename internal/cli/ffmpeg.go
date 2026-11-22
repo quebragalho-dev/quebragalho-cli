@@ -66,7 +66,7 @@ func runFFmpegCommand(args []string, stdout io.Writer, stderr io.Writer) int {
 func runFFmpegStatus(stdout io.Writer, stderr io.Writer) int {
 	ffmpegPath, ffprobePath, ok := media.ResolveFFmpeg()
 	if !ok {
-		_, _ = fmt.Fprintln(stderr, "ffmpeg não encontrado: "+ffmpegMissingHint()+".")
+		_, _ = fmt.Fprintln(stderr, "ffmpeg não encontrado. "+ffmpegMissingHint()+".")
 		return exitCrash
 	}
 	version := ffmpegVersionLine(ffmpegPath)
