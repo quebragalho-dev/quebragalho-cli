@@ -22,7 +22,7 @@ import (
 // ("Falha ao ler a imagem...: não foi possível ler a área de transferência:
 // instale ...").
 var ErrClipboardToolMissing = errors.New(
-	"Para colar imagens no Linux, instale wl-clipboard (Wayland) ou xclip (X11).")
+	"Para colar imagens no Linux, instale wl-clipboard (Wayland) ou xclip (X11)")
 
 // ClipboardFileURLToPath converts a file:// URI from the clipboard
 // (text/uri-list on Linux) to a local path, decoding %XX escapes. It reports

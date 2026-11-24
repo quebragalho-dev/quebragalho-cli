@@ -130,7 +130,7 @@ func isASCIILetter(c byte) bool {
 func isFileExtensionChars(suffix string) bool {
 	for i := 0; i < len(suffix); i++ {
 		c := suffix[i]
-		if !(c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9') {
+		if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') && (c < '0' || c > '9') {
 			return false
 		}
 	}
@@ -347,7 +347,7 @@ func stripLinkPunctuation(chunk string) string {
 	trimmed := strings.Trim(chunk, "\"'`")
 	trimmed = strings.TrimLeft(trimmed, "([{<")
 	// A lone drive letter ("C:") is not sentence punctuation.
-	if !(len(trimmed) == 2 && trimmed[1] == ':' && isASCIILetter(trimmed[0])) {
+	if len(trimmed) != 2 || trimmed[1] != ':' || !isASCIILetter(trimmed[0]) {
 		trimmed = strings.TrimRight(trimmed, ".,;:!?")
 	}
 	trimmed = strings.TrimRight(trimmed, ")]}>")
@@ -404,11 +404,6 @@ func scanStyledRow(styled string) (plain []rune, byteOffsets []int, inLink []boo
 // non-rune-boundary offsets are skipped, so nested or corrupt links are
 // impossible; the rest splice from the end so offsets stay valid.
 func spliceLinkSpans(styled string, plain []rune, byteOffsets []int, inLink []bool, spans []fileLinkSpan) string {
-	type splice struct {
-		at  int
-		url string
-		end bool
-	}
 	// Plain byte offset of each rune.
 	plainBytes := make([]int, len(plain)+1)
 	for i, r := range plain {

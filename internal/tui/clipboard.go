@@ -45,10 +45,12 @@ var (
 // possível ler a área de transferência" duas vezes. Os demais mantêm o prefixo,
 // que diz qual leitura falhou.
 func clipboardNoticeText(err error) string {
-	if imageinput.IsClipboardTimeout(err) ||
-		errors.Is(err, imageinput.ErrClipboardToolMissing) ||
-		errors.Is(err, imageinput.ErrClipboardImageUnreadable) {
+	if imageinput.IsClipboardTimeout(err) {
 		return err.Error()
+	}
+	if errors.Is(err, imageinput.ErrClipboardToolMissing) ||
+		errors.Is(err, imageinput.ErrClipboardImageUnreadable) {
+		return err.Error() + "."
 	}
 	return "Falha ao ler a imagem da área de transferência: " + err.Error()
 }
