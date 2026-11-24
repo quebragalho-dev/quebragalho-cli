@@ -213,10 +213,99 @@ type darwinClipboardReport struct {
 	Written bool     `json:"written"`
 }
 
-// readClipboardContentDarwin lê arquivos e imagem do paste com uma única
-// execução. Silêncio para texto, vazio e falha do osascript; timeout sobe; imagem
-// que existe mas não foi gravada vira ErrClipboardImageUnreadable.
+// errNativeClipboardUnavailable diz que a leitura nativa não pôde rodar (o
+// AppKit não carregou ou a chamada caiu): quem chama usa o osascript de reserva.
+var errNativeClipboardUnavailable = errors.New("leitura nativa da área de transferência indisponível")
+
+// clipboardNativeReader é a leitura nativa do macOS (NSPasteboard no processo).
+// Var para o teste trocar por um falso; fora do macOS é sempre indisponível.
+var clipboardNativeReader = readClipboardContentNative
+
+// readClipboardContentDarwin lê arquivos e imagem do paste. Primeiro tenta o
+// NSPasteboard no próprio processo, que não sobe nenhum subprocesso; só se ele
+// não está disponível cai no osascript de reserva.
 func readClipboardContentDarwin(imageWithFiles bool) (ClipboardContent, error) {
+	content, err := clipboardNativeReader(imageWithFiles)
+	if errors.Is(err, errNativeClipboardUnavailable) {
+		return readClipboardContentOsascript(imageWithFiles)
+	}
+	return content, err
+}
+
+// nativeReadInFlight é o único slot de leitura nativa em curso. Uma leitura
+// presa (o app dono do clipboard não responde) segura o slot até devolver; as
+// chamadas seguintes esperam o slot até o prazo e então falham, sem empilhar
+// goroutines a cada Ctrl+V.
+var nativeReadInFlight = make(chan struct{}, 1)
+
+// nativeClipboardTool nomeia a leitura nativa na mensagem de prazo. É o nome
+// que a pessoa reconhece, não o da API.
+const nativeClipboardTool = "macOS"
+
+// runClipboardRead roda uma leitura nativa sob o prazo das ferramentas externas,
+// contado desde a chamada. Espera o slot dentro desse prazo, para que um Ctrl+V
+// seguido de outro (com a primeira leitura ainda em curso) não se acuse de
+// travado. Nunca inicia leitura depois do prazo. Uma leitura presa segura o
+// slot até devolver, então nunca há duas em curso: quem espera o slot até o fim
+// do prazo recebe *ClipboardTimeoutError. Um pânico vira
+// errNativeClipboardUnavailable, para não derrubar a TUI.
+func runClipboardRead(read func() (ClipboardContent, error)) (ClipboardContent, error) {
+	timer := time.NewTimer(clipboardTimeout)
+	defer timer.Stop()
+	select {
+	case nativeReadInFlight <- struct{}{}:
+	case <-timer.C:
+		return ClipboardContent{}, &ClipboardTimeoutError{Tool: nativeClipboardTool}
+	}
+	// O slot pode ter ficado livre no mesmo instante em que o prazo venceu; nesse
+	// caso a escolha do select é aleatória, então a checagem barra a leitura.
+	select {
+	case <-timer.C:
+		<-nativeReadInFlight
+		return ClipboardContent{}, &ClipboardTimeoutError{Tool: nativeClipboardTool}
+	default:
+	}
+	type result struct {
+		content ClipboardContent
+		err     error
+	}
+	done := make(chan result, 1)
+	go func() {
+		defer func() { <-nativeReadInFlight }()
+		defer func() {
+			if recover() != nil {
+				done <- result{err: errNativeClipboardUnavailable}
+			}
+		}()
+		content, err := read()
+		done <- result{content: content, err: err}
+	}()
+	select {
+	case r := <-done:
+		return r.content, r.err
+	case <-timer.C:
+		return ClipboardContent{}, &ClipboardTimeoutError{Tool: nativeClipboardTool}
+	}
+}
+
+// imageContentFromBytes valida os bytes de uma imagem do clipboard: vazio ou
+// tipo que não é PNG/JPEG/GIF/WebP é ErrClipboardImageUnreadable. O tipo vem do
+// próprio conteúdo, não da declaração do clipboard.
+func imageContentFromBytes(data []byte) (ClipboardContent, error) {
+	if len(data) == 0 {
+		return ClipboardContent{}, ErrClipboardImageUnreadable
+	}
+	mediaType := qgruntime.NormalizeImageMediaType(http.DetectContentType(data))
+	if mediaType == "" {
+		return ClipboardContent{}, ErrClipboardImageUnreadable
+	}
+	return ClipboardContent{Image: data, MediaType: mediaType}, nil
+}
+
+// readClipboardContentOsascript é a leitura de reserva: um osascript por paste.
+// Silêncio para texto, vazio e falha do osascript; timeout sobe; imagem que
+// existe mas não foi gravada vira ErrClipboardImageUnreadable.
+func readClipboardContentOsascript(imageWithFiles bool) (ClipboardContent, error) {
 	dir, err := ClipboardTempDir()
 	if err != nil {
 		return ClipboardContent{}, err
@@ -254,15 +343,15 @@ func readClipboardContentDarwin(imageWithFiles bool) (ClipboardContent, error) {
 		return ClipboardContent{}, ErrClipboardImageUnreadable
 	}
 	data, err := os.ReadFile(tmpPath)
-	if err != nil || len(data) == 0 {
+	if err != nil {
 		return ClipboardContent{}, ErrClipboardImageUnreadable
 	}
-	mediaType := qgruntime.NormalizeImageMediaType(http.DetectContentType(data))
-	if mediaType == "" {
-		return ClipboardContent{}, ErrClipboardImageUnreadable
+	img, err := imageContentFromBytes(data)
+	if err != nil {
+		return ClipboardContent{}, err
 	}
-	content.Image, content.MediaType = data, mediaType
-	return content, nil
+	img.Files = content.Files
+	return img, nil
 }
 
 // readClipboardImageLinux tries wl-paste (Wayland) then xclip (X11) to read

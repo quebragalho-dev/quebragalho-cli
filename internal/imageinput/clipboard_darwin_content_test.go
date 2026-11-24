@@ -31,6 +31,13 @@ func hermeticClipboardHome(t *testing.T) {
 func stubDarwinContent(t *testing.T, reply func(dest string) (string, error)) (calls *int, gotDest, gotFlag *string) {
 	t.Helper()
 	hermeticClipboardHome(t)
+	// A leitura nativa lê a área de transferência geral: aqui ela fica
+	// indisponível, para o osascript falso ser o caminho testado.
+	prevNative := clipboardNativeReader
+	t.Cleanup(func() { clipboardNativeReader = prevNative })
+	clipboardNativeReader = func(bool) (ClipboardContent, error) {
+		return ClipboardContent{}, errNativeClipboardUnavailable
+	}
 	prev := darwinClipboardContentRunner
 	t.Cleanup(func() { darwinClipboardContentRunner = prev })
 	calls, gotDest, gotFlag = new(int), new(string), new(string)
