@@ -203,7 +203,10 @@ func TestStatuslineCommandTimeout(t *testing.T) {
 func TestStatuslineCommandRun(t *testing.T) {
 	restore := stubStatuslineShell(echoHelperCommand("a\nb\nc\nd"))
 	defer restore()
-	msg := execStatuslineRun(context.Background(), "whatever", string(`{}`), statuslineChildEnv(80, 24), 2*time.Second)
+	// This test is about output capping, not about the deadline (see
+	// TestStatuslineCommandTimeout), so the budget stays far away from the cost
+	// of a shell start on a loaded machine.
+	msg := execStatuslineRun(context.Background(), "whatever", string(`{}`), statuslineChildEnv(80, 24), 30*time.Second)
 	if len(msg.lines) != 3 {
 		t.Fatalf("lines = %#v, want 3", msg.lines)
 	}

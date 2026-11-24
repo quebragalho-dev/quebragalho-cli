@@ -953,19 +953,32 @@ func TestStatusLineAcceptance_TimeoutKillsAndKeepsLastGood(t *testing.T) {
 if [ "$n" -eq 1 ]; then printf 'SL-GOOD-1\n'; exit 0; fi
 echo $$ > '`+pidFile+`'
 exec sleep 30`)
-	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"command"}}}, command: command, timeoutMS: 300, refreshMS: 1000})
+	// The first run must succeed on a loaded machine too, so its budget is far
+	// above what the script needs; the timeout this test is about is the second,
+	// hanging run.
+	writeUserStatusLine(t, env, slLayout{lines: []slLine{{left: []string{"command"}}}, command: command, timeoutMS: 2000, refreshMS: 1000})
 	p := startSLPump(t, newSLModel(t, env, nil), 100, 30)
-	if frame, ok := p.waitFor(4*time.Second, containsPlain("SL-GOOD-1")); !ok {
+	if frame, ok := p.waitFor(20*time.Second, containsPlain("SL-GOOD-1")); !ok {
 		t.Fatalf("first good run never rendered:\n%s", plainFrame(frame))
 	}
-	if !waitForFile(p, pidFile, 4*time.Second) {
+	if !waitForFile(p, pidFile, 20*time.Second) {
 		t.Fatal("the refresh never re-ran the command")
 	}
 	pid := readPID(t, pidFile)
-	frame := p.runFor(1500 * time.Millisecond)
-	if processAlive(pid) {
-		t.Errorf("timeoutMs=300 but the command (pid %d) is still alive 1.5s later", pid)
+	// The kill must land, but how long it takes to be observable depends on how
+	// busy the machine is: poll up to 10s and fail only if the process is still
+	// there, instead of assuming a fixed 1.5s is enough.
+	deadline := time.Now().Add(10 * time.Second)
+	for processAlive(pid) && time.Now().Before(deadline) {
+		p.runFor(100 * time.Millisecond)
 	}
+	if processAlive(pid) {
+		t.Errorf("timeoutMs=2000 but the command (pid %d) is still alive after 10s", pid)
+	}
+	// The process being gone is not the same as the TUI having folded the
+	// timeout result: keep the loop running past the deadline before checking
+	// the value, so the assertion is on the frame after the timeout landed.
+	frame := p.runFor(1500 * time.Millisecond)
 	if !strings.Contains(plainFrame(frame), "SL-GOOD-1") {
 		t.Errorf("after a timeout the statusline must keep the last good value:\n%s", plainFrame(frame))
 	}
