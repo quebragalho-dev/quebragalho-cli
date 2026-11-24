@@ -208,7 +208,9 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// selection: with the mouse captured the terminal surrenders clicks to the
 	// app, so waiting for the terminal to open OSC 8 links never works. Plain
 	// clicks (and clicks on non-link text) fall through to selection below.
-	if mouseLeftPress(msg) && fileLinkClickModifier(mouseEvent(msg).Mod) {
+	// Cmd+click reaches the app as a plain click, so linkClickMod adds it back.
+	linkMod := linkClickMod(msg)
+	if mouseLeftPress(msg) && fileLinkClickModifier(linkMod) {
 		if line, ok := m.transcriptLineAtMouse(msg); ok {
 			col := mouseX(msg) - line.textStart
 			_, _, layout := m.transcriptHitTestLayout()
@@ -220,7 +222,7 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 			if index >= 0 {
-				if handled, err := handleFileLinkClickWindow(layout.selectable, index, col, m.cwd, mouseEvent(msg).Mod); handled {
+				if handled, err := handleFileLinkClickWindow(layout.selectable, index, col, m.cwd, linkMod); handled {
 					if err != nil {
 						m = m.appendSystemNotice("Não foi possível abrir o arquivo: " + err.Error())
 					}
