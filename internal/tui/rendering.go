@@ -1069,23 +1069,46 @@ func isDoctorResultHeading(value string) bool {
 
 func renderErrorRow(row transcriptRow, width int) string {
 	note := noteBox(row.text, width, qgTheme.cardErr, qgTheme.red)
-	// A recognized failure carries a one-line next step. Render it just below the
-	// red box in the faint metadata style so it reads as guidance, not more error
-	// text (and to avoid nesting ANSI styles inside noteBox's per-line red wrap).
+	// A recognized failure carries a next step. Render it just below the red box
+	// in the faint metadata style so it reads as guidance, not more error text
+	// (and to avoid nesting ANSI styles inside noteBox's per-line red wrap). It
+	// wraps like the note: the guidance is the actionable part, so cutting it
+	// with an ellipsis would hide the very instruction it exists to give.
 	if hint := strings.TrimSpace(row.hint); hint != "" {
-		note += "\n" + fitStyledLine(qgTheme.faint.Render("→ "+hint), width)
+		for _, line := range wrapPlainText("→ "+hint, maxInt(1, width)) {
+			note += "\n" + qgTheme.faint.Render(line)
+		}
 	}
 	return note
 }
 
-// noteBox is the bordered one-note container behind system and error rows.
+// noteBox is the bordered one-note container behind system and error rows. The
+// text is word-wrapped to the box's inner width, so a long notice breaks over
+// several rows instead of being cut with an ellipsis and losing its tail:
+// explicit newlines are preserved and only a word wider than the box is split.
 func noteBox(text string, width int, borderStyle lipgloss.Style, textStyle lipgloss.Style) string {
+	inner := noteInnerWidth(width)
 	raw := strings.Split(strings.TrimRight(strings.ReplaceAll(text, "\r\n", "\n"), "\n"), "\n")
 	lines := make([]string, 0, len(raw))
 	for _, line := range raw {
-		lines = append(lines, textStyle.Render(line))
+		for _, wrapped := range wrapPlainText(line, inner) {
+			lines = append(lines, textStyle.Render(wrapped))
+		}
 	}
 	return styledBlock(width, lines, borderStyle)
+}
+
+// noteInnerWidth is the content width styledBlock gives a note: the full width
+// when the tiny tier drops the side borders, otherwise the width minus the four
+// border and padding cells. Wrapping to it keeps every row inside the box.
+func noteInnerWidth(width int) int {
+	if width < 4 {
+		width = 4
+	}
+	if widthTier(width) == tierTiny {
+		return width
+	}
+	return width - 4
 }
 
 func renderAskUserRow(row transcriptRow, width int) string {
