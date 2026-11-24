@@ -115,6 +115,20 @@ func wantOpened(t *testing.T, opened *[]string, want string) {
 	}
 }
 
+// wantOpenedResolved is wantOpened for a path that still exists on disk: the
+// product always hands the viewer filepath.EvalSymlinks(path), so the test has
+// to compare against the same resolved spelling. Without this the comparison
+// fails wherever the temp dir is reached through a symlink, which is the norm
+// on macOS (/var -> /private/var) and on Windows (RUNNER~1 short names).
+func wantOpenedResolved(t *testing.T, opened *[]string, want string) {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(want)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%q): %v", want, err)
+	}
+	wantOpened(t, opened, resolved)
+}
+
 func wantNothingOpened(t *testing.T, opened *[]string) {
 	t.Helper()
 	if len(*opened) != 0 {
@@ -132,7 +146,7 @@ func TestClickOnImageChipOpensOriginalFileWithoutTemp(t *testing.T) {
 	// "[Image #1]" starts at column 0 of the chip row.
 	m = clickChipAndRun(t, m, 3, 1)
 
-	wantOpened(t, opened, png)
+	wantOpenedResolved(t, opened, png)
 	if len(m.pendingImageTemps) != 1 || m.pendingImageTemps[0] != "" {
 		t.Fatalf("o arquivo original nunca pode entrar em pendingImageTemps: %q", m.pendingImageTemps)
 	}
@@ -149,13 +163,13 @@ func TestClickOnSecondChipAmongSeveralOpensItsOwnFile(t *testing.T) {
 
 	// "[Image #1] [Image #2]": the second chip starts at column 11.
 	m = clickChipAndRun(t, m, 12, 1)
-	wantOpened(t, opened, second)
+	wantOpenedResolved(t, opened, second)
 
 	// Column 10 is the separator between the chips: it opens nothing.
 	if _, cmd := clickComposer(t, m, 10, 1); cmd != nil {
 		t.Fatal("clique no espaço entre chips não deve gerar comando")
 	}
-	wantOpened(t, opened, second)
+	wantOpenedResolved(t, opened, second)
 }
 
 func TestClickOnVideoChipOpensOriginalGIFNotItsFrames(t *testing.T) {
@@ -170,7 +184,7 @@ func TestClickOnVideoChipOpensOriginalGIFNotItsFrames(t *testing.T) {
 
 	// "[GIF #1 · 5 quadros]" is the only chip.
 	m = clickChipAndRun(t, m, 3, 1)
-	wantOpened(t, opened, gifPath)
+	wantOpenedResolved(t, opened, gifPath)
 }
 
 func TestClickOnDocumentChipOpensOriginalPDF(t *testing.T) {
@@ -184,7 +198,7 @@ func TestClickOnDocumentChipOpensOriginalPDF(t *testing.T) {
 	}
 
 	m = clickChipAndRun(t, m, 3, 1)
-	wantOpened(t, opened, pdf)
+	wantOpenedResolved(t, opened, pdf)
 }
 
 func TestClickOnChipRowInNarrowTerminalOpensTruncatedChip(t *testing.T) {
@@ -205,7 +219,7 @@ func TestClickOnChipRowInNarrowTerminalOpensTruncatedChip(t *testing.T) {
 	// The row is cut at the composer edge. Its last visible cell belongs to
 	// the chip that is still partly shown, which must still open.
 	m = clickChipAndRun(t, m, innerWidth-1, 1)
-	wantOpened(t, opened, paths[2])
+	wantOpenedResolved(t, opened, paths[2])
 
 	*opened = nil
 	if _, cmd := clickComposer(t, m, innerWidth, 1); cmd != nil {
@@ -244,6 +258,8 @@ func TestThumbnailClickOpensStagedClipboardCopy(t *testing.T) {
 
 	// Thumbnail slot 0 occupies columns 2..11 of rows 1..4.
 	m = clickChipAndRun(t, m, 5, 2)
+	// A staged clipboard temp is opened verbatim, not resolved: qg wrote it
+	// itself and never passes it through resolveAttachmentOriginal.
 	wantOpened(t, opened, m.pendingImageTemps[0])
 }
 
@@ -259,7 +275,7 @@ func TestThumbnailClickOnVideoFrameOpensOriginalVideo(t *testing.T) {
 	}
 
 	m = clickChipAndRun(t, m, 5, 2)
-	wantOpened(t, opened, gifPath)
+	wantOpenedResolved(t, opened, gifPath)
 }
 
 func TestThumbnailModeTextRowDoesNotOpenSingleImage(t *testing.T) {
@@ -325,7 +341,7 @@ func TestOriginalFilePreservedAfterOpenAndDiscard(t *testing.T) {
 	m, _ = m.handleImageCommand(png)
 
 	m = clickChipAndRun(t, m, 3, 1)
-	wantOpened(t, opened, png)
+	wantOpenedResolved(t, opened, png)
 	_, _ = m.handleImageCommand("clear")
 
 	if _, err := os.Stat(png); err != nil {
@@ -376,7 +392,7 @@ func TestOpenerReceivesExactPathWithSpacesAccentsAndLeadingDash(t *testing.T) {
 	m := attachmentClickModel(t, root)
 	m, _ = m.handleImageCommand(absolute)
 	clickChipAndRun(t, m, 3, 1)
-	wantOpened(t, opened, absolute)
+	wantOpenedResolved(t, opened, absolute)
 
 	*opened = nil
 	// A relative /image path resolves against the session cwd; the viewer must
@@ -384,7 +400,7 @@ func TestOpenerReceivesExactPathWithSpacesAccentsAndLeadingDash(t *testing.T) {
 	relative := attachmentClickModel(t, dir)
 	relative, _ = relative.handleImageCommand(name)
 	clickChipAndRun(t, relative, 3, 1)
-	wantOpened(t, opened, filepath.Join(dir, name))
+	wantOpenedResolved(t, opened, filepath.Join(dir, name))
 }
 
 func TestMissingPDFShowsShortWarningInsteadOfOpening(t *testing.T) {
@@ -519,7 +535,7 @@ func TestEditRestoredFileImageOpensItsOriginal(t *testing.T) {
 	}
 
 	m = clickChipAndRun(t, m, 3, 1)
-	wantOpened(t, opened, png)
+	wantOpenedResolved(t, opened, png)
 }
 
 // The staged-attachment slices describe the same entries, so they must agree in
@@ -624,7 +640,7 @@ func TestUppercaseImageExtensionOpensOriginal(t *testing.T) {
 	m := attachmentClickModel(t, root)
 	m, _ = m.handleImageCommand(upper)
 	clickChipAndRun(t, m, 3, 1)
-	wantOpened(t, opened, upper)
+	wantOpenedResolved(t, opened, upper)
 }
 
 // A symlink named like an image but pointing at a command-style file must not

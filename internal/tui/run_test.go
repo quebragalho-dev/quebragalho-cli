@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
@@ -109,7 +111,7 @@ func TestExitDiscardsStagedClipboardTemps(t *testing.T) {
 	staged := writeExitTestFile(t, filepath.Join(dir, "paste-1.png"))
 	final := model{pendingImageTemps: []string{staged}}
 
-	discardExitImageTemps(final)
+	discardExitImageTemps(finalModelForExit(final))
 
 	assertExitTestFileRemoved(t, staged)
 }
@@ -126,7 +128,7 @@ func TestExitWithBTWOpenDiscardsParentTemps(t *testing.T) {
 		btw:               btwState{active: true, parent: &parent},
 	}
 
-	discardExitImageTemps(final)
+	discardExitImageTemps(finalModelForExit(final))
 
 	assertExitTestFileRemoved(t, parentTemp)
 	assertExitTestFileRemoved(t, sideTemp)
@@ -143,13 +145,25 @@ func TestExitKeepsUserImageFile(t *testing.T) {
 		pendingImageTemps:  []string{"", staged},
 	}
 
-	discardExitImageTemps(final)
+	discardExitImageTemps(finalModelForExit(final))
 
 	if _, err := os.Stat(userFile); err != nil {
 		t.Fatalf("arquivo do usuário foi apagado: %v", err)
 	}
 	assertExitTestFileRemoved(t, staged)
 }
+
+// finalModelForExit entrega o modelo do teste como tea.Model, do mesmo jeito que
+// o program.Run entrega o modelo final em produção. O //go:noinline é o que
+// garante isso: sem ele o slice de temporários "does not escape" e mora na pilha
+// do teste, enquanto a conversão de model (23 KB) para a interface copia o struct
+// para o heap; a pilha então cresce dentro de discardExitImageTemps e o ponteiro
+// copiado envelhece, o que o -race reporta como "found bad pointer in Go heap".
+// Com o retorno como interface, o compilador manda o modelo inteiro para o heap,
+// como em produção.
+//
+//go:noinline
+func finalModelForExit(m model) tea.Model { return m }
 
 // Programa que falha antes de devolver um modelo: nil ou tipo desconhecido não pode dar panic.
 func TestExitDiscardTolerantOfMissingFinalModel(t *testing.T) {

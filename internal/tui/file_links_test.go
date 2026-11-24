@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -389,13 +390,15 @@ func TestFileLinkClickJoinedOpensWholeFile(t *testing.T) {
 // hardSplitLinkPath creates a real file of wantRunes characters: one long
 // space-free directory run plus a basename with spaces, so the answer wrap has
 // to sever the directory run mid-word — the shape a session scratchpad path
-// takes.
+// takes. The run is only padded when the root leaves room for it: a long temp
+// prefix already provides the space-free stretch, and growing the path past the
+// two rows this test renders would defeat it.
 func hardSplitLinkPath(t *testing.T, root string, wantRunes int) string {
 	t.Helper()
 	tail := filepath.Join("e2e-links", "work", "Gravação de Tela teste.mov")
 	pad := wantRunes - len([]rune(filepath.Join(root, tail)))
-	if pad < 24 {
-		pad = 24
+	if pad < 8 {
+		pad = 8
 	}
 	path := filepath.Join(root, strings.Repeat("a", pad), tail)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -410,7 +413,44 @@ func hardSplitLinkPath(t *testing.T, root string, wantRunes int) string {
 // TestAssistantWrapLinksHardSplitPath covers a backticked absolute path that the
 // answer wrap splits mid-token: every wrapped piece must carry the OSC 8 target
 // of the whole path, and Ctrl+click on either piece must open it.
+//
+// Where the break lands inside the path depends on how long the temp prefix is,
+// which differs per host and CI image (macOS /var/folders/... is far longer than
+// /tmp, and Windows may hand back a short RUNNER~1 name), so the test covers
+// several prefix lengths instead of assuming one.
 func TestAssistantWrapLinksHardSplitPath(t *testing.T) {
+	for _, prefixLen := range []int{12, 30, 45, 60, 75} {
+		t.Run(fmt.Sprintf("tmpdir-%d", prefixLen), func(t *testing.T) {
+			tempDirWithPrefix(t, prefixLen)
+			testAssistantWrapLinksHardSplitPath(t)
+		})
+	}
+}
+
+// tempDirWithPrefix points TMPDIR (and TMP, which is what Windows reads) at a
+// fresh directory of at least want bytes, so the caller controls roughly how
+// much of the rendered row the path prefix eats. A host whose temp base is
+// already longer than want (macOS /var/folders/... is) gets the base as it is.
+func tempDirWithPrefix(t *testing.T, want int) {
+	t.Helper()
+	base, err := os.MkdirTemp("", "hardsplit")
+	if err != nil {
+		t.Fatalf("mkdir temp base: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(base) })
+	dir := base
+	if pad := want - len(base); pad > 0 {
+		dir = filepath.Join(base, strings.Repeat("d", pad))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %q: %v", dir, err)
+		}
+	}
+	t.Setenv("TMPDIR", dir)
+	t.Setenv("TMP", dir)
+}
+
+func testAssistantWrapLinksHardSplitPath(t *testing.T) {
+	t.Helper()
 	root := t.TempDir()
 	path := hardSplitLinkPath(t, root, 160)
 	// A cwd with nothing in it: the second row's text alone must not resolve as
@@ -426,10 +466,21 @@ func TestAssistantWrapLinksHardSplitPath(t *testing.T) {
 	for i, line := range lines {
 		plain[i] = string(stripStyledText(line))
 	}
-	// A hard split leaves no space at the break: the remainder of the
-	// space-free run opens the second row.
-	if strings.HasSuffix(plain[0], " ") || !strings.HasPrefix(plain[1], "a") {
-		t.Fatalf("want a mid-token break, got rows %q", plain)
+	// A hard split loses nothing and leaves no space at the break: the two rows
+	// are the path itself, cut inside one of its space-free tokens.
+	breakAt := len(plain[0])
+	if joined := plain[0] + plain[1]; joined != path {
+		t.Fatalf("rows %q do not rejoin into %q", plain, path)
+	}
+	if breakAt <= 0 || breakAt >= len(path) {
+		t.Fatalf("break at %d leaves an empty row: %q", breakAt, plain)
+	}
+	if path[breakAt-1] == ' ' || path[breakAt] == ' ' {
+		t.Fatalf("break at %d is not inside a token: %q", breakAt, plain)
+	}
+	// The basename keeps its spaces: it was not broken up by the wrap.
+	if !strings.Contains(plain[1], "Gravação de Tela teste.mov") {
+		t.Fatalf("second row lost the space-separated basename: %q", plain)
 	}
 
 	url := fileLinkURL(path)
@@ -452,12 +503,24 @@ func TestAssistantWrapLinksHardSplitPath(t *testing.T) {
 	}
 	defer func() { fileLinkOpener = restore }()
 
+	// Clicking a row on its own must not resolve: the single-row scan never
+	// joins pieces, so only the cross-row window can name the file.
+	if spans := findFileLinks(plain[1], cwd); len(spans) != 0 {
+		t.Fatalf("the second piece alone must not link, got %#v", spans)
+	}
+
+	// "Tela" lies past the accent in "Gravação", so the click column is the
+	// display width of the prefix, not its byte length.
+	telaCol := len([]rune(plain[1][:strings.Index(plain[1], "Tela")]))
 	for _, click := range []struct {
 		name     string
 		row, col int
 	}{
-		{"first piece", 0, strings.Index(plain[0], "aaaa")},
-		{"second piece", 1, strings.Index(plain[1], "Tela")},
+		// Both cells straddle the break, where the pieces meet.
+		{"last cell of the first piece", 0, breakAt - 1},
+		{"first cell of the second piece", 1, 0},
+		// Inside the space-separated basename of the second piece.
+		{"inside the spaced basename", 1, telaCol},
 	} {
 		opened = nil
 		handled, err := handleFileLinkClickWindow(rows, click.row, click.col, cwd, tea.ModCtrl)
