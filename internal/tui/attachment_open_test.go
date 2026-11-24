@@ -326,7 +326,7 @@ func TestOriginalFilePreservedAfterOpenAndDiscard(t *testing.T) {
 
 	m = clickChipAndRun(t, m, 3, 1)
 	wantOpened(t, opened, png)
-	m, _ = m.handleImageCommand("clear")
+	_, _ = m.handleImageCommand("clear")
 
 	if _, err := os.Stat(png); err != nil {
 		t.Fatalf("arquivo original do usuário deve sobreviver ao descarte: %v", err)
@@ -375,7 +375,7 @@ func TestOpenerReceivesExactPathWithSpacesAccentsAndLeadingDash(t *testing.T) {
 	opened := recordAttachmentOpens(t)
 	m := attachmentClickModel(t, root)
 	m, _ = m.handleImageCommand(absolute)
-	m = clickChipAndRun(t, m, 3, 1)
+	clickChipAndRun(t, m, 3, 1)
 	wantOpened(t, opened, absolute)
 
 	*opened = nil
@@ -598,7 +598,7 @@ func TestImageWithLauncherExtensionOpensCopyNeverOriginal(t *testing.T) {
 	opened := recordAttachmentOpens(t)
 	m := attachmentClickModel(t, root)
 	m, _ = m.handleImageCommand(hta)
-	m = clickChipAndRun(t, m, 3, 1)
+	clickChipAndRun(t, m, 3, 1)
 
 	if len(*opened) != 1 {
 		t.Fatalf("imagem com nome .hta deveria abrir uma cópia, abriu %q", *opened)
@@ -639,7 +639,7 @@ func TestSymlinkToCommandFileNeverOpensTarget(t *testing.T) {
 	opened := recordAttachmentOpens(t)
 	m := attachmentClickModel(t, root)
 	m, _ = m.handleImageCommand(link)
-	m = clickChipAndRun(t, m, 3, 1)
+	clickChipAndRun(t, m, 3, 1)
 
 	if len(*opened) != 1 {
 		t.Fatalf("imagem por link deveria abrir uma cópia, abriu %q", *opened)
