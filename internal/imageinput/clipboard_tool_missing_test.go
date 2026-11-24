@@ -11,7 +11,7 @@ import (
 // e a TUI ainda prefixava "Falha ao ler a imagem...". Uma frase só basta.
 func TestClipboardToolMissingMessageIsSingleSentence(t *testing.T) {
 	got := ErrClipboardToolMissing.Error()
-	want := "Para colar imagens no Linux, instale wl-clipboard (Wayland) ou xclip (X11)"
+	want := "Para colar imagens no Linux, instale wl-clipboard (Wayland) ou xclip (X11)."
 	if got != want {
 		t.Fatalf("mensagem = %q, want %q", got, want)
 	}

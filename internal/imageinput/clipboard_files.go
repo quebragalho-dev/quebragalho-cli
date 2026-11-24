@@ -1,7 +1,6 @@
 package imageinput
 
 import (
-	"errors"
 	"net/url"
 	"os"
 	"os/exec"
@@ -21,8 +20,8 @@ import (
 // acionável, então quem a exibe não prefixa nada: o aviso saía duplicado
 // ("Falha ao ler a imagem...: não foi possível ler a área de transferência:
 // instale ...").
-var ErrClipboardToolMissing = errors.New(
-	"Para colar imagens no Linux, instale wl-clipboard (Wayland) ou xclip (X11)")
+var ErrClipboardToolMissing error = clipboardNotice(
+	"Para colar imagens no Linux, instale wl-clipboard (Wayland) ou xclip (X11).")
 
 // ClipboardFileURLToPath converts a file:// URI from the clipboard
 // (text/uri-list on Linux) to a local path, decoding %XX escapes. It reports

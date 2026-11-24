@@ -47,6 +47,12 @@ func IsClipboardTimeout(err error) bool {
 	return errors.As(err, &timeoutErr)
 }
 
+// clipboardNotice é uma frase pronta em português para o usuário. Ter um tipo
+// próprio deixa claro que a mensagem é exibida como está, sem prefixo.
+type clipboardNotice string
+
+func (n clipboardNotice) Error() string { return string(n) }
+
 // ReadClipboardImage returns the raw image bytes and media type from the OS
 // clipboard, or (nil, "", nil) when the clipboard has no image. Called when
 // text clipboard is empty (the user pasted a screenshot). The media type is
@@ -54,10 +60,10 @@ func IsClipboardTimeout(err error) bool {
 // ErrClipboardImageUnreadable reports that the clipboard holds an image the host
 // could not extract. It is deliberately distinct from "no image on the
 // clipboard", which is an ordinary no-op: this one must be shown, not
-// swallowed. The sentence is complete and in Portuguese but has no final
-// period; the TUI adds it when it displays the notice.
-var ErrClipboardImageUnreadable = errors.New(
-	"A área de transferência tem uma imagem, mas o qg não conseguiu lê-la")
+// swallowed. The sentence is already complete and in Portuguese, so callers
+// display it as-is.
+var ErrClipboardImageUnreadable error = clipboardNotice(
+	"A área de transferência tem uma imagem, mas o qg não conseguiu lê-la.")
 
 func ReadClipboardImage() ([]byte, string, error) {
 	data, err := readClipboardImageBytes()
