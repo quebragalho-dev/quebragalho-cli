@@ -116,6 +116,7 @@ func Run(ctx context.Context, options Options) int {
 	// kill lives here, on every exit path.
 	if m, ok := finalModel.(model); ok {
 		m.killStatuslineSync()
+		discardExitImageTemps(m)
 	}
 	clearErr := imageOutput.clearImage()
 	writeFarewell(os.Stdout, finalModel)
@@ -242,4 +243,20 @@ func useAltScreen(_ Options) bool {
 // whose strconv.ParseBool gate ignores common values like NO_COLOR=yes. (AUDIT-M3)
 func noColorRequested(getenv func(string) string) bool {
 	return getenv("NO_COLOR") != ""
+}
+
+// discardExitImageTemps deletes the clipboard temp files still staged when the
+// program returns without going through quit(): SIGHUP, SIGTERM, a cancelled
+// context and InterruptMsg all end there. An open /btw keeps the parent in
+// btw.parent, and the side never owns the parent's staged temps, so both are
+// released. Only temps qg created are removed: a user file has "" and is skipped.
+func discardExitImageTemps(finalModel tea.Model) {
+	m, ok := finalModel.(model)
+	if !ok {
+		return
+	}
+	m.discardPendingImageTemps()
+	if m.btw.parent != nil {
+		m.btw.parent.discardPendingImageTemps()
+	}
 }

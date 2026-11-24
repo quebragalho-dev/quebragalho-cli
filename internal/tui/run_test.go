@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/quebragalho-dev/quebragalho-cli/internal/qgruntime"
 )
 
 func TestUseAltScreenForInteractiveChat(t *testing.T) {
@@ -97,5 +99,75 @@ func TestRunRejectsNonTTYStdin(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run blocked on non-TTY stdin instead of failing fast")
+	}
+}
+
+// Saída sem quit() (SIGHUP, SIGTERM, cancelamento do contexto, InterruptMsg):
+// o modelo final ainda segura os temporários do clipboard e precisa soltá-los.
+func TestExitDiscardsStagedClipboardTemps(t *testing.T) {
+	dir := t.TempDir()
+	staged := writeExitTestFile(t, filepath.Join(dir, "paste-1.png"))
+	final := model{pendingImageTemps: []string{staged}}
+
+	discardExitImageTemps(final)
+
+	assertExitTestFileRemoved(t, staged)
+}
+
+// /btw: o modelo lateral zera os próprios temporários e os do pai ficam em
+// btw.parent; sair com o /btw aberto tem que apagar os dois lados.
+func TestExitWithBTWOpenDiscardsParentTemps(t *testing.T) {
+	dir := t.TempDir()
+	parentTemp := writeExitTestFile(t, filepath.Join(dir, "paste-parent.png"))
+	sideTemp := writeExitTestFile(t, filepath.Join(dir, "paste-side.png"))
+	parent := model{pendingImageTemps: []string{parentTemp}}
+	final := model{
+		pendingImageTemps: []string{sideTemp},
+		btw:               btwState{active: true, parent: &parent},
+	}
+
+	discardExitImageTemps(final)
+
+	assertExitTestFileRemoved(t, parentTemp)
+	assertExitTestFileRemoved(t, sideTemp)
+}
+
+// Arquivo que o usuário anexou por caminho tem entrada "" e nunca pode ser apagado.
+func TestExitKeepsUserImageFile(t *testing.T) {
+	dir := t.TempDir()
+	userFile := writeExitTestFile(t, filepath.Join(dir, "foto-do-usuario.png"))
+	staged := writeExitTestFile(t, filepath.Join(dir, "paste-2.png"))
+	final := model{
+		pendingImages:      []qgruntime.ImageBlock{{}, {}},
+		pendingImageLabels: []string{filepath.Base(userFile), "clipboard"},
+		pendingImageTemps:  []string{"", staged},
+	}
+
+	discardExitImageTemps(final)
+
+	if _, err := os.Stat(userFile); err != nil {
+		t.Fatalf("arquivo do usuário foi apagado: %v", err)
+	}
+	assertExitTestFileRemoved(t, staged)
+}
+
+// Programa que falha antes de devolver um modelo: nil ou tipo desconhecido não pode dar panic.
+func TestExitDiscardTolerantOfMissingFinalModel(t *testing.T) {
+	discardExitImageTemps(nil)
+	discardExitImageTemps((*model)(nil))
+}
+
+func writeExitTestFile(t *testing.T, path string) string {
+	t.Helper()
+	if err := os.WriteFile(path, []byte("png"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func assertExitTestFileRemoved(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("temporário %s continua no disco (stat err=%v)", path, err)
 	}
 }
