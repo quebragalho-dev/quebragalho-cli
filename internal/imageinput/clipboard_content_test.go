@@ -67,7 +67,7 @@ func TestReadClipboardContentMatrix(t *testing.T) {
 			clipboardFilesReader = func() ([]string, error) {
 				return tc.files, tc.filesErr
 			}
-			got, err := ReadClipboardContent()
+			got, err := readClipboardContentSeparately()
 			if tc.wantErr != nil {
 				if err == nil || err.Error() != tc.wantErr.Error() {
 					t.Fatalf("err = %v, want %v", err, tc.wantErr)

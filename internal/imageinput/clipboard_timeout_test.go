@@ -103,13 +103,13 @@ func TestReadClipboardFilesLinuxSurfacesHelperTimeout(t *testing.T) {
 }
 
 // A leitura do macOS (JXA via osascript) também tem prazo.
-func TestDarwinClipboardFileRunnerUsesDeadline(t *testing.T) {
+func TestDarwinClipboardContentRunnerUsesDeadline(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("helper falso é um script POSIX")
 	}
 	marker := hungClipboardHelper(t, "osascript")
 
-	_, err := darwinClipboardFileRunner(darwinClipboardFileScript)
+	_, err := darwinClipboardContentRunner(darwinClipboardContentScript, "/nonexistent-dest", "0")
 	if !IsClipboardTimeout(err) {
 		t.Fatalf("err = %v, want erro de prazo", err)
 	}

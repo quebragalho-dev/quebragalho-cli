@@ -119,6 +119,16 @@ var (
 // error only surfaces when there is no image — e.g. the missing Linux tool —
 // so a stray paste with text on the clipboard stays a silent no-op.
 func ReadClipboardContent() (ClipboardContent, error) {
+	if runtime.GOOS == "darwin" {
+		return readClipboardContentDarwin(false)
+	}
+	return readClipboardContentSeparately()
+}
+
+// readClipboardContentSeparately lê imagem e arquivos com os leitores de cada
+// um. É o caminho de Windows e Linux, e a matriz de combinações o exercita
+// direto, sem depender do SO do teste.
+func readClipboardContentSeparately() (ClipboardContent, error) {
 	var out ClipboardContent
 	data, mediaType, err := clipboardImageReader()
 	if err != nil {
@@ -164,38 +174,17 @@ var (
 	linuxClipboardFileList   = readClipboardFilesLinux
 )
 
-// darwinClipboardFileScript lê os NSURL do pasteboard via JXA e imprime um
-// caminho de arquivo por linha. JXA porque o Finder grava «class furl» E
-// texto (só o nome do arquivo): o AppleScript antigo lia `the clipboard` como
-// texto e `as alias` estourava -1700, silenciando o Ctrl+V. Sem checagem
-// prévia de `clipboard info`: sem arquivo copiado o script devolve vazio.
-const darwinClipboardFileScript = `ObjC.import('AppKit');
-var pb = $.NSPasteboard.generalPasteboard;
-var items = pb.readObjectsForClassesOptions($([$.NSURL]), $({}));
-var out = [];
-if (items) { for (var i = 0; i < items.count; i++) { var u = items.objectAtIndex(i); if (u.isFileURL) out.push(u.path.js); } }
-out.join("\n");`
-
-// darwinClipboardFileRunner executa o JXA acima. Var para teste hermético:
-// stubs devolvem a saída do osascript sem rodar nada no Mac. O osascript real
-// roda sob o mesmo prazo do resto do clipboard: um JXA pendurado não pode
-// segurar o Ctrl+V.
-var darwinClipboardFileRunner = func(script string) ([]byte, error) {
-	return runClipboardStdout("osascript", "-l", "JavaScript", "-e", script)
-}
-
-// readClipboardFilesDarwin extracts copied-file paths via the JXA script
-// above. osascript ships with macOS, so there is no missing-tool case here.
-// Returns (nil, nil) when the clipboard holds no files or the runner fails.
+// readClipboardFilesDarwin lista os arquivos copiados pela leitura única do
+// macOS. Sem arquivo, ou se a leitura falha, é silêncio; só o prazo sobe.
 func readClipboardFilesDarwin() ([]string, error) {
-	out, err := darwinClipboardFileRunner(darwinClipboardFileScript)
+	content, err := readClipboardContentDarwin(false)
 	if err != nil {
 		if IsClipboardTimeout(err) {
 			return nil, err
 		}
 		return nil, nil
 	}
-	return splitClipboardLines(string(out)), nil
+	return content.Files, nil
 }
 
 // readClipboardFilesWindows lists copied files via PowerShell: Get-Clipboard
