@@ -374,7 +374,7 @@ func TestFileLinkClickJoinedOpensWholeFile(t *testing.T) {
 	// Click inside the second piece ("de Tela..."): the whole joined path
 	// must open.
 	col := strings.Index(rows[1].text, "Tela") + 1
-	handled, err := handleFileLinkClickWindow(rows, 1, col, dir, tea.ModCtrl)
+	handled, err := runFileLinkClick(rows, 1, col, dir, tea.ModCtrl)
 	if err != nil {
 		t.Fatalf("opener error: %v", err)
 	}
@@ -523,7 +523,7 @@ func testAssistantWrapLinksHardSplitPath(t *testing.T) {
 		{"inside the spaced basename", 1, telaCol},
 	} {
 		opened = nil
-		handled, err := handleFileLinkClickWindow(rows, click.row, click.col, cwd, tea.ModCtrl)
+		handled, err := runFileLinkClick(rows, click.row, click.col, cwd, tea.ModCtrl)
 		if err != nil {
 			t.Fatalf("%s: opener error: %v", click.name, err)
 		}
@@ -567,7 +567,7 @@ func TestAssistantWrapLinksHardSplitMissingFile(t *testing.T) {
 		return nil
 	}
 	defer func() { fileLinkOpener = restore }()
-	if handled, err := handleFileLinkClickWindow(rows, 1, strings.Index(plain[1], "Tela"), cwd, tea.ModCtrl); handled || err != nil {
+	if handled, err := runFileLinkClick(rows, 1, strings.Index(plain[1], "Tela"), cwd, tea.ModCtrl); handled || err != nil {
 		t.Fatalf("handled = %v, err = %v; want no link for a missing path", handled, err)
 	}
 }

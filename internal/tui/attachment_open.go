@@ -220,12 +220,9 @@ type attachmentOpenFailedMsg struct {
 // openAttachmentCmd runs the OS viewer off the Update loop. It returns nil on
 // success and a failure message otherwise.
 func openAttachmentCmd(path string) tea.Cmd {
-	return func() tea.Msg {
-		if err := fileLinkOpener(path); err != nil {
-			return attachmentOpenFailedMsg{err: err}
-		}
-		return nil
-	}
+	return openWithViewerCmd(path, func(err error) tea.Msg {
+		return attachmentOpenFailedMsg{err: err}
+	})
 }
 
 // attachmentFileExists reports whether path names an existing regular file.

@@ -38,18 +38,19 @@ func fileLinkClickModifier(mod tea.KeyMod) bool {
 	return mod.Contains(tea.ModCtrl) || mod.Contains(tea.ModAlt) || mod.Contains(tea.ModMeta)
 }
 
-// handleFileLinkClickWindow opens the link under a modified click when the
-// clicked row belongs to a path broken across wrapped rows. rows holds the
-// plain text of consecutive selectable rows and index positions the clicked
-// one; up to two rows on each side are considered, and only chains of rows
-// with consecutive bodyYs join (paragraph breaks never glue). A single-row
-// hit wins first, so unbroken links behave exactly as before.
-func handleFileLinkClickWindow(rows []transcriptSelectableLine, index int, col int, cwd string, mod tea.KeyMod) (bool, error) {
+// fileLinkClickTarget returns the absolute path of the file link under a
+// modified click, or false when the click opens nothing. rows holds the plain
+// text of consecutive selectable rows and index positions the clicked one; a
+// single-row hit wins first, so unbroken links resolve exactly as before. Then
+// up to two rows on each side are considered, and only chains of rows with
+// consecutive bodyYs join (paragraph breaks never glue). Plain and
+// shift-modified clicks return false so the normal selection flow proceeds.
+func fileLinkClickTarget(rows []transcriptSelectableLine, index int, col int, cwd string, mod tea.KeyMod) (string, bool) {
 	if !fileLinkClickModifier(mod) || index < 0 || index >= len(rows) {
-		return false, nil
+		return "", false
 	}
-	if handled, err := handleFileLinkClick(mod, rows[index].text, col, cwd); handled || err != nil {
-		return handled, err
+	if abs, ok := fileLinkAtClick(rows[index].text, col, cwd); ok {
+		return abs, true
 	}
 	// Gather the largest consecutive window around the click (at most two
 	// rows each side): wrapped pieces only ever sit on adjacent body rows.
@@ -61,7 +62,7 @@ func handleFileLinkClickWindow(rows []transcriptSelectableLine, index int, col i
 		hi++
 	}
 	if hi == lo {
-		return false, nil
+		return "", false
 	}
 	windowTexts := make([]string, 0, hi-lo+1)
 	for _, line := range rows[lo : hi+1] {
@@ -75,32 +76,37 @@ func handleFileLinkClickWindow(rows []transcriptSelectableLine, index int, col i
 			}
 			startCol := lipgloss.Width(rows[index].text[:part.start])
 			endCol := lipgloss.Width(rows[index].text[:part.end])
-			if col < startCol || col >= endCol {
-				continue
+			if col >= startCol && col < endCol {
+				return multi.abs, true
 			}
-			if err := fileLinkOpener(multi.abs); err != nil {
-				return true, err
-			}
-			return true, nil
 		}
 	}
-	return false, nil
+	return "", false
 }
 
-// handleFileLinkClick opens the file link under a modified click. Plain and
-// shift-modified clicks return false so the normal selection flow proceeds.
-func handleFileLinkClick(mod tea.KeyMod, lineText string, col int, cwd string) (bool, error) {
-	if !fileLinkClickModifier(mod) {
-		return false, nil
+// fileLinkOpenCmd opens a file link in a tea.Cmd, so Update never blocks on the
+// OS viewer (rundll32 can take a long time when the target app is busy). A
+// failure comes back as fileLinkOpenFailedMsg.
+func fileLinkOpenCmd(path string) tea.Cmd {
+	return openWithViewerCmd(path, func(err error) tea.Msg {
+		return fileLinkOpenFailedMsg{err: err}
+	})
+}
+
+// fileLinkOpenFailedMsg reports a file link whose viewer could not be started.
+type fileLinkOpenFailedMsg struct {
+	err error
+}
+
+// openWithViewerCmd runs fileLinkOpener off the Update loop. It returns nil on
+// success and failed(err) otherwise.
+func openWithViewerCmd(path string, failed func(error) tea.Msg) tea.Cmd {
+	return func() tea.Msg {
+		if err := fileLinkOpener(path); err != nil {
+			return failed(err)
+		}
+		return nil
 	}
-	abs, ok := fileLinkAtClick(lineText, col, cwd)
-	if !ok {
-		return false, nil
-	}
-	if err := fileLinkOpener(abs); err != nil {
-		return true, err
-	}
-	return true, nil
 }
 
 // fileLinkOpener opens a verified-existing path with the OS default viewer.

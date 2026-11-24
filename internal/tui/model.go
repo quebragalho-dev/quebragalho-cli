@@ -2018,6 +2018,8 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	case attachmentOpenFailedMsg:
 		return m.appendImageNotice("Não foi possível abrir o anexo: " + msg.err.Error()), nil
+	case fileLinkOpenFailedMsg:
+		return m.appendSystemNotice("Não foi possível abrir o arquivo: " + msg.err.Error()), nil
 	case attachmentThumbnailMsg:
 		next := m.storeAttachmentThumbnail(msg)
 		// A decode started before /btw opened belongs to the parent, which

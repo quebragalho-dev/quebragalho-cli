@@ -64,9 +64,13 @@ func TestCommandClickOpensFileLink(t *testing.T) {
 	m.transcript = appendRow(m.transcript, rowAssistant, "veja a.png aqui")
 
 	x, y := transcriptLineMousePoint(t, m, "a.png", 1)
-	updated, _ := m.Update(testMouseClick(tea.MouseLeft, x, y))
+	updated, cmd := m.Update(testMouseClick(tea.MouseLeft, x, y))
 	next := updated.(model)
 
+	if cmd == nil {
+		t.Fatal("Cmd+clique num link deve devolver o comando que abre o arquivo")
+	}
+	execCmd(cmd)
 	wantOpened(t, opened, filepath.Join(dir, "a.png"))
 	if next.transcriptSelection.active {
 		t.Fatal("Cmd+clique num link deve abrir o arquivo, não começar seleção")
@@ -249,7 +253,7 @@ func TestCommandClickOpensWrappedFileLink(t *testing.T) {
 
 	col := strings.Index(rows[1].text, "Tela") + 1
 	mod := linkClickMod(tea.MouseClickMsg(tea.Mouse{Button: tea.MouseLeft}))
-	handled, err := handleFileLinkClickWindow(rows, 1, col, dir, mod)
+	handled, err := runFileLinkClick(rows, 1, col, dir, mod)
 	if err != nil {
 		t.Fatalf("opener error: %v", err)
 	}

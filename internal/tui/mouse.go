@@ -222,11 +222,8 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 			if index >= 0 {
-				if handled, err := handleFileLinkClickWindow(layout.selectable, index, col, m.cwd, linkMod); handled {
-					if err != nil {
-						m = m.appendSystemNotice("Não foi possível abrir o arquivo: " + err.Error())
-					}
-					return m, nil
+				if abs, ok := fileLinkClickTarget(layout.selectable, index, col, m.cwd, linkMod); ok {
+					return m, fileLinkOpenCmd(abs)
 				}
 			}
 		}
