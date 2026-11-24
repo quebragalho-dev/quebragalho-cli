@@ -142,6 +142,7 @@ func (m model) startNewSession() model {
 	// (undelivered batch first, then the queue, above the draft).
 	m.pendingImages = nil
 	m.pendingImageLabels = nil
+	m.pendingImageOrigins = nil
 	m.pendingImageThumbnails = nil
 	m.discardPendingImageTemps()
 	m.pendingDocuments = nil
@@ -157,6 +158,7 @@ func (m model) startNewSession() model {
 	// documents. lastPrompt is composer history (like inputHistory) and stays.
 	m.lastImages = nil
 	m.lastImageLabels = nil
+	m.lastImageOrigins = nil
 	m.lastDocuments = nil
 
 	note := "Nova sessão iniciada."

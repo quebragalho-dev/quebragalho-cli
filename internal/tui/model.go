@@ -506,8 +506,11 @@ type model struct {
 	// with the sent turn (never mutated in place), so no deep copy is needed.
 	lastImages      []qgruntime.ImageBlock
 	lastImageLabels []string
-	lastDocuments   []pendingDocument
-	lastVideos      []pendingVideoInfo
+	// lastImageOrigins mirrors pendingImageOrigins for the /retry and /edit
+	// snapshot, so a restored file image still opens its original.
+	lastImageOrigins []string
+	lastDocuments    []pendingDocument
+	lastVideos       []pendingVideoInfo
 	// historyIdx == len(inputHistory) means "not navigating"; historyDraft
 	// preserves whatever was typed before recall started.
 	inputHistory []string
@@ -711,6 +714,11 @@ type model struct {
 	// discarded, consumed, or the program quits. Invariant: same length as
 	// pendingImages whenever images are staged.
 	pendingImageTemps []string
+	// pendingImageOrigins, parallel to pendingImages, holds the absolute path of
+	// the file each image was attached from ("" for clipboard pastes and video
+	// frames). A click on the chip opens that original; the bytes still ride
+	// pendingImages. Same lockstep rules as pendingImageTemps.
+	pendingImageOrigins []string
 	// pendingVideoInfos holds staged video attachments (context lines + frame
 	// counts); their frames ride pendingImages like ordinary images. Both are
 	// cleared after a prompt is submitted (or /image clear).
@@ -2006,6 +2014,8 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case attachmentOpenFailedMsg:
+		return m.appendImageNotice("Não foi possível abrir o anexo: " + msg.err.Error()), nil
 	case videoFramesMsg:
 		// Uma extração iniciada antes do /btw pertence ao pai: conclui nela
 		// para os quadros esperarem o próximo turno do pai em vez de caírem
@@ -6196,6 +6206,7 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		// silently dropping the image/PDF context and answering a different task.
 		m.pendingImages = m.lastImages
 		m.pendingImageLabels = m.lastImageLabels
+		m.pendingImageOrigins = m.lastImageOrigins
 		// Bytes live in memory; the private temp files were deleted at submit,
 		// so re-stage with no temps to keep the lockstep invariant.
 		m.pendingImageTemps = make([]string, len(m.pendingImages))
@@ -6230,6 +6241,7 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		// answer a different task (the same gap /retry guards against).
 		m.pendingImages = m.lastImages
 		m.pendingImageLabels = m.lastImageLabels
+		m.pendingImageOrigins = m.lastImageOrigins
 		// Same as /retry above: bytes are in memory, temps were deleted.
 		m.pendingImageTemps = make([]string, len(m.pendingImages))
 		m.pendingDocuments = m.lastDocuments
@@ -6323,6 +6335,7 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 		m.lastPromptLiteral = false
 		m.lastImages = m.pendingImages
 		m.lastImageLabels = m.pendingImageLabels
+		m.lastImageOrigins = m.pendingImageOrigins
 		m.lastDocuments = m.pendingDocuments
 		m.lastVideos = m.pendingVideoInfos
 		attachments = transcriptAttachmentSummary{
@@ -6519,6 +6532,7 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 	if peer == nil {
 		m.pendingImages = nil
 		m.pendingImageLabels = nil
+		m.pendingImageOrigins = nil
 		m.pendingImageThumbnails = nil
 		m.discardPendingImageTemps()
 		m.pendingVideoInfos = nil
@@ -6717,7 +6731,7 @@ func (m model) completeVideoFrames(msg videoFramesMsg) (model, tea.Cmd) {
 	if msg.err != nil {
 		m = m.appendImageNotice(msg.err.Error())
 	} else {
-		m = m.stageVideoFrames(msg.label, msg.frames, msg.duration, false)
+		m = m.stageVideoFrames(msg.label, msg.source, msg.frames, msg.duration, false)
 	}
 	// A fila ficou parada esperando os quadros: tenta drenar agora que
 	// eles chegaram (ou falharam com aviso), senão ela só andaria num

@@ -180,7 +180,7 @@ func (m model) attachClipboardImage(data []byte, mediaType string) model {
 	if p, err := saveClipboardTempFile(data, clipboardMediaTypeExt(mediaType)); err == nil {
 		tempPath = p
 	}
-	m.appendPendingImage(qgruntime.ImageBlock{MediaType: mediaType, Data: data}, "clipboard", tempPath)
+	m.appendPendingImage(qgruntime.ImageBlock{MediaType: mediaType, Data: data}, "clipboard", tempPath, "")
 	m.refreshPendingImageThumbnail()
 	return m
 }
@@ -202,13 +202,33 @@ func clipboardMediaTypeExt(mediaType string) string {
 }
 
 // appendPendingImage stages one image with its display label, keeping
-// pendingImageTemps in lockstep ("" when the image came from a real file and
-// owns no temp). Every image-staging site must go through here so the
-// temp-file invariant holds and discard can clean up exactly what qg created.
-func (m *model) appendPendingImage(block qgruntime.ImageBlock, label, tempPath string) {
+// pendingImageTemps and pendingImageOrigins in lockstep ("" when the image came
+// from a real file and owns no temp; "" origin for clipboard pastes and video
+// frames). Every image-staging site must go through here so the temp-file
+// invariant holds and discard can clean up exactly what qg created.
+func (m *model) appendPendingImage(block qgruntime.ImageBlock, label, tempPath, origin string) {
 	m.pendingImages = append(m.pendingImages, block)
 	m.pendingImageLabels = append(m.pendingImageLabels, label)
 	m.pendingImageTemps = append(m.pendingImageTemps, tempPath)
+	m.pendingImageOrigins = append(m.pendingImageOrigins, origin)
+}
+
+// attachmentOriginPath turns the path an attachment was loaded from into the
+// absolute path that is kept for opening it later. Relative paths resolve
+// against cwd, the same base the loaders use, so the stored path is always
+// absolute and never starts with an option-like "-" when it reaches the viewer.
+func attachmentOriginPath(path, cwd string) string {
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	if cwd != "" {
+		return filepath.Join(cwd, path)
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	return abs
 }
 
 // discardPendingImageTemps deletes the private temp files backing staged
@@ -290,6 +310,7 @@ func (m model) handleImageCommand(arg string) (model, tea.Cmd) {
 		m.cancelPendingVideoExtractions()
 		m.pendingImages = nil
 		m.pendingImageLabels = nil
+		m.pendingImageOrigins = nil
 		m.pendingImageThumbnails = nil
 		m.pendingDocuments = nil
 		m.pendingVideoInfos = nil
@@ -322,7 +343,7 @@ func (m model) handleImageCommand(arg string) (model, tea.Cmd) {
 		return m.appendImageNotice(err.Error()), nil
 	}
 
-	m.appendPendingImage(block, filepath.Base(trimmed), "")
+	m.appendPendingImage(block, filepath.Base(trimmed), "", attachmentOriginPath(trimmed, m.cwd))
 	m.refreshPendingImageThumbnail()
 	// No "attached" system message: the composer attachment chip ([Image #N]) is
 	// the confirmation, matching the compact attach UX.
@@ -334,6 +355,9 @@ func (m model) handleImageCommand(arg string) (model, tea.Cmd) {
 type pendingDocument struct {
 	label string
 	text  string
+	// path is the absolute path of the PDF the text came from; a click on its
+	// chip opens that original file.
+	path string
 }
 
 // handleDocumentAttach loads a PDF through imageinput.LoadDocument. The text
@@ -351,11 +375,12 @@ func (m model) handleDocumentAttach(path string) model {
 	}
 
 	label := filepath.Base(path)
+	origin := attachmentOriginPath(path, m.cwd)
 	if strings.TrimSpace(doc.Text) != "" {
-		m.pendingDocuments = append(m.pendingDocuments, pendingDocument{label: label, text: doc.Text})
+		m.pendingDocuments = append(m.pendingDocuments, pendingDocument{label: label, text: doc.Text, path: origin})
 	}
 	for _, block := range doc.Images {
-		m.appendPendingImage(block, label, "")
+		m.appendPendingImage(block, label, "", origin)
 	}
 	m.refreshPendingImageThumbnail()
 	// The composer attachment chip ([Doc #N] / [Image #N]) is the confirmation; no
@@ -416,6 +441,9 @@ type pendingVideoInfo struct {
 	// gif diz se os quadros vieram de um GIF animado ([GIF #N]) ou de um
 	// contêiner de vídeo ([Vídeo #N]).
 	gif bool
+	// source é o caminho absoluto do vídeo (ou GIF) original; um clique no chip
+	// abre esse arquivo, nunca os quadros.
+	source string
 }
 
 // videoFramesMsg carries a finished background frame extraction: on success
@@ -423,6 +451,7 @@ type pendingVideoInfo struct {
 type videoFramesMsg struct {
 	id       uint64
 	label    string
+	source   string
 	frames   []media.Frame
 	duration float64
 	err      error
@@ -435,7 +464,7 @@ func extractVideoFramesCmd(ctx context.Context, path, cwd, ffmpegPath, ffprobePa
 		tctx, cancel := context.WithTimeout(ctx, media.VideoAttachTimeout)
 		defer cancel()
 		frames, duration, err := media.ExtractAttachmentFrames(tctx, ffmpegPath, ffprobePath, path, cwd, media.ExtractOptions{})
-		return videoFramesMsg{id: id, label: filepath.Base(path), frames: frames, duration: duration, err: err}
+		return videoFramesMsg{id: id, label: filepath.Base(path), source: attachmentOriginPath(path, cwd), frames: frames, duration: duration, err: err}
 	}
 }
 
@@ -469,22 +498,25 @@ func (m model) handleVideoAttach(path string) (model, tea.Cmd) {
 	if err != nil {
 		return m.appendImageNotice(err.Error()), nil
 	}
-	return m.stageVideoFrames(label, frames, duration, true), nil
+	return m.stageVideoFrames(label, attachmentOriginPath(path, m.cwd), frames, duration, true), nil
 }
 
 // stageVideoFrames stages extracted frames as pending images with their
 // context line, refreshing the first-frame preview. animatedGIF marks frames
 // decoded from an animated GIF (a [GIF #N] chip) rather than a video
 // container (a [Vídeo #N] chip); the staged bytes are identical either way.
-func (m model) stageVideoFrames(label string, frames []media.Frame, duration float64, animatedGIF bool) model {
+func (m model) stageVideoFrames(label, source string, frames []media.Frame, duration float64, animatedGIF bool) model {
+	// Frames carry no origin of their own: a click on one opens the video's
+	// original through its chip (pendingVideoInfo.source), never the frame.
 	for _, frame := range frames {
-		m.appendPendingImage(qgruntime.ImageBlock{MediaType: "image/jpeg", Data: frame.Data}, label, "")
+		m.appendPendingImage(qgruntime.ImageBlock{MediaType: "image/jpeg", Data: frame.Data}, label, "", "")
 	}
 	m.pendingVideoInfos = append(m.pendingVideoInfos, pendingVideoInfo{
 		label:  label,
 		text:   media.SummarizeFrames(label, duration, frames),
 		frames: len(frames),
 		gif:    animatedGIF,
+		source: source,
 	})
 	m.refreshPendingImageThumbnail()
 	return m
@@ -572,6 +604,9 @@ func (m model) removeLastAttachment() (model, bool) {
 			if len(m.pendingImageTemps) > 0 {
 				m.pendingImageTemps = m.pendingImageTemps[:len(m.pendingImageTemps)-1]
 			}
+			if len(m.pendingImageOrigins) > 0 {
+				m.pendingImageOrigins = m.pendingImageOrigins[:len(m.pendingImageOrigins)-1]
+			}
 			removed++
 		}
 		if removed > 0 {
@@ -594,6 +629,9 @@ func (m model) removeLastAttachment() (model, bool) {
 		}
 		if len(m.pendingImageTemps) > 0 {
 			m.pendingImageTemps = m.pendingImageTemps[:len(m.pendingImageTemps)-1]
+		}
+		if len(m.pendingImageOrigins) > 0 {
+			m.pendingImageOrigins = m.pendingImageOrigins[:len(m.pendingImageOrigins)-1]
 		}
 		m.refreshPendingImageThumbnail()
 		return m, true
@@ -660,7 +698,41 @@ func (m model) visionDropWarning() string {
 }
 
 func renderAttachmentChips(imageLabels []string, docs []pendingDocument, videos []pendingVideoInfo) string {
-	chips := make([]string, 0, len(imageLabels)+len(docs)+len(videos))
+	chips := attachmentChipList(imageLabels, docs, videos)
+	texts := make([]string, len(chips))
+	for i, chip := range chips {
+		texts[i] = chip.text
+	}
+	return strings.Join(texts, " ")
+}
+
+// attachmentChipKind says which kind of staged attachment a composer chip names.
+type attachmentChipKind int
+
+const (
+	attachmentChipImage attachmentChipKind = iota
+	attachmentChipVideo
+	attachmentChipDocument
+)
+
+// attachmentChip is one composer chip, with the staged entries it stands for so
+// a click on it (or on a thumbnail of one of its images) can find the attachment.
+type attachmentChip struct {
+	text string
+	kind attachmentChipKind
+	// index addresses pendingImages (image), pendingVideoInfos (video) or
+	// pendingDocuments (document), depending on kind.
+	index int
+	// first and images give the pendingImages range the chip covers: one entry
+	// for an image, the frame count for a video, none for a document.
+	first  int
+	images int
+}
+
+// attachmentChipList builds the composer chips in display order, with the same
+// numbering and text renderAttachmentChips always produced.
+func attachmentChipList(imageLabels []string, docs []pendingDocument, videos []pendingVideoInfo) []attachmentChip {
+	chips := make([]attachmentChip, 0, len(imageLabels)+len(docs)+len(videos))
 	imageNum, videoNum, gifNum := 0, 0, 0
 	nextVideo := 0
 	index := 0
@@ -672,25 +744,30 @@ func renderAttachmentChips(imageLabels []string, docs []pendingDocument, videos 
 		if nextVideo < len(videos) && videos[nextVideo].frames > 0 &&
 			hasVideoRun(imageLabels, index, videos[nextVideo]) {
 			info := videos[nextVideo]
+			chip := attachmentChip{kind: attachmentChipVideo, index: nextVideo, first: index, images: info.frames}
 			if info.gif {
 				gifNum++
-				chips = append(chips, fmt.Sprintf("[GIF #%d · %s]", gifNum, quadroLabel(info.frames)))
+				chip.text = fmt.Sprintf("[GIF #%d · %s]", gifNum, quadroLabel(info.frames))
 			} else {
 				videoNum++
-				chips = append(chips, fmt.Sprintf("[Vídeo #%d · %s]", videoNum, quadroLabel(info.frames)))
+				chip.text = fmt.Sprintf("[Vídeo #%d · %s]", videoNum, quadroLabel(info.frames))
 			}
+			chips = append(chips, chip)
 			index += info.frames
 			nextVideo++
 			continue
 		}
 		imageNum++
-		chips = append(chips, fmt.Sprintf("[Image #%d]", imageNum))
+		chips = append(chips, attachmentChip{
+			text: fmt.Sprintf("[Image #%d]", imageNum), kind: attachmentChipImage,
+			index: index, first: index, images: 1,
+		})
 		index++
 	}
 	for i := range docs {
-		chips = append(chips, fmt.Sprintf("[Doc #%d]", i+1))
+		chips = append(chips, attachmentChip{text: fmt.Sprintf("[Doc #%d]", i+1), kind: attachmentChipDocument, index: i})
 	}
-	return strings.Join(chips, " ")
+	return chips
 }
 
 // hasVideoRun diz se imageLabels tem, a partir de start, os frames de info

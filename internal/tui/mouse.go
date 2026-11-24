@@ -189,6 +189,13 @@ func (m model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	// A plain click on a composer attachment chip or thumbnail opens that
+	// attachment. Ctrl/Alt clicks keep their file-link meaning.
+	if mouseLeftPress(msg) && !fileLinkClickModifier(mouseEvent(msg).Mod) {
+		if chip, ok := m.attachmentChipAtMouse(msg); ok {
+			return m.openAttachment(chip)
+		}
+	}
 	if next, cmd, ok := m.handleComposerSelectionMouse(msg); ok {
 		return next, cmd
 	}
