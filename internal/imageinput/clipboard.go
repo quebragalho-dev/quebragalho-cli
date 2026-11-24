@@ -51,11 +51,12 @@ func IsClipboardTimeout(err error) bool {
 // text clipboard is empty (the user pasted a screenshot). The media type is
 // sniffed from the bytes, not trusted from the clipboard.
 // ErrClipboardImageUnreadable reports that the clipboard holds an image the host
-// has no way to extract. It is deliberately distinct from "no image on the
-// clipboard", which is an ordinary no-op: this one is actionable, and silence is
-// the wrong response to it.
+// could not extract. It is deliberately distinct from "no image on the
+// clipboard", which is an ordinary no-op: this one must be shown, not
+// swallowed. The sentence is already complete and in Portuguese, so callers
+// display it as-is.
 var ErrClipboardImageUnreadable = errors.New(
-	"the clipboard holds an image but no helper on this host can read it; on macOS install pngpaste (brew install pngpaste) or a Python with pyobjc")
+	"A área de transferência tem uma imagem, mas o qg não conseguiu lê-la.")
 
 func ReadClipboardImage() ([]byte, string, error) {
 	data, err := readClipboardImageBytes()
@@ -155,19 +156,67 @@ var (
 		out, err := runClipboardStdout("sh", "-c", `osascript -e 'clipboard info'`)
 		return string(out), err
 	}
-	darwinClipboardExtract = func() ([]byte, error) {
-		// pngpaste if available, falling back to a Python one-liner. Neither
-		// ships with macOS: pngpaste is Homebrew-only and Apple dropped the
-		// bundled PyObjC, so a stock Mac fails here every time.
-		return runClipboardStdout("sh", "-c", `pngpaste - 2>/dev/null || python3 -c "
-import AppKit, sys
-pb = AppKit.NSPasteboard.generalPasteboard()
-data = pb.dataForType_(AppKit.NSPasteboardTypePNG)
-if data:
-    sys.stdout.buffer.write(data.bytes())
-"`)
-	}
+	darwinClipboardExtract = readClipboardImageDarwinJXA
 )
+
+// darwinClipboardImageScript extracts a screenshot from the pasteboard as PNG
+// via JXA, the same bridge darwinClipboardFileScript uses for copied files.
+// osascript ships with macOS, so this path works on a stock Mac — pngpaste is
+// Homebrew-only and the python3 from Homebrew has no PyObjC, so both old
+// helpers failed on every unmodified Mac.
+//
+// The PNG goes to a file instead of stdout because osascript output is not
+// binary-safe. The destination arrives in argv, never interpolated into the
+// script: a temp path can contain quotes and backslashes.
+const darwinClipboardImageScript = `ObjC.import('AppKit');
+function nilObj(x) { return !x || x.isNil(); }
+function run(argv) {
+	var path = argv[0];
+	if (!path) { throw new Error('destino ausente'); }
+	var pb = $.NSPasteboard.generalPasteboard;
+	var data = pb.dataForType($.NSPasteboardTypePNG);
+	if (nilObj(data)) {
+		// O print do macOS chega como TIFF: converte para PNG antes de gravar.
+		var tiff = pb.dataForType($.NSPasteboardTypeTIFF);
+		if (nilObj(tiff)) { throw new Error('sem imagem no pasteboard'); }
+		var rep = $.NSBitmapImageRep.imageRepWithData(tiff);
+		if (nilObj(rep)) { throw new Error('TIFF ilegivel'); }
+		data = rep.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $({}));
+		if (nilObj(data)) { throw new Error('conversao para PNG falhou'); }
+	}
+	if (!data.writeToFileAtomically(path, true)) { throw new Error('falha ao gravar'); }
+	return 0;
+}`
+
+// darwinClipboardImageRunner executa o JXA acima com o destino em argv. Var
+// para teste hermético: no Linux um stub grava bytes falsos no caminho em vez
+// de subir o osascript. O prazo é o mesmo do resto do clipboard.
+var darwinClipboardImageRunner = func(script, destPath string) error {
+	_, err := runClipboardStdout("osascript", "-l", "JavaScript", "-e", script, destPath)
+	return err
+}
+
+// readClipboardImageDarwinJXA runs darwinClipboardImageScript against a fresh
+// file in the private clipboard dir (screenshots can carry sensitive pixels,
+// so not the shared temp dir) and reads the bytes back. The script replaces
+// the file, so the bytes come from the read, not from the empty placeholder.
+func readClipboardImageDarwinJXA() ([]byte, error) {
+	dir, err := ClipboardTempDir()
+	if err != nil {
+		return nil, err
+	}
+	tmp, err := os.CreateTemp(dir, "clipboard-*.png")
+	if err != nil {
+		return nil, err
+	}
+	tmpPath := tmp.Name()
+	tmp.Close()
+	defer os.Remove(tmpPath)
+	if err := darwinClipboardImageRunner(darwinClipboardImageScript, tmpPath); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(tmpPath)
+}
 
 // darwinClipboardOffersImage reports whether the pasteboard info line names an
 // image class.

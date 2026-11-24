@@ -523,11 +523,11 @@ func TestComposerTerminalWordKeybindings(t *testing.T) {
 	}
 }
 
-// A clipboard that holds an image the host cannot extract must say so. This is
-// the macOS case: neither pngpaste nor PyObjC ships with the OS, so the reader
-// fails on a stock Mac, and reporting that as "no image" meant Ctrl+V did
-// nothing at all with no explanation. Silence is the wrong answer to a
-// condition the user can act on.
+// A clipboard that holds an image the host cannot extract must say so. On
+// macOS the reader can still fail (a pasteboard the JXA bridge refuses, for
+// instance), and reporting that as "no image" meant Ctrl+V did nothing at all
+// with no explanation. Silence is the wrong answer to a condition the user can
+// act on.
 func TestClipboardImageUnreadableSurfacesToUser(t *testing.T) {
 	original := readClipboardContent
 	t.Cleanup(func() { readClipboardContent = original })
@@ -548,10 +548,10 @@ func TestClipboardImageUnreadableSurfacesToUser(t *testing.T) {
 	if image.err == nil {
 		t.Fatal("the unreadable-clipboard failure was swallowed; the user is told nothing")
 	}
-	// The message has to name the remedy, since the whole point is that the user
-	// can fix this by installing something.
-	if !strings.Contains(image.err.Error(), "pngpaste") {
-		t.Fatalf("error = %q, want it to name what to install", image.err.Error())
+	// The message is already a full Portuguese sentence, so it is shown as-is
+	// and never tells the user to install a helper that no longer helps.
+	if got := image.err.Error(); !strings.HasPrefix(got, "A área de transferência tem uma imagem") {
+		t.Fatalf("error = %q, want the Portuguese sentence", got)
 	}
 
 	// And it must reach the transcript as an error row rather than stopping at
@@ -561,14 +561,8 @@ func TestClipboardImageUnreadableSurfacesToUser(t *testing.T) {
 	if !ok {
 		t.Fatalf("Update returned %T, want model", updated)
 	}
-	found := false
-	for _, row := range next.transcript {
-		if row.kind == rowError && strings.Contains(row.text, "Falha ao ler a imagem da área de transferência") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatal("the failure never reached the transcript; the user still sees nothing")
+	want := "A área de transferência tem uma imagem, mas o qg não conseguiu lê-la."
+	if got := lastTranscriptText(next); got != want {
+		t.Fatalf("aviso = %q, want %q (frase única, sem prefixo)", got, want)
 	}
 }

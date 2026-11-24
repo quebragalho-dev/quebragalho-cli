@@ -40,12 +40,14 @@ var (
 )
 
 // clipboardNoticeText monta o aviso de falha ao ler o clipboard. Erros que já
-// são uma frase acionável em português (ferramenta ausente, ferramenta que não
-// respondeu) aparecem sozinhos — prefixá-los repetia "não foi possível ler a
-// área de transferência" duas vezes. Os demais mantêm o prefixo, que diz qual
-// leitura falhou.
+// são uma frase completa em português (ferramenta ausente, ferramenta que não
+// respondeu, imagem ilegível) aparecem sozinhos — prefixá-los repetia "não foi
+// possível ler a área de transferência" duas vezes. Os demais mantêm o prefixo,
+// que diz qual leitura falhou.
 func clipboardNoticeText(err error) string {
-	if imageinput.IsClipboardTimeout(err) || errors.Is(err, imageinput.ErrClipboardToolMissing) {
+	if imageinput.IsClipboardTimeout(err) ||
+		errors.Is(err, imageinput.ErrClipboardToolMissing) ||
+		errors.Is(err, imageinput.ErrClipboardImageUnreadable) {
 		return err.Error()
 	}
 	return "Falha ao ler a imagem da área de transferência: " + err.Error()
