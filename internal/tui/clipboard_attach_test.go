@@ -110,9 +110,8 @@ func TestCtrlVPastesAnimatedGIFAsFrames(t *testing.T) {
 	msg := execCmd(cmd)
 	updated2, attachCmd := updated.(model).Update(msg.(clipboardImageMsg))
 	got := updated2.(model)
-	if attachCmd != nil {
-		t.Fatalf("GIF animado deveria anexar de forma síncrona, veio cmd: %T", attachCmd)
-	}
+	// The frames are staged synchronously; attachCmd can only carry previews.
+	_ = attachCmd
 
 	if len(got.pendingImages) == 0 {
 		t.Fatalf("GIF animado colado deveria anexar quadros, aviso: %q", lastTranscriptText(got))

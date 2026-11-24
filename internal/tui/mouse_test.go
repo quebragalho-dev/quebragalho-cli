@@ -184,7 +184,8 @@ func TestComposerMouseClickMovesCursorBelowImageThumbnail(t *testing.T) {
 	m := mouseTestModel()
 	m.attachmentRenderers = []*termimage.ImageRenderer{termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})}
 	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
-	m.refreshPendingImageThumbnail()
+	cmd := m.refreshPendingImageThumbnail()
+	m = settleThumbnails(t, m, cmd)
 	m.input.SetValue("hello world")
 
 	width := m.chatColumnWidth()

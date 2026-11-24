@@ -13,6 +13,12 @@ import (
 const (
 	terminalSyncStart = "\x1b[?2026h"
 	terminalSyncEnd   = "\x1b[?2026l"
+	// imageFlushFrame is an empty synchronized frame. Writing it makes
+	// imageOutput inject a pending image update inside the transaction, and
+	// no terminal answers it. A focus-mode set would be answered by some
+	// terminals (Ghostty sends a focus report), which reaches the program as a
+	// focus message.
+	imageFlushFrame = terminalSyncStart + terminalSyncEnd
 )
 
 type terminalOutputFile interface {

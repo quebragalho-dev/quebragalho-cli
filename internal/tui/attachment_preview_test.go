@@ -38,8 +38,9 @@ func TestAttachmentThumbnailRendersInsideComposerWhenSupported(t *testing.T) {
 	m.attachmentRenderers = []*termimage.ImageRenderer{termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})}
 	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
 	m.pendingImageLabels = []string{"diagram.png"}
-	m.refreshPendingImageThumbnail()
-	if len(m.pendingImageThumbnails) != 1 || m.pendingImageThumbnails[0] == nil {
+	cmd := m.refreshPendingImageThumbnail()
+	m = settleThumbnails(t, m, cmd)
+	if m.pendingThumbnail(0) == nil {
 		t.Fatal("expected staged image thumbnail")
 	}
 
@@ -71,7 +72,8 @@ func TestAttachmentThumbnailKeepsAdditionalImagesVisibleWhenSupported(t *testing
 	}
 	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t), previewImageBlock(t)}
 	m.pendingImageLabels = []string{"first.png", "second.png"}
-	m.refreshPendingImageThumbnail()
+	cmd := m.refreshPendingImageThumbnail()
+	m = settleThumbnails(t, m, cmd)
 
 	plain := plainRender(t, m.composerBox(m.width))
 	if !strings.Contains(plain, "[Image #2]") {
@@ -96,7 +98,8 @@ func TestAttachmentThumbnailFallsBackToChipsWithoutTerminalGraphics(t *testing.T
 	m.altScreen = true
 	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
 	m.pendingImageLabels = []string{"diagram.png"}
-	m.refreshPendingImageThumbnail()
+	cmd := m.refreshPendingImageThumbnail()
+	m = settleThumbnails(t, m, cmd)
 
 	plain := plainRender(t, m.composerBox(m.width))
 	if !strings.Contains(plain, "[Image #1]") {
@@ -115,7 +118,8 @@ func TestAttachmentThumbnailClearsWithPendingImage(t *testing.T) {
 	m.attachmentRenderers = []*termimage.ImageRenderer{termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})}
 	m.pendingImages = []qgruntime.ImageBlock{previewImageBlock(t)}
 	m.pendingImageLabels = []string{"diagram.png"}
-	m.refreshPendingImageThumbnail()
+	cmd := m.refreshPendingImageThumbnail()
+	m = settleThumbnails(t, m, cmd)
 	_ = m.View()
 	var first bytes.Buffer
 	if err := m.attachmentRenderers[0].Render(&first); err != nil {
@@ -124,7 +128,7 @@ func TestAttachmentThumbnailClearsWithPendingImage(t *testing.T) {
 
 	m.pendingImages = nil
 	m.pendingImageLabels = nil
-	m.pendingImageThumbnails = nil
+	m.attachmentThumbs = nil
 	_ = m.View()
 	var cleared bytes.Buffer
 	if err := m.attachmentRenderers[0].Render(&cleared); err != nil {

@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/quebragalho-dev/quebragalho-cli/internal/termimage"
 )
 
@@ -12,6 +13,12 @@ const (
 	attachmentPreviewRows         = 4
 	attachmentPreviewHeightPixels = 64
 	attachmentPreviewMaxImages    = 4
+	// attachmentThumbnailMaxWidth/Height bound the stored preview in device pixels.
+	// A 10x4 cell slot is about 180x144 px on a Retina terminal (cells near 18x36
+	// px), so the preview is sharp there and the Kitty PNG stays small. Pixels
+	// beyond that are wasted: the terminal scales the image to the slot anyway.
+	attachmentThumbnailMaxWidth  = 180
+	attachmentThumbnailMaxHeight = 144
 )
 
 // attachmentThumbnailVisible deliberately has a conservative layout gate. The
@@ -28,7 +35,7 @@ func (m model) attachmentThumbnailVisible(width int) bool {
 		return false
 	}
 	for index := 0; index < m.attachmentThumbnailSlots(width); index++ {
-		if index < len(m.pendingImageThumbnails) && m.pendingImageThumbnails[index] != nil &&
+		if m.pendingThumbnail(index) != nil &&
 			index < len(m.attachmentRenderers) && m.attachmentRenderers[index].Support().Supported() {
 			return true
 		}
@@ -82,7 +89,7 @@ func (m model) attachmentComposerPrefixRows(width int) int {
 func (m model) attachmentImageDraw(index int) *termimage.ImageDraw {
 	width := m.chatColumnWidth()
 	if !m.attachmentThumbnailVisible(width) || index < 0 || index >= m.attachmentThumbnailSlots(width) ||
-		index >= len(m.pendingImageThumbnails) || m.pendingImageThumbnails[index] == nil {
+		m.pendingThumbnail(index) == nil {
 		return nil
 	}
 	frame := m.scrollableTranscriptFrame(m.pinnedTitleBar(width), m.footerView(width))
@@ -91,7 +98,7 @@ func (m model) attachmentImageDraw(index int) *termimage.ImageDraw {
 	}
 	return &termimage.ImageDraw{
 		ID:           attachmentImageID + uint32(index),
-		Animation:    m.pendingImageThumbnails[index],
+		Animation:    m.pendingThumbnail(index),
 		State:        termimage.Idle,
 		X:            frame.composerRect.x + 2 + index*(attachmentPreviewCols+1),
 		Y:            frame.composerRect.y + 1,
@@ -99,6 +106,41 @@ func (m model) attachmentImageDraw(index int) *termimage.ImageDraw {
 		Rows:         attachmentPreviewRows,
 		HeightPixels: attachmentPreviewHeightPixels,
 	}
+}
+
+// attachmentPreviewSignature is the decoded preview each composer slot shows.
+// Two signatures that differ mean the terminal needs an image write, which the
+// text frame alone does not bring.
+type attachmentPreviewSignature [attachmentPreviewMaxImages]*termimage.Animation
+
+func (m model) attachmentPreviewSignature() attachmentPreviewSignature {
+	var signature attachmentPreviewSignature
+	for index := range signature {
+		signature[index] = m.pendingThumbnail(index)
+	}
+	return signature
+}
+
+// attachmentImageFlushCmd asks Bubble Tea for one more write when a slot's
+// preview changed during this Update. The image update rides on the next write
+// Bubble Tea makes, and it makes one only when the text changes. A preview that
+// arrives on an unchanged frame would otherwise wait for the cursor blink. The
+// request is an empty synchronized frame (imageFlushFrame): it draws nothing,
+// no terminal answers it, and it is sent only when some slot can draw an image.
+func (m model) attachmentImageFlushCmd(before attachmentPreviewSignature) tea.Cmd {
+	if m.attachmentPreviewSignature() == before || !m.attachmentImagesSupported() {
+		return nil
+	}
+	return tea.Raw(imageFlushFrame)
+}
+
+func (m model) attachmentImagesSupported() bool {
+	for _, renderer := range m.attachmentRenderers {
+		if renderer.Support().Supported() {
+			return true
+		}
+	}
+	return false
 }
 
 func attachmentPreviewImageIDs() []uint32 {

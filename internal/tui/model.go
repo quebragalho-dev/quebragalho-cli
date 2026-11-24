@@ -728,10 +728,10 @@ type model struct {
 	// completes; until then submits wait and stale completions are dropped.
 	pendingVideoExtractions map[uint64]pendingVideoExtraction
 	videoExtractSeq         uint64
-	// pendingImageThumbnails are decoded previews for a bounded gallery of staged
-	// images. They are only rendered by terminals with an inline-image protocol;
-	// every other terminal continues to use the compact text attachment row.
-	pendingImageThumbnails []*termimage.Animation
+	// attachmentThumbs caches the inline previews of staged images, keyed by the
+	// image bytes (see refreshPendingImageThumbnail). Only terminals with an
+	// inline-image protocol render them; every other terminal keeps the text row.
+	attachmentThumbs map[attachmentThumbKey]attachmentThumb
 
 	// pendingDocuments holds PDF text layers staged by /image for the next user
 	// turn; the text is prepended to the prompt as a preamble at submit time and
@@ -1783,6 +1783,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.printInFlight = false
 		return m.drainFlushQueue()
 	}
+	previews := m.attachmentPreviewSignature()
 	var recapActivityCmd tea.Cmd
 	switch msg.(type) {
 	case tea.KeyPressMsg, tea.PasteMsg, tea.MouseMsg:
@@ -1811,7 +1812,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// A finished setup turn finalizes here (both normal and cancelled
 	// landings flow through Update): validate the staging, preview, wait.
 	nm, statuslineSetupCmd := nm.maybeFinalizeStatuslineSetup(msg)
-	return nm, batchCommands(cmd, mouseCmd, flushCmd, recapActivityCmd, composerCmd, noticeCmd, statuslineCmd, statuslineSetupCmd)
+	return nm, batchCommands(cmd, mouseCmd, flushCmd, recapActivityCmd, composerCmd, noticeCmd, statuslineCmd, statuslineSetupCmd, nm.attachmentImageFlushCmd(previews))
 }
 
 func batchCommands(cmds ...tea.Cmd) tea.Cmd {
@@ -2003,28 +2004,44 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m = m.appendImageNotice(clipboardNoticeText(msg.err))
 		}
+		var cmds []tea.Cmd
 		if msg.data != nil {
-			m = m.attachClipboardImage(msg.data, msg.mediaType)
+			var thumbCmd tea.Cmd
+			m, thumbCmd = m.attachClipboardImage(msg.data, msg.mediaType)
+			cmds = append(cmds, thumbCmd)
 		}
 		if len(msg.files) > 0 {
 			var attachCmd tea.Cmd
 			m, attachCmd = m.attachClipboardFiles(msg.files)
-			if attachCmd != nil {
-				return m, attachCmd
-			}
+			cmds = append(cmds, attachCmd)
 		}
-		return m, nil
+		return m, tea.Batch(cmds...)
 	case attachmentOpenFailedMsg:
 		return m.appendImageNotice("Não foi possível abrir o anexo: " + msg.err.Error()), nil
+	case attachmentThumbnailMsg:
+		next := m.storeAttachmentThumbnail(msg)
+		// A decode started before /btw opened belongs to the parent, which
+		// still holds the image. The side conversation settles its own copy
+		// above; the parent settles its marker here.
+		if next.btw.active && next.btw.parent != nil {
+			parent := *next.btw.parent
+			parent = parent.storeAttachmentThumbnail(msg)
+			next.btw.parent = &parent
+		}
+		return next, nil
 	case videoFramesMsg:
 		// Uma extração iniciada antes do /btw pertence ao pai: conclui nela
 		// para os quadros esperarem o próximo turno do pai em vez de caírem
-		// na conversa isolada (ou sumirem em silêncio).
+		// na conversa isolada (ou sumirem em silêncio). O Cmd devolvido vai
+		// inteiro: a decodificação das miniaturas e a fila que estava parada
+		// esperando os quadros. Se a fila inicia um turno, as mensagens dele
+		// voltam ao pai pelo runID (routeBTWParentMessage).
 		if m.btw.active && m.btw.parent != nil {
 			if _, ok := m.btw.parent.pendingVideoExtractions[msg.id]; ok {
 				parent := *m.btw.parent
-				parent, _ = parent.completeVideoFrames(msg)
+				parent, cmd := parent.completeVideoFrames(msg)
 				m.btw.parent = &parent
+				return m, cmd
 			}
 			return m, nil
 		}
@@ -2573,8 +2590,8 @@ func (m model) updateModel(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// ([Image #N] / [Doc #N]) so you can drop one you don't need without
 			// clearing them all. With text present it deletes a character as usual.
 			if m.composerValue() == "" {
-				if next, removed := m.removeLastAttachment(); removed {
-					return next, nil
+				if next, cmd, removed := m.removeLastAttachment(); removed {
+					return next, cmd
 				}
 			}
 		case keyIs(msg, tea.KeyTab):
@@ -6212,23 +6229,25 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		m.pendingImageTemps = make([]string, len(m.pendingImages))
 		m.pendingDocuments = m.lastDocuments
 		m.pendingVideoInfos = m.lastVideos
-		m.refreshPendingImageThumbnail()
+		thumbCmd := m.refreshPendingImageThumbnail()
 		// The last-prompt slot may hold a pre-expanded wire (a non-typable
 		// skill's body from the picker), not a command line: resend it as-is.
 		if m.lastPromptLiteral {
-			return m.launchPinnedWire(m.lastPrompt)
+			next, cmd := m.launchPinnedWire(m.lastPrompt)
+			return next, tea.Batch(thumbCmd, cmd)
 		}
 		// Resend the last submitted message — running the full dispatch again
 		// so skill tokens re-expand from the raw text and user commands
 		// re-resolve, same as if the user had pressed Enter anew.
 		if len(m.lastPrompts) > 1 {
-			return m.launchPrompts(m.lastPrompts)
+			next, cmd := m.launchPrompts(m.lastPrompts)
+			return next, tea.Batch(thumbCmd, cmd)
 		}
 		next, cmd := m.dispatchCommand(parseCommand(m.lastPrompt))
 		if nm, ok := next.(model); ok {
-			return nm, cmd
+			return nm, tea.Batch(thumbCmd, cmd)
 		}
-		return m, cmd
+		return m, tea.Batch(thumbCmd, cmd)
 	case commandEdit:
 		if strings.TrimSpace(m.lastPrompt) == "" {
 			m.transcript = reduceTranscript(m.transcript, transcriptAction{kind: actionAppendSystem, text: "Edit\nno previous prompt to recall."})
@@ -6246,9 +6265,9 @@ func (m model) dispatchCommand(command parsedCommand) (tea.Model, tea.Cmd) {
 		m.pendingImageTemps = make([]string, len(m.pendingImages))
 		m.pendingDocuments = m.lastDocuments
 		m.pendingVideoInfos = m.lastVideos
-		m.refreshPendingImageThumbnail()
+		thumbCmd := m.refreshPendingImageThumbnail()
 		m.input.SetValue(m.lastPrompt)
-		return m, nil
+		return m, thumbCmd
 	case commandCopy:
 		text := m.lastAssistantAnswer()
 		if strings.TrimSpace(text) == "" {
@@ -6533,7 +6552,6 @@ func (m model) launchPromptsInternal(prompts []string, peer *peermsg.InboundMess
 		m.pendingImages = nil
 		m.pendingImageLabels = nil
 		m.pendingImageOrigins = nil
-		m.pendingImageThumbnails = nil
 		m.discardPendingImageTemps()
 		m.pendingVideoInfos = nil
 	}
@@ -6728,15 +6746,17 @@ func (m model) completeVideoFrames(msg videoFramesMsg) (model, tea.Cmd) {
 	}
 	delete(m.pendingVideoExtractions, msg.id)
 	ext.cancel()
+	var thumbCmd tea.Cmd
 	if msg.err != nil {
 		m = m.appendImageNotice(msg.err.Error())
 	} else {
-		m = m.stageVideoFrames(msg.label, msg.source, msg.frames, msg.duration, false)
+		m, thumbCmd = m.stageVideoFrames(msg.label, msg.source, msg.frames, msg.duration, false)
 	}
 	// A fila ficou parada esperando os quadros: tenta drenar agora que
 	// eles chegaram (ou falharam com aviso), senão ela só andaria num
 	// próximo evento qualquer.
-	return m.launchQueuedMessageIfReady()
+	next, queueCmd := m.launchQueuedMessageIfReady()
+	return next, tea.Batch(thumbCmd, queueCmd)
 }
 
 func (m model) launchQueuedMessageIfReady() (model, tea.Cmd) {

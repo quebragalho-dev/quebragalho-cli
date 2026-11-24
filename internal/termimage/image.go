@@ -7,6 +7,8 @@ import (
 	"image/png"
 	"sync"
 	"time"
+
+	xdraw "golang.org/x/image/draw"
 )
 
 // State selects which frame sequence an Animation plays. Attachments only
@@ -122,4 +124,32 @@ func ThumbnailAnimation(imageValue image.Image) (*Animation, error) {
 		return nil, fmt.Errorf("thumbnail image is empty")
 	}
 	return &Animation{frames: map[State][]image.Image{Idle: {imageValue}}}, nil
+}
+
+// ShrinkToFit returns src scaled down so it fits within maxWidth x maxHeight,
+// keeping its aspect ratio and alpha. An image that already fits is returned
+// unchanged: a thumbnail is never enlarged.
+func ShrinkToFit(src image.Image, maxWidth, maxHeight int) image.Image {
+	bounds := src.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	if width < 1 || height < 1 || maxWidth < 1 || maxHeight < 1 {
+		return src
+	}
+	if width <= maxWidth && height <= maxHeight {
+		return src
+	}
+	// The side that overflows its box more sets the scale; the other side follows
+	// the ratio and never rounds down to zero, so a 20000x1 strip stays one pixel
+	// tall instead of vanishing.
+	targetWidth, targetHeight := maxWidth, maxHeight
+	if width*maxHeight > height*maxWidth {
+		targetHeight = max(1, height*maxWidth/width)
+	} else {
+		targetWidth = max(1, width*maxHeight/height)
+	}
+	// BiLinear, not ApproxBiLinear: the approximation samples too few source
+	// pixels for a 10x+ reduction and drops or breaks thin lines.
+	dst := image.NewNRGBA(image.Rect(0, 0, targetWidth, targetHeight))
+	xdraw.BiLinear.Scale(dst, dst.Bounds(), src, bounds, xdraw.Src, nil)
+	return dst
 }

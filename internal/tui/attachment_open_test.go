@@ -248,7 +248,7 @@ func TestThumbnailClickOpensStagedClipboardCopy(t *testing.T) {
 	m := attachmentClickModel(t, root)
 	m.attachmentRenderers = []*termimage.ImageRenderer{termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})}
 	block := previewImageBlock(t)
-	m = m.attachClipboardImage(block.Data, "image/png")
+	m = attachClipboardSettled(t, m, block.Data)
 	if !m.attachmentThumbnailVisible(m.chatColumnWidth()) {
 		t.Fatal("setup: a miniatura deveria estar visível")
 	}
@@ -269,7 +269,8 @@ func TestThumbnailClickOnVideoFrameOpensOriginalVideo(t *testing.T) {
 	opened := recordAttachmentOpens(t)
 	m := attachmentClickModel(t, root)
 	m.attachmentRenderers = []*termimage.ImageRenderer{termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})}
-	m, _ = m.handleImageCommand(gifPath)
+	next, cmd := m.handleImageCommand(gifPath)
+	m = settleThumbnails(t, next, cmd)
 	if !m.attachmentThumbnailVisible(m.chatColumnWidth()) {
 		t.Fatal("setup: a miniatura do primeiro quadro deveria estar visível")
 	}
@@ -283,7 +284,7 @@ func TestThumbnailModeTextRowDoesNotOpenSingleImage(t *testing.T) {
 	opened := recordAttachmentOpens(t)
 	m := attachmentClickModel(t, root)
 	m.attachmentRenderers = []*termimage.ImageRenderer{termimage.NewImageRenderer(termimage.ImageSupport{Protocol: termimage.ImageProtocolKitty})}
-	m = m.attachClipboardImage(previewImageBlock(t).Data, "image/png")
+	m = attachClipboardSettled(t, m, previewImageBlock(t).Data)
 	m.input.SetValue("hello world")
 
 	// With one thumbnail and no supplemental chip row, the row right under the
@@ -354,7 +355,7 @@ func TestVanishedClipboardTempIsRecreatedAndDiscarded(t *testing.T) {
 	opened := recordAttachmentOpens(t)
 	m := attachmentClickModel(t, root)
 	block := previewImageBlock(t)
-	m = m.attachClipboardImage(block.Data, "image/png")
+	m = attachClipboardSettled(t, m, block.Data)
 	temp := m.pendingImageTemps[0]
 	if err := os.Remove(temp); err != nil {
 		t.Fatal(err)
@@ -559,7 +560,7 @@ func TestAttachmentSlicesStayInLockstep(t *testing.T) {
 
 	m, _ = m.handleImageCommand(png)
 	wantAttachmentLockstep(t, m, "após imagem de arquivo")
-	m = m.attachClipboardImage(previewImageBlock(t).Data, "image/png")
+	m = attachClipboardSettled(t, m, previewImageBlock(t).Data)
 	wantAttachmentLockstep(t, m, "após colagem")
 	m, _ = m.handleImageCommand(gifPath)
 	wantAttachmentLockstep(t, m, "após GIF de três quadros")
@@ -568,14 +569,14 @@ func TestAttachmentSlicesStayInLockstep(t *testing.T) {
 
 	m = clickChipAndRun(t, m, 3, 1)
 	wantAttachmentLockstep(t, m, "após clique que abre")
-	m, _ = m.removeLastAttachment()
+	m, _, _ = m.removeLastAttachment()
 	wantAttachmentLockstep(t, m, "após remover o PDF")
-	m, _ = m.removeLastAttachment()
+	m, _, _ = m.removeLastAttachment()
 	wantAttachmentLockstep(t, m, "após remover o GIF (três quadros)")
 	if len(m.pendingImages) != 2 {
 		t.Fatalf("setup: depois de remover o GIF deveriam sobrar 2 imagens, veio %d", len(m.pendingImages))
 	}
-	m, _ = m.removeLastAttachment()
+	m, _, _ = m.removeLastAttachment()
 	wantAttachmentLockstep(t, m, "após remover a colagem")
 	m, _ = m.handleImageCommand("clear")
 	wantAttachmentLockstep(t, m, "após /image clear")

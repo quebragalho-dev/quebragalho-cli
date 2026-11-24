@@ -72,7 +72,7 @@ func (m model) handleSpecCommand(task string) (tea.Model, tea.Cmd) {
 	m.pendingImages = nil
 	m.pendingImageLabels = nil
 	m.pendingImageOrigins = nil
-	m.pendingImageThumbnails = nil
+	m.attachmentThumbs = nil
 	m.discardPendingImageTemps()
 
 	specRegistry := cloneToolRegistry(m.registry)

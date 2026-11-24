@@ -99,8 +99,8 @@ func attachVideoAndFinish(t *testing.T, m model, path string) model {
 	if !ok {
 		t.Fatalf("esperava videoFramesMsg, veio %T", msg)
 	}
-	updated, _ := next.Update(msg)
-	return updated.(model)
+	updated, thumbCmd := next.Update(msg)
+	return settleThumbnails(t, updated.(model), thumbCmd)
 }
 
 // Anexar vídeo com ffmpeg disponível vira quadros + linha de contexto.
@@ -130,8 +130,11 @@ func TestVideoAttachStagesFramesWithContextLine(t *testing.T) {
 			t.Fatalf("linha de contexto sem %q: %q", want, text)
 		}
 	}
-	if next.pendingImageThumbnails == nil {
-		t.Fatal("prévia do primeiro quadro deveria existir")
+	// The fake ffmpeg writes frames that are not images, so there is no preview to
+	// show; the first frame must still have been decoded (a settled cache entry).
+	key, _ := attachmentKeyOf(next.pendingImages[0])
+	if entry, ok := next.attachmentThumbs[key]; !ok || !entry.ready {
+		t.Fatal("prévia do primeiro quadro deveria ter sido decodificada")
 	}
 }
 
@@ -188,9 +191,8 @@ func TestAnimatedGIFAttachesFramesWithoutFFmpeg(t *testing.T) {
 
 	m := videoAttachModel(t, root)
 	next, cmd := m.handleImageCommand(gifPath)
-	if cmd != nil {
-		t.Fatal("GIF deveria anexar de forma síncrona")
-	}
+	// The chip is staged synchronously; cmd can only carry the preview decode.
+	_ = cmd
 	if len(next.pendingImages) == 0 {
 		t.Fatalf("GIF animado deveria anexar quadros, aviso: %q", lastTranscriptText(next))
 	}
@@ -206,9 +208,8 @@ func TestSingleFrameGIFStaysImage(t *testing.T) {
 
 	m := videoAttachModel(t, root)
 	next, cmd := m.handleImageCommand(gifPath)
-	if cmd != nil {
-		t.Fatal("GIF deveria anexar de forma síncrona")
-	}
+	// The chip is staged synchronously; cmd can only carry the preview decode.
+	_ = cmd
 	if len(next.pendingImages) != 1 {
 		t.Fatalf("GIF de 1 quadro deveria anexar 1 imagem, foi %d (%q)", len(next.pendingImages), lastTranscriptText(next))
 	}
@@ -309,7 +310,7 @@ func TestRemoveLastAttachmentDropsWholeVideo(t *testing.T) {
 	if len(staged.pendingImages) == 0 {
 		t.Fatalf("setup: nada anexado (%q)", lastTranscriptText(staged))
 	}
-	removed, ok := staged.removeLastAttachment()
+	removed, _, ok := staged.removeLastAttachment()
 	if !ok {
 		t.Fatal("removeLastAttachment deveria remover o vídeo")
 	}
@@ -368,7 +369,7 @@ func TestBackspaceDuringExtractionCancelsIt(t *testing.T) {
 	if wantID == 0 {
 		t.Fatal("setup: extração em andamento deveria estar registrada")
 	}
-	without, removed := attached.removeLastAttachment()
+	without, _, removed := attached.removeLastAttachment()
 	if !removed {
 		t.Fatal("Backspace deveria cancelar a extração em andamento")
 	}
@@ -592,9 +593,8 @@ func TestComposerLabelsAnimatedGIFChip(t *testing.T) {
 
 	m := videoAttachModel(t, root)
 	next, cmd := m.handleImageCommand(gifPath)
-	if cmd != nil {
-		t.Fatal("GIF deveria anexar de forma síncrona")
-	}
+	// The chip is staged synchronously; cmd can only carry the preview decode.
+	_ = cmd
 	if got := next.attachmentThumbnailSupplementalChips(); got != "[GIF #1 · 5 quadros]" {
 		t.Fatalf("composer deveria mostrar um só chip de GIF, foi %q", got)
 	}
@@ -647,7 +647,7 @@ func TestBackspaceRemovesWholeVideoFromMixedAttachments(t *testing.T) {
 		t.Fatalf("setup: mistura = %q", got)
 	}
 
-	withoutVideo, ok := staged.removeLastAttachment()
+	withoutVideo, _, ok := staged.removeLastAttachment()
 	if !ok {
 		t.Fatal("Backspace deveria remover o vídeo")
 	}

@@ -548,8 +548,7 @@ func TestRetryResendsAttachments(t *testing.T) {
 			len(next.lastImages), len(next.lastDocuments))
 	}
 
-	updated, _ = next.Update(execCmd(cmd))
-	settleModel(t, updated.(model))
+	settleModel(t, settleThumbnails(t, next, cmd))
 
 	select {
 	case imgs := <-captured:
@@ -577,7 +576,7 @@ func TestRetryResendsAttachments(t *testing.T) {
 // o pedido do Gabriel vale para colar (Ctrl+V, botão direito, paste vazio).
 func TestClipboardImageRefusedInPortuguese(t *testing.T) {
 	m := newModel(context.Background(), Options{ModelName: "deepseek-v4-pro"})
-	updated := m.attachClipboardImage([]byte{0x89, 0x50, 0x4E, 0x47}, "image/png")
+	updated, _ := m.attachClipboardImage([]byte{0x89, 0x50, 0x4E, 0x47}, "image/png")
 	next := updated
 
 	if len(next.pendingImages) != 0 {

@@ -64,8 +64,7 @@ func (m model) attachmentThumbnailChipAt(localX, width int, chips []attachmentCh
 	}
 	slot := slotOffset / (attachmentPreviewCols + 1)
 	if slotOffset%(attachmentPreviewCols+1) >= attachmentPreviewCols ||
-		slot >= m.attachmentThumbnailSlots(width) || slot >= len(m.pendingImageThumbnails) ||
-		m.pendingImageThumbnails[slot] == nil {
+		slot >= m.attachmentThumbnailSlots(width) || m.pendingThumbnail(slot) == nil {
 		return attachmentChip{}, false
 	}
 	return chipCoveringImage(chips, slot)

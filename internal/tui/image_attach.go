@@ -8,6 +8,7 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -168,21 +169,21 @@ func (m model) modelSupportsVisionTUI() bool {
 // The bytes are also staged in a private temp file (deleted when the
 // attachment is discarded, consumed, or qg quits) so a pasted screenshot never
 // sits in the shared system temp dir.
-func (m model) attachClipboardImage(data []byte, mediaType string) model {
+func (m model) attachClipboardImage(data []byte, mediaType string) (model, tea.Cmd) {
 	if !m.modelSupportsVisionTUI() {
 		name := displayValue(m.modelName, "o modelo atual")
-		return m.appendImageNotice("O modelo " + name + " não suporta imagens; imagem da área de transferência recusada.")
+		return m.appendImageNotice("O modelo " + name + " não suporta imagens; imagem da área de transferência recusada."), nil
 	}
 	if len(data) > imageinput.MaxImageBytes {
-		return m.appendImageNotice("A imagem da área de transferência passa do limite de 10 MiB.")
+		return m.appendImageNotice("A imagem da área de transferência passa do limite de 10 MiB."), nil
 	}
 	tempPath := ""
 	if p, err := saveClipboardTempFile(data, clipboardMediaTypeExt(mediaType)); err == nil {
 		tempPath = p
 	}
 	m.appendPendingImage(qgruntime.ImageBlock{MediaType: mediaType, Data: data}, "clipboard", tempPath, "")
-	m.refreshPendingImageThumbnail()
-	return m
+	cmd := m.refreshPendingImageThumbnail()
+	return m, cmd
 }
 
 // clipboardMediaTypeExt maps a sniffed clipboard media type to a temp-file
@@ -311,7 +312,7 @@ func (m model) handleImageCommand(arg string) (model, tea.Cmd) {
 		m.pendingImages = nil
 		m.pendingImageLabels = nil
 		m.pendingImageOrigins = nil
-		m.pendingImageThumbnails = nil
+		m.attachmentThumbs = nil
 		m.pendingDocuments = nil
 		m.pendingVideoInfos = nil
 		return m.appendImageNotice("Cleared pending attachments."), nil
@@ -330,7 +331,7 @@ func (m model) handleImageCommand(arg string) (model, tea.Cmd) {
 	// extension still reaches the document path rather than the vision-only image
 	// path. The cheap header sniff runs before the vision gate.
 	if imageinput.IsProbablyDocumentPath(trimmed) || imageinput.LooksLikeDocumentFile(trimmed, m.cwd) {
-		return m.handleDocumentAttach(trimmed), nil
+		return m.handleDocumentAttach(trimmed)
 	}
 
 	if !m.modelSupportsVisionTUI() {
@@ -344,10 +345,10 @@ func (m model) handleImageCommand(arg string) (model, tea.Cmd) {
 	}
 
 	m.appendPendingImage(block, filepath.Base(trimmed), "", attachmentOriginPath(trimmed, m.cwd))
-	m.refreshPendingImageThumbnail()
+	thumbCmd := m.refreshPendingImageThumbnail()
 	// No "attached" system message: the composer attachment chip ([Image #N]) is
 	// the confirmation, matching the compact attach UX.
-	return m, nil
+	return m, thumbCmd
 }
 
 // pendingDocument is a PDF staged by /image for the next user turn: its extracted
@@ -366,12 +367,12 @@ type pendingDocument struct {
 // pending-image pipeline too. A scanned PDF with no text (and no rasterizer)
 // surfaces LoadDocument's explicit "no extractable text" notice and attaches
 // nothing.
-func (m model) handleDocumentAttach(path string) model {
+func (m model) handleDocumentAttach(path string) (model, tea.Cmd) {
 	doc, err := imageinput.LoadDocument(path, m.cwd, imageinput.DocumentOptions{
 		Vision: m.modelSupportsVisionTUI(),
 	})
 	if err != nil {
-		return m.appendImageNotice(err.Error())
+		return m.appendImageNotice(err.Error()), nil
 	}
 
 	label := filepath.Base(path)
@@ -382,10 +383,10 @@ func (m model) handleDocumentAttach(path string) model {
 	for _, block := range doc.Images {
 		m.appendPendingImage(block, label, "", origin)
 	}
-	m.refreshPendingImageThumbnail()
+	cmd := m.refreshPendingImageThumbnail()
 	// The composer attachment chip ([Doc #N] / [Image #N]) is the confirmation; no
 	// "attached" system message.
-	return m
+	return m, cmd
 }
 
 // blockWhileExtracting stops a new turn while frames extract, keeping the
@@ -498,14 +499,14 @@ func (m model) handleVideoAttach(path string) (model, tea.Cmd) {
 	if err != nil {
 		return m.appendImageNotice(err.Error()), nil
 	}
-	return m.stageVideoFrames(label, attachmentOriginPath(path, m.cwd), frames, duration, true), nil
+	return m.stageVideoFrames(label, attachmentOriginPath(path, m.cwd), frames, duration, true)
 }
 
 // stageVideoFrames stages extracted frames as pending images with their
 // context line, refreshing the first-frame preview. animatedGIF marks frames
 // decoded from an animated GIF (a [GIF #N] chip) rather than a video
 // container (a [Vídeo #N] chip); the staged bytes are identical either way.
-func (m model) stageVideoFrames(label, source string, frames []media.Frame, duration float64, animatedGIF bool) model {
+func (m model) stageVideoFrames(label, source string, frames []media.Frame, duration float64, animatedGIF bool) (model, tea.Cmd) {
 	// Frames carry no origin of their own: a click on one opens the video's
 	// original through its chip (pendingVideoInfo.source), never the frame.
 	for _, frame := range frames {
@@ -518,8 +519,8 @@ func (m model) stageVideoFrames(label, source string, frames []media.Frame, dura
 		gif:    animatedGIF,
 		source: source,
 	})
-	m.refreshPendingImageThumbnail()
-	return m
+	cmd := m.refreshPendingImageThumbnail()
+	return m, cmd
 }
 
 // consumePendingVideoPreamble returns the staged video context lines for the
@@ -588,10 +589,10 @@ func (m model) appendImageNotice(text string) model {
 // whether anything was removed. Documents render after images, so a staged
 // document is removed before images; image pops keep pendingImages and
 // pendingImageLabels in lockstep.
-func (m model) removeLastAttachment() (model, bool) {
+func (m model) removeLastAttachment() (model, tea.Cmd, bool) {
 	if n := len(m.pendingDocuments); n > 0 {
 		m.pendingDocuments = m.pendingDocuments[:n-1]
-		return m, true
+		return m, nil, true
 	}
 	if n := len(m.pendingVideoInfos); n > 0 {
 		info := m.pendingVideoInfos[n-1]
@@ -611,8 +612,8 @@ func (m model) removeLastAttachment() (model, bool) {
 		}
 		if removed > 0 {
 			m.pendingVideoInfos = m.pendingVideoInfos[:n-1]
-			m.refreshPendingImageThumbnail()
-			return m, true
+			cmd := m.refreshPendingImageThumbnail()
+			return m, cmd, true
 		}
 		// A cauda não é deste vídeo (ex. imagem anexada depois): cai no
 		// caminho de imagem avulsa abaixo.
@@ -633,8 +634,8 @@ func (m model) removeLastAttachment() (model, bool) {
 		if len(m.pendingImageOrigins) > 0 {
 			m.pendingImageOrigins = m.pendingImageOrigins[:len(m.pendingImageOrigins)-1]
 		}
-		m.refreshPendingImageThumbnail()
-		return m, true
+		cmd := m.refreshPendingImageThumbnail()
+		return m, cmd, true
 	}
 	// Nada anexado, mas há em andamento: Backspace cancela a mais
 	// recente em vez de deixar os quadros caírem no próximo turno.
@@ -642,28 +643,135 @@ func (m model) removeLastAttachment() (model, bool) {
 		ext.cancel()
 		delete(m.pendingVideoExtractions, id)
 		m = m.showTransientNoticeInline("Extração de vídeo cancelada: "+ext.label, transientNoticeInfo)
-		return m, true
+		return m, nil, true
 	}
-	return m, false
+	return m, nil, false
 }
 
-// refreshPendingImageThumbnail prepares only the first pending image for the
-// optional inline terminal preview. Decode failures deliberately leave the
-// attachment intact: the text chip remains the portable fallback and the model
-// still receives the original bytes.
-func (m *model) refreshPendingImageThumbnail() {
-	m.pendingImageThumbnails = nil
-	if len(m.pendingImages) == 0 {
-		return
+// attachmentThumbKey names a staged image by its bytes rather than by its
+// position in pendingImages. Removing, restoring or replacing images shifts
+// positions, so a preview keyed by index could land on a different image; the
+// bytes of one staged image never move.
+type attachmentThumbKey struct {
+	data *byte
+	size int
+}
+
+// attachmentKeyOf returns the key of a staged image. An empty image has nothing
+// to preview and reports false.
+func attachmentKeyOf(block qgruntime.ImageBlock) (attachmentThumbKey, bool) {
+	if len(block.Data) == 0 {
+		return attachmentThumbKey{}, false
 	}
-	count := min(len(m.pendingImages), attachmentPreviewMaxImages)
-	m.pendingImageThumbnails = make([]*termimage.Animation, count)
-	for index := 0; index < count; index++ {
-		preview, err := attachmentThumbnail(m.pendingImages[index])
-		if err == nil {
-			m.pendingImageThumbnails[index] = preview
+	return attachmentThumbKey{data: &block.Data[0], size: len(block.Data)}, true
+}
+
+// attachmentThumb is the preview state of one staged image. ready false means
+// its decode is still in flight. ready with a nil animation means the image
+// cannot be previewed; the text chip stays the portable fallback then, and the
+// model still receives the original bytes.
+type attachmentThumb struct {
+	anim  *termimage.Animation
+	ready bool
+}
+
+// attachmentThumbnailMsg delivers a finished decode back to Update, tagged with
+// the image it was made from.
+type attachmentThumbnailMsg struct {
+	key  attachmentThumbKey
+	anim *termimage.Animation
+}
+
+// decodeAttachmentThumbnail is the decode a thumbnail command runs. Tests swap
+// it to count decodes.
+var decodeAttachmentThumbnail = attachmentThumbnail
+
+// thumbnailDecodeCmd decodes one staged image off the Update loop. It reads the
+// block's bytes and writes nothing, so running it concurrently is safe.
+func thumbnailDecodeCmd(key attachmentThumbKey, block qgruntime.ImageBlock) tea.Cmd {
+	return func() tea.Msg {
+		anim, _ := decodeAttachmentThumbnail(block)
+		return attachmentThumbnailMsg{key: key, anim: anim}
+	}
+}
+
+// pendingThumbnail returns the ready preview of pendingImages[index], or nil.
+// The lookup goes through the image's bytes, so it stays right after any change
+// to the pending list.
+func (m model) pendingThumbnail(index int) *termimage.Animation {
+	if index < 0 || index >= len(m.pendingImages) {
+		return nil
+	}
+	key, ok := attachmentKeyOf(m.pendingImages[index])
+	if !ok {
+		return nil
+	}
+	return m.attachmentThumbs[key].anim
+}
+
+// refreshPendingImageThumbnail reconciles the preview cache with pendingImages
+// and returns the decode commands it needs. An image that already has an entry
+// (ready or still decoding) keeps it, so appending, removing or restoring images
+// never decodes or resends a preview that exists. Only a new image among the
+// first attachmentPreviewMaxImages is decoded, and the decode runs as a command
+// so Update never waits for it. The ready previews of the last submitted images
+// are kept too, so /retry and /edit reuse them.
+func (m *model) refreshPendingImageThumbnail() tea.Cmd {
+	previous := m.attachmentThumbs
+	next := make(map[attachmentThumbKey]attachmentThumb, len(previous))
+	for _, block := range m.lastImages {
+		if key, ok := attachmentKeyOf(block); ok && previous[key].ready {
+			next[key] = previous[key]
 		}
 	}
+	var cmds []tea.Cmd
+	for index, block := range m.pendingImages {
+		key, ok := attachmentKeyOf(block)
+		if !ok {
+			continue
+		}
+		if thumb, seen := previous[key]; seen {
+			next[key] = thumb
+			continue
+		}
+		if index < attachmentPreviewMaxImages {
+			next[key] = attachmentThumb{}
+			cmds = append(cmds, thumbnailDecodeCmd(key, block))
+		}
+	}
+	m.attachmentThumbs = next
+	return tea.Batch(cmds...)
+}
+
+// storeAttachmentThumbnail records a finished decode. It is kept only while the
+// image is still pending and was requested. A result for an image that was
+// removed, sent or replaced is dropped, and its marker goes with it, so a later
+// restore decodes that image again instead of waiting forever.
+func (m model) storeAttachmentThumbnail(msg attachmentThumbnailMsg) model {
+	thumb, requested := m.attachmentThumbs[msg.key]
+	if !requested || thumb.ready {
+		return m
+	}
+	// Copy before writing: a /btw side conversation starts with the parent's
+	// map, and a store made in the side must not reach the parent.
+	next := maps.Clone(m.attachmentThumbs)
+	if m.hasPendingImage(msg.key) {
+		next[msg.key] = attachmentThumb{anim: msg.anim, ready: true}
+	} else {
+		delete(next, msg.key)
+	}
+	m.attachmentThumbs = next
+	return m
+}
+
+// hasPendingImage reports whether an image with this key is still staged.
+func (m model) hasPendingImage(key attachmentThumbKey) bool {
+	for _, block := range m.pendingImages {
+		if k, ok := attachmentKeyOf(block); ok && k == key {
+			return true
+		}
+	}
+	return false
 }
 
 func attachmentThumbnail(block qgruntime.ImageBlock) (*termimage.Animation, error) {
@@ -678,7 +786,7 @@ func attachmentThumbnail(block qgruntime.ImageBlock) (*termimage.Animation, erro
 	if err != nil {
 		return nil, err
 	}
-	return termimage.ThumbnailAnimation(decoded)
+	return termimage.ThumbnailAnimation(termimage.ShrinkToFit(decoded, attachmentThumbnailMaxWidth, attachmentThumbnailMaxHeight))
 }
 
 // renderAttachmentChips builds the pending-attachment row from both staged images

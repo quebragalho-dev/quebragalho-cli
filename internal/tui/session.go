@@ -143,7 +143,7 @@ func (m model) startNewSession() model {
 	m.pendingImages = nil
 	m.pendingImageLabels = nil
 	m.pendingImageOrigins = nil
-	m.pendingImageThumbnails = nil
+	m.attachmentThumbs = nil
 	m.discardPendingImageTemps()
 	m.pendingDocuments = nil
 	m.cancelPendingVideoExtractions()
